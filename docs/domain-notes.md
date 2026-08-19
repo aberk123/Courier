@@ -85,9 +85,12 @@ Each zone file (`BP ZONE {n}.xlsm`) has two sheets:
 - **Always as separate PDFs per route** (Amrom was explicit: their
   printer auto-staples each print job, so one continuous PDF that has to
   be manually re-sorted and stapled is worse, not more efficient).
-- Cover page per route per week: additions, deletions, and complaints —
-  Amrom asked for complaints as their own labeled section, separate from
-  additions/deletions (mentioned late in the call, 30:19).
+- Cover page per route per week: additions, deletions, and complaints.
+  Amrom asked on the call (30:19) for complaints to read as clearly
+  distinct from additions/deletions — the actual sample cover sheet
+  achieves this with an inline tag per row (e.g. trailing `COMPLAINT`)
+  rather than separate headed sections; see "Cover sheet structure"
+  below for the confirmed row formats.
 - Export must preserve the driving-direction text and its position in
   the sequence, and the special-instructions column.
 
@@ -97,10 +100,11 @@ Each zone file (`BP ZONE {n}.xlsm`) has two sheets:
   is the subscription department's intake, same as an address
   add/remove call.
 - A complaint is tied to a specific stop/address and gets relayed to
-  the courier via the cover sheet of the *next* week's booklet, in its
-  own section alongside that week's additions and deletions — same
-  weekly cadence as the rest of the cover page, not a separate channel
-  or real-time alert.
+  the courier via the cover sheet of the *next* week's booklet,
+  interleaved with that week's additions/deletions as a tagged row
+  (confirmed format: address + free-text description + trailing
+  `COMPLAINT` tag) — same weekly cadence as the rest of the cover page,
+  not a separate channel or real-time alert.
 - Still unconfirmed: whether a complaint has any state after being
   printed once (acknowledged/resolved), or whether "appears on next
   week's cover sheet" is its entire lifecycle. The forthcoming cover
@@ -161,16 +165,50 @@ integration — not MVP-blocking)**
 
 A booklet = the route itself (addresses + driving directions, in the
 exact structure shown in the zone samples) **plus** a cover sheet.
-Cover sheet sample not yet received — Ari said it's coming shortly.
-When it arrives, use it to confirm/refine the complaints and
-additions/deletions layout described above, since Amrom separately said
-on the call he wants a new cover-page look, not a copy of the old one.
+
+## Cover sheet structure (from sample received 2026-08-19: "VOICE ZONE 48")
+
+- **Title is `{PUBLICATION} ZONE {n}`** — the cover sheet is scoped to
+  one publication *and* one zone, not the whole bundle. This is
+  independent confirmation of the per-publication access/export
+  decision above, and it means the current sample zone numbering
+  already reaches at least 48 — "expand to the rest of Lakewood, NJ and
+  surrounding areas" is realistically dozens of zones, not a handful.
+- **Body is a flat list of change rows**, not headed
+  additions/deletions/complaints sections. Each row states its own
+  action inline. Confirmed row shapes from the sample:
+  - **Deletion**: name, address, `Delete {Publication}` (e.g.
+    `Weinstock · 6 Goldcrest Dr · Delete Voice`).
+  - **Complaint**: address (name not required), free-text description,
+    trailing `COMPLAINT` tag (e.g. `27 Hawk Way · not getting voice ·
+    COMPLAINT`).
+  - **Addition**: not present in this sample; presumably parallel to
+    deletion (`Add {Publication}`) — confirm when a real addition
+    appears on a future sample.
+  - **Change** (new category, not previously captured): per the
+    footnote, "Change means Upstairs, Basement, or Apt # was added" —
+    i.e. a special-instructions update to an existing stop, distinct
+    from add/delete/complaint. Needs its own row/tag on export too.
+- **Standing footer**, same every week regardless of that week's
+  changes: reminders to review routes weekly, a directive not to slam
+  magazines into doors, a request to report missed/hard-to-find
+  addresses immediately, "if unsure, ask, don't guess," and a direct
+  contact number for Amrom (this sample: 732-666-1311, "24 hours a
+  day" — distinct from the 732-546-9333 office line in his email
+  signature; record both, no need to reconcile). This footer is static
+  copy, not per-week data — model it as a template, not a database
+  field.
 
 ## Open items to confirm with Amrom before/while building
 
-- The cover sheet itself — layout and exact fields, once Ari sends the
-  sample. Everything in "Complaints" above is Ari's account of the
-  workflow, not yet cross-checked against Amrom's actual cover sheet.
 - Whether a complaint carries any state after it's printed once
   (acknowledged/resolved), or whether appearing on the next cover sheet
-  is its entire lifecycle (see "Complaints" above).
+  is its entire lifecycle — this sample doesn't show any resolved/open
+  indicator.
+- What an **addition** row and a **change** row actually look like
+  (only a deletion and a complaint appear in this one sample).
+- Whether single-publication delivery passes (like "Voice Zone 48")
+  are how Voice *always* runs for this zone, or whether the same zone
+  is sometimes also run as one bundled multi-publication route — i.e.
+  is the publication-scoped pass the norm or the exception, and does
+  that vary by publication or by zone?
