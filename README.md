@@ -23,9 +23,23 @@ Cover the 5 zones in the "zones 1-5" sample (`BP ZONE 1.xlsm` –
 `BP ZONE 5.xlsm`), then expand to the rest of Lakewood, NJ and
 surrounding areas.
 
+## Agents (`.claude/agents/`)
+
+- **lakewood-courier-advisor** — architecture, data-model, and scope
+  guidance. Consult before making structural decisions.
+- **lakewood-courier-reviewer** — independent check of a design or
+  implementation against `docs/domain-notes.md`, catching gaps,
+  silently-resolved open items, and scope creep, and considering
+  simpler alternatives. Use after something is proposed or built, not
+  as a planning tool.
+- **lakewood-courier-ux** — usability and visual design for the actual
+  users (subscription staff, Lakewood Courier's office, later
+  couriers), per `docs/ux-notes.md`. Owns the cover sheet redesign and
+  any screen/form/workflow design or review.
+
 ## Status
 
 Pre-build. No application code yet — this repo currently holds the
-domain research and the advisor subagent (`.claude/agents/`) used to
-keep future build sessions consistent with what was actually discussed
-and with the real data format.
+domain and UX research (`docs/`) and the three agents above, used to
+keep future build sessions consistent with what was actually discussed,
+the real data format, and the actual users.
