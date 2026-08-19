@@ -56,9 +56,15 @@ Each zone file (`BP ZONE {n}.xlsm`) has two sheets:
 
 ### `ControlSheet`
 - A fixed list of the 14 publication names, each flagged `TRUE`,
-  annotated "DON'T CHANGE MANUALLY." Looks like config for
-  spreadsheet-internal lookups/macros, not per-address data — needs
-  confirmation from Amrom before assuming it's anything more.
+  annotated "DON'T CHANGE MANUALLY." **Confirmed by Ari 2026-08-19: this
+  is pure UI plumbing** — it only feeds the spreadsheet's magazine-picker
+  dropdown/macro, it does not function as a per-publication on/off
+  switch in the current system. Not a precedent that already exists in
+  production, but Ari is open to us using the same *shape* (a fixed,
+  explicitly-flagged list of enabled publications) as a design pattern
+  for our own publication-config table, if useful — that would be a new
+  decision on our end, not something inherited from Lakewood Courier's
+  current tooling.
 
 ## Requirements from the call (by feature area)
 
@@ -84,6 +90,21 @@ Each zone file (`BP ZONE {n}.xlsm`) has two sheets:
   additions/deletions (mentioned late in the call, 30:19).
 - Export must preserve the driving-direction text and its position in
   the sequence, and the special-instructions column.
+
+**Complaints** (confirmed by Ari 2026-08-19)
+- Originated by a subscriber calling in about how their delivery was
+  handled (e.g. misplaced, missed, damaged) — not by the courier. This
+  is the subscription department's intake, same as an address
+  add/remove call.
+- A complaint is tied to a specific stop/address and gets relayed to
+  the courier via the cover sheet of the *next* week's booklet, in its
+  own section alongside that week's additions and deletions — same
+  weekly cadence as the rest of the cover page, not a separate channel
+  or real-time alert.
+- Still unconfirmed: whether a complaint has any state after being
+  printed once (acknowledged/resolved), or whether "appears on next
+  week's cover sheet" is its entire lifecycle. The forthcoming cover
+  sheet sample should clarify this.
 
 **Master list / route reconciliation**
 - One-time cleanup: take The Voice's master list, use AI matching to
@@ -136,33 +157,20 @@ integration — not MVP-blocking)**
   still open — but the schema needs a publication-scoped access layer
   either way, not a single flat permission model.
 
+## Booklet structure (confirmed by Ari 2026-08-19)
+
+A booklet = the route itself (addresses + driving directions, in the
+exact structure shown in the zone samples) **plus** a cover sheet.
+Cover sheet sample not yet received — Ari said it's coming shortly.
+When it arrives, use it to confirm/refine the complaints and
+additions/deletions layout described above, since Amrom separately said
+on the call he wants a new cover-page look, not a copy of the old one.
+
 ## Open items to confirm with Amrom before/while building
 
-- **`ControlSheet` meaning.** Each zone file's second sheet lists the 14
-  publication names, each flagged `TRUE`, "DON'T CHANGE MANUALLY." On
-  the call, Amrom described a dropdown/macro where the office picks
-  which magazine they're currently delivering, which then filters/
-  assembles the relevant stops — `ControlSheet` is likely that dropdown's
-  backing list. Unresolved: is it purely structural (just feeds the
-  picker), or does flipping a `TRUE` to `FALSE` already function as a
-  per-publication on/off switch in their current workflow? If the
-  latter, it's a real precedent for the per-publication access model
-  now in scope and should be reused, not reinvented — worth asking
-  Amrom directly rather than guessing either way.
-- **"Complaints" structure.** Mentioned once, briefly, near the end of
-  the call (30:19–31:01): Amrom wants the cover page split into
-  additions, deletions, and complaints ("I had an issue with
-  something"); Ari acknowledged but didn't follow up. Unresolved: is a
-  complaint its own record (who filed it, against which stop, resolved
-  or not), or just existing special-instructions/notes text surfaced
-  under a "complaints" heading on export? And who originates one —
-  subscription staff logging a resident's call-in complaint, or a
-  courier's delivery-problem note from the mobile app (a later,
-  separate phase)? Until answered, it's unclear whether "complaints"
-  belongs in the MVP cover page at all or got pulled forward from that
-  later feature in conversation.
-- Get one full sample **booklet PDF** (requested on the call, not yet
-  received as of 2026-08-19; Ari confirmed on 2026-08-19 it's coming
-  soon) to match the physical layout/typography, since Amrom also said
-  on the call they want a new cover-page look anyway, not a pixel copy
-  of the old one.
+- The cover sheet itself — layout and exact fields, once Ari sends the
+  sample. Everything in "Complaints" above is Ari's account of the
+  workflow, not yet cross-checked against Amrom's actual cover sheet.
+- Whether a complaint carries any state after it's printed once
+  (acknowledged/resolved), or whether appearing on the next cover sheet
+  is its entire lifecycle (see "Complaints" above).

@@ -55,6 +55,13 @@ or Ari, rather than guessing.
   cooperation.** Subscription staff get direct backend read/write;
   bulk-uploaded changes and backend edits both have to converge on the
   same export.
+- **Confirmed 2026-08-19: a complaint is subscriber-originated** (a
+  subscriber calls the subscription department about how a delivery
+  was handled), tied to a specific stop, and relayed to the courier via
+  the *next* week's cover sheet alongside that week's additions and
+  deletions — same weekly cadence, not a real-time channel. Don't model
+  it as courier-originated; that's the separate, later mobile-app note
+  feature.
 - The courier mobile app / SMS check-in is explicitly a later,
   separable integration — don't let it creep into MVP scope discussions
   unless asked.
@@ -77,8 +84,9 @@ or Ari, rather than guessing.
    don't guess a specific structural choice on top of it — name the
    assumption you'd otherwise be forced to make and recommend getting
    the real answer from Amrom before locking in a schema/format that's
-   expensive to change later (e.g. the `ControlSheet` meaning, complaint
-   structure).
+   expensive to change later (e.g. whether a complaint has any state
+   after it's printed once, or the exact cover sheet layout once Ari
+   sends the sample).
 5. Keep scope honest: if a request is really a "rest of Lakewood"
    expansion concern, say that explicitly rather than silently building
    it into the 5-zone MVP.
