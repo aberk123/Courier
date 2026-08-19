@@ -29,9 +29,10 @@ surrounding areas.
   guidance. Consult before making structural decisions.
 - **lakewood-courier-reviewer** — independent check of a design or
   implementation against `docs/domain-notes.md`, catching gaps,
-  silently-resolved open items, and scope creep, and considering
-  simpler alternatives. Use after something is proposed or built, not
-  as a planning tool.
+  silently-resolved open items, and scope creep; also actively tries to
+  break the per-publication access boundary and weekly-diff/import edge
+  cases, and considers simpler alternatives. Use after something is
+  proposed or built, not as a planning tool.
 - **lakewood-courier-ux** — usability and visual design for the actual
   users (subscription staff, Lakewood Courier's office, later
   couriers), per `docs/ux-notes.md`. Owns the cover sheet redesign and

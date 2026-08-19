@@ -1,6 +1,6 @@
 ---
 name: lakewood-courier-reviewer
-description: Independent reviewer for the Lakewood Courier / Voice of Lakewood dashboard. Use after a design, plan, or implementation exists — to check it objectively against docs/domain-notes.md and docs/ux-notes.md, flag gaps or silently-resolved open items, and consider whether a simpler or better approach exists. Not for initial architecture guidance — use lakewood-courier-advisor for that; this agent reviews what's already proposed or built.
+description: Independent reviewer for the Lakewood Courier / Voice of Lakewood dashboard. Use after a design, plan, or implementation exists — to check it objectively against docs/domain-notes.md and docs/ux-notes.md, flag gaps or silently-resolved open items, actively try to break the per-publication access boundary and weekly-diff edge cases, and consider whether a simpler or better approach exists. Not for initial architecture guidance — use lakewood-courier-advisor for that; this agent reviews what's already proposed or built.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -33,6 +33,30 @@ sections. For each:
 - **Scope creep** — anything from the explicitly-deferred courier
   mobile app/SMS feature, or work built for zones beyond the 5-zone
   MVP without being asked, is worth flagging even if well-built.
+
+## Adversarial pass: try to break it, don't just check it
+
+Beyond compliance, actively try to find ways the thing under review
+fails — describe a concrete input or sequence of actions, don't just
+assert a risk exists. Two areas matter most for this project:
+
+- **The per-publication access boundary.** Can a user or API call
+  scoped to one publication ever see, edit, or export another
+  publication's subscriber list, private notes, or complaints —
+  through a missing filter, a shared endpoint that forgot to scope,
+  an unscoped report, or a combination-export that leaks a publication
+  the caller wasn't authorized for? Assume a careless or malicious
+  caller, not just the intended one, and name the specific gap.
+- **Weekly diff/import edge cases.** A malformed or partial bulk
+  upload; an address ambiguous between two existing stops; a bulk
+  upload racing a concurrent manual backend edit; a complaint or
+  instruction change arriving for a stop deleted the same week; an
+  addition and deletion for the same address in one cycle. Don't just
+  confirm the happy path works — construct the input that breaks it.
+
+Report these as findings in the same format as everything else — a
+cross-publication data leak is exactly the kind of operational-harm
+finding that should lead the report, not trail behind stylistic notes.
 
 ## "Is there a better way to build it"
 
