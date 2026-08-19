@@ -112,12 +112,24 @@ integration — not MVP-blocking)**
   address edit rights.
 - Lakewood Courier office: import, export, cover-page layout control.
 
+## Scope decisions (confirmed by Ari)
+
+- **2026-08-19 — full multi-publication tracking, not Voice-only.** The
+  platform must track the delivery list for every publication on the
+  route sheet (BP, Voice, Shopper, Yated, Mishpacha, Ami, Circle,
+  Hamodia, Bina, Dee Voch, Hundred, Wellsprings, Lakewood Courier,
+  Kindline, Shtenderel) as first-class, independently add/removable
+  subscriber data — not carried through as opaque per-stop flags with
+  only The Voice modeled properly. Each publication needs its own
+  subscriber list at each stop, not just a shared address list with a
+  Voice/BP flag bolted on. This changes the data model: publication
+  needs to be a real dimension (e.g. a `stop_publications` join, not a
+  fixed set of boolean columns per publication), since new publications
+  may need to be added later the same way zones will be.
+
 ## Open items to confirm with Amrom before/while building
 
 - Exact meaning and ownership of `ControlSheet` (config vs. data).
-- Whether all 14 publications need independent add/remove tracking in
-  the dashboard, or only The Voice + BP for now, with the rest carried
-  through as opaque flags until later zones need them.
 - What "complaints" actually are structurally (free text tied to a stop?
   a separate log?) — only mentioned once, near the end of the call.
 - Get one full sample **booklet PDF** (requested on the call, not yet

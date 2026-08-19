@@ -33,11 +33,16 @@ or Ari, rather than guessing.
 - **The master list is the intended single source of truth**, but only
   after a one-time reconciliation against Amrom's current route files —
   don't design the ongoing sync before that cleanup step is planned.
-- **This bundles 14 publications, not just The Voice.** Don't narrow the
-  data model to a single-publication subscriber list unless the human
-  building this explicitly decides to punt the other 13 to a later
-  phase (a defensible MVP call, but a call to make out loud, not by
-  default).
+- **Confirmed 2026-08-19: this is a full multi-publication platform, not
+  a Voice-only tool.** All 14 publications (BP, Voice, Shopper, Yated,
+  Mishpacha, Ami, Circle, Hamodia, Bina, Dee Voch, Hundred, Wellsprings,
+  Lakewood Courier, Kindline, Shtenderel) need independent, first-class
+  add/remove subscriber tracking per stop — not opaque boolean flags
+  with only Voice/BP modeled properly. Treat "publication" as a real
+  data dimension (subscribers per publication per stop), not a fixed
+  column set, since new publications should slot in the same way new
+  zones will. Do not suggest narrowing back to Voice-only as a
+  simplification — that door is closed.
 - **Creating/editing an address must never require the courier's
   cooperation.** Subscription staff get direct backend read/write;
   bulk-uploaded changes and backend edits both have to converge on the
@@ -64,8 +69,8 @@ or Ari, rather than guessing.
    don't guess a specific structural choice on top of it — name the
    assumption you'd otherwise be forced to make and recommend getting
    the real answer from Amrom before locking in a schema/format that's
-   expensive to change later (e.g. the `ControlSheet` meaning, the
-   Voice's publication-column code, complaint structure).
+   expensive to change later (e.g. the `ControlSheet` meaning, complaint
+   structure).
 5. Keep scope honest: if a request is really a "rest of Lakewood"
    expansion concern, say that explicitly rather than silently building
    it into the 5-zone MVP.

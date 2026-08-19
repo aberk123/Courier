@@ -5,6 +5,11 @@ weekly delivery-address changes and export print-ready courier route
 booklets, replacing the current all-Excel workflow with Lakewood Courier
 (Amrom Jacobovics, 732-546-9333).
 
+Tracks delivery lists for **every publication on the route sheet**
+(BP, Voice, Shopper, Yated, Mishpacha, Ami, Circle, Hamodia, Bina,
+Dee Voch, Hundred, Wellsprings, Lakewood Courier, Kindline,
+Shtenderel), not only The Voice — confirmed scope as of 2026-08-19.
+
 ## Origin
 
 Scoped in a call with Amrom on 2026-08-13 ("Conversation with Amrom",
