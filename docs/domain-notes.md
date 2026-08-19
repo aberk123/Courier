@@ -205,12 +205,12 @@ exact structure shown in the zone samples) **plus** a cover sheet.
   discarded after being printed once.
 - Once a complaint has appeared on a cover sheet, **it must never
   appear again on a future cover sheet** — the weekly Complaints
-  section only shows complaints not yet surfaced to the courier. This
-  is a one-time "already shown to courier" state, tracked independently
-  of whatever reporting/history view exists — e.g. a
-  `shown_on_cover_sheet_at` timestamp separate from any resident-facing
-  resolution status (still unconfirmed whether a resolution concept
-  beyond "already shown once" exists at all).
+  section only shows complaints not yet surfaced to the courier.
+  **Confirmed by Ari 2026-08-19: this is the complaint's entire
+  lifecycle** — there is no separate resident-facing "resolved" status.
+  Model it as a single `shown_on_cover_sheet_at` timestamp (null =
+  still pending, set = excluded from all future cover sheets but
+  retained and queryable for reporting).
 
 ## Export publication scope (confirmed by Ari 2026-08-19)
 
@@ -224,10 +224,18 @@ exact structure shown in the zone samples) **plus** a cover sheet.
 
 ## Open items to confirm with Amrom before/while building
 
-- Whether a combination export filters addresses by requiring **all**
-  selected publications at a stop, or **any** of them — this changes
-  which addresses appear on a combined export.
-- What an **addition** row looks like (only a deletion and a complaint
-  appear in the one sample so far).
-- Whether there's any resident-facing "resolved" state for a complaint
-  beyond "already shown to the courier once."
+- **Combination export inclusion logic: ALL vs ANY.** "Any combination"
+  (confirmed 2026-08-19) means the export accepts an arbitrary subset
+  of publications, but doesn't say whether a stop needs to receive
+  *every* selected publication to appear, or just *any one* of them.
+  Working assumption, not yet confirmed: **ANY** — a stop should
+  appear if it receives at least one of the selected publications,
+  since the courier still has to physically visit it regardless of
+  which of the bundled publications it gets. Confirm before locking
+  in the query logic; getting this wrong means either missed
+  deliveries (if ALL is used) or bloated routes (if the true intent
+  was ALL and we default to ANY).
+- **Addition row format** — no real example yet (only a deletion and a
+  complaint appear in the one sample). By symmetry with the confirmed
+  deletion row, presumably `Name · Address · Add {Publication}`, but
+  this is inference, not a confirmed example — get one from Amrom.

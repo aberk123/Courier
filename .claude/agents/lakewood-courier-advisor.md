@@ -70,20 +70,24 @@ or Ari, rather than guessing.
   grouping is the structural requirement. The footer (courier-conduct
   reminders, contact number) is static template copy, not per-week
   data — don't model it as a database-backed field.
-- **Confirmed 2026-08-19: complaints are retained for reporting but
-  never re-shown.** A complaint must be persisted and queryable
-  historically, but once it has appeared on one cover sheet it must
-  never appear on a future one — model this as a one-time "already
-  shown to courier" flag, independent of whatever resolution/reporting
-  status exists (that status itself is still unconfirmed).
+- **Confirmed 2026-08-19: a complaint's entire lifecycle is "shown to
+  courier once, then retained for reporting."** No separate
+  resident-facing "resolved" status exists. Model as a single
+  `shown_on_cover_sheet_at`-style timestamp: null means still pending
+  for the next cover sheet, set means permanently excluded from future
+  cover sheets but still queryable in reports. Don't add a resolution
+  workflow beyond this — it was explicitly ruled out.
 - **Confirmed 2026-08-19: export must support arbitrary publication
   combinations**, not just single-publication or the full 14-bundle.
   Publications are sometimes delivered together in ad hoc subsets — the
   export UI/API needs to accept any selected combination for a
   zone/route, both for the filtered address list and the cover sheet
   it's paired with. Whether inclusion at a stop requires ALL selected
-  publications or ANY of them is still open — don't default to one
-  without flagging it.
+  publications or ANY of them is still open — the working assumption
+  (not yet confirmed) is ANY, since the courier still has to visit a
+  stop that gets even one of the bundled publications. Don't silently
+  build ALL-logic, and don't present ANY as confirmed either — flag it
+  as the assumption it is.
 - The courier mobile app / SMS check-in is explicitly a later,
   separable integration — don't let it creep into MVP scope discussions
   unless asked.
@@ -107,8 +111,10 @@ or Ari, rather than guessing.
    assumption you'd otherwise be forced to make and recommend getting
    the real answer from Amrom before locking in a schema/format that's
    expensive to change later (e.g. whether a combination export filters
-   by ALL or ANY of the selected publications, or whether a complaint
-   has any resolution state beyond "already shown to courier once").
+   by ALL or ANY of the selected publications, or the real content of
+   an addition row — don't ship the ANY assumption or the
+   by-symmetry-with-deletion addition format as if either were
+   confirmed).
 5. Keep scope honest: if a request is really a "rest of Lakewood"
    expansion concern, say that explicitly rather than silently building
    it into the 5-zone MVP.
