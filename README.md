@@ -1,0 +1,26 @@
+# Lakewood Courier Route & Address Dashboard
+
+Internal tool for The Voice of Lakewood's subscription department to manage
+weekly delivery-address changes and export print-ready courier route
+booklets, replacing the current all-Excel workflow with Lakewood Courier
+(Amrom Jacobovics, 732-546-9333).
+
+## Origin
+
+Scoped in a call with Amrom on 2026-08-13 ("Conversation with Amrom",
+Fireflies transcript `01KZY290FK5SMNX0AX9NVZZV12`). See
+`docs/domain-notes.md` for the full requirements captured from that call
+and from the sample route files Amrom sent 2026-08-19 ("zones 1-5").
+
+## MVP scope
+
+Cover the 5 zones in the "zones 1-5" sample (`BP ZONE 1.xlsm` –
+`BP ZONE 5.xlsm`), then expand to the rest of Lakewood, NJ and
+surrounding areas.
+
+## Status
+
+Pre-build. No application code yet — this repo currently holds the
+domain research and the advisor subagent (`.claude/agents/`) used to
+keep future build sessions consistent with what was actually discussed
+and with the real data format.
