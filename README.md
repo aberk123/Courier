@@ -38,9 +38,41 @@ surrounding areas.
   couriers), per `docs/ux-notes.md`. Owns the cover sheet redesign and
   any screen/form/workflow design or review.
 
+## Stack
+
+Next.js (App Router, TypeScript) + Tailwind CSS, responsive/mobile-optimized
+(no separate native app — the courier mobile app is an explicitly later,
+separate phase). Supabase (Postgres + Auth) for the backend, in the
+MyMatSH Supabase org, project `lakewood-courier`. Schema lives in
+`supabase/migrations/` and has been applied to that project.
+
+See `SETUP.md` for environment variables and bootstrapping the first
+admin account.
+
 ## Status
 
-Pre-build. No application code yet — this repo currently holds the
-domain and UX research (`docs/`) and the three agents above, used to
-keep future build sessions consistent with what was actually discussed,
-the real data format, and the actual users.
+First working slice built (2026-08-19):
+
+- Schema: publications, zones, stops, ordered route entries
+  (direction + stop rows interleaved), stop-publication current state +
+  event log, instruction-change log, complaints log, and role x
+  publication access control (RLS) — all per the confirmed requirements
+  in `docs/domain-notes.md`.
+- App: email/password sign-in, a zones list, and a per-zone workspace
+  (search, add an address, toggle which publications it receives,
+  edit special instructions, log a complaint, deactivate an address).
+- Verified: production build, TypeScript, and ESLint all pass; the
+  auth-redirect behavior was confirmed working (unauthenticated
+  requests redirect to `/login`). A full authenticated browser
+  walkthrough could not be completed from this particular sandboxed
+  dev environment — its network policy blocks direct outbound
+  connections to the Supabase project host from application code (only
+  the Supabase MCP tool path is allowed through). This is a sandbox
+  restriction, not expected to affect local development or a real
+  deployment (e.g. Vercel).
+
+Not yet built: exports (PDF routes + the four-section cover sheet),
+the weekly bulk-upload import, fuzzy duplicate matching, the
+combination-publication export picker, and an admin UI for granting
+`user_publication_access` (use the Supabase SQL editor for that until
+then — see `SETUP.md`).
