@@ -41,8 +41,9 @@ Each zone file (`BP ZONE {n}.xlsm`) has two sheets:
     separately.
   - **Address/stop rows**: recipient name (optional/blank for some
     business or unnamed stops), one column per publication marked with a
-    single-letter code when that stop receives it (`B`, `V`, `S`, `Y`,
-    `M`, `A`, `C`, `H`, `N`, `L`, ...), house number, a
+    single-letter code when that stop receives it (`B`, `V` = **The
+    Voice** — confirmed by Ari 2026-08-19, `S`, `Y`, `M`, `A`, `C`, `H`,
+    `N`, `L`, ...), house number, a
     floor/side indicator (`á` upstairs, `â` basement, or blank),
     street name, a special-instructions column (door/porch placement,
     "VIP!!!", "2 CIRCLES", etc.), an occasional second notes column, and
@@ -120,9 +121,7 @@ integration — not MVP-blocking)**
 - What "complaints" actually are structurally (free text tied to a stop?
   a separate log?) — only mentioned once, near the end of the call.
 - Get one full sample **booklet PDF** (requested on the call, not yet
-  received as of 2026-08-19) to match the physical layout/typography,
-  since Amrom also said on the call they want a new cover-page look
-  anyway, not a pixel copy of the old one.
-- Confirm which single publication code corresponds to "Voice" in the
-  per-stop columns (need a legend from Amrom — inferred as `V` from
-  context, not confirmed).
+  received as of 2026-08-19; Ari confirmed on 2026-08-19 it's coming
+  soon) to match the physical layout/typography, since Amrom also said
+  on the call they want a new cover-page look anyway, not a pixel copy
+  of the old one.
