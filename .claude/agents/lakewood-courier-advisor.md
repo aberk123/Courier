@@ -62,18 +62,28 @@ or Ari, rather than guessing.
   deletions — same weekly cadence, not a real-time channel. Don't model
   it as courier-originated; that's the separate, later mobile-app note
   feature.
-- **Confirmed 2026-08-19 (real cover sheet sample, "VOICE ZONE 48"):
-  cover sheets are scoped per publication AND per zone**, not one
-  combined document — reinforcing the per-publication access decision
-  at the export layer, not just permissions. Rows carry their action
-  inline (`Delete {Publication}`, or free text + trailing `COMPLAINT`
-  tag) rather than sitting under headed additions/deletions/complaints
-  sections — don't design headed sections when asked for this export.
-  There's also a third row category, "Change" (an Upstairs/Basement/
-  Apt # update to an existing stop), distinct from add/delete/
-  complaint. The footer (courier-conduct reminders, contact number) is
-  static template copy, not per-week data — don't model it as a
-  database-backed field.
+- **Confirmed 2026-08-19: cover sheet has four sections — Additions,
+  Deletions, Changes, Complaints.** The real sample ("VOICE ZONE 48")
+  is a content/concept reference ONLY, not a layout to copy — Ari was
+  explicit: design it better, the sample isn't the design. Don't treat
+  its plain flat-list appearance as the target layout; the four-section
+  grouping is the structural requirement. The footer (courier-conduct
+  reminders, contact number) is static template copy, not per-week
+  data — don't model it as a database-backed field.
+- **Confirmed 2026-08-19: complaints are retained for reporting but
+  never re-shown.** A complaint must be persisted and queryable
+  historically, but once it has appeared on one cover sheet it must
+  never appear on a future one — model this as a one-time "already
+  shown to courier" flag, independent of whatever resolution/reporting
+  status exists (that status itself is still unconfirmed).
+- **Confirmed 2026-08-19: export must support arbitrary publication
+  combinations**, not just single-publication or the full 14-bundle.
+  Publications are sometimes delivered together in ad hoc subsets — the
+  export UI/API needs to accept any selected combination for a
+  zone/route, both for the filtered address list and the cover sheet
+  it's paired with. Whether inclusion at a stop requires ALL selected
+  publications or ANY of them is still open — don't default to one
+  without flagging it.
 - The courier mobile app / SMS check-in is explicitly a later,
   separable integration — don't let it creep into MVP scope discussions
   unless asked.
@@ -96,9 +106,9 @@ or Ari, rather than guessing.
    don't guess a specific structural choice on top of it — name the
    assumption you'd otherwise be forced to make and recommend getting
    the real answer from Amrom before locking in a schema/format that's
-   expensive to change later (e.g. whether a complaint has any state
-   after it's printed once, or whether single-publication delivery
-   passes are the norm or the exception for a given zone).
+   expensive to change later (e.g. whether a combination export filters
+   by ALL or ANY of the selected publications, or whether a complaint
+   has any resolution state beyond "already shown to courier once").
 5. Keep scope honest: if a request is really a "rest of Lakewood"
    expansion concern, say that explicitly rather than silently building
    it into the 5-zone MVP.

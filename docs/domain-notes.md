@@ -85,12 +85,12 @@ Each zone file (`BP ZONE {n}.xlsm`) has two sheets:
 - **Always as separate PDFs per route** (Amrom was explicit: their
   printer auto-staples each print job, so one continuous PDF that has to
   be manually re-sorted and stapled is worse, not more efficient).
-- Cover page per route per week: additions, deletions, and complaints.
-  Amrom asked on the call (30:19) for complaints to read as clearly
-  distinct from additions/deletions — the actual sample cover sheet
-  achieves this with an inline tag per row (e.g. trailing `COMPLAINT`)
-  rather than separate headed sections; see "Cover sheet structure"
-  below for the confirmed row formats.
+- Cover page per route per week, with four distinct sections —
+  Additions, Deletions, Changes, Complaints — per Amrom's ask on the
+  call (30:19) that complaints read as clearly distinct from
+  additions/deletions. See "Cover sheet structure" below for confirmed
+  row content and the note that the sample is content-only, not a
+  layout to copy.
 - Export must preserve the driving-direction text and its position in
   the sequence, and the special-instructions column.
 
@@ -100,15 +100,10 @@ Each zone file (`BP ZONE {n}.xlsm`) has two sheets:
   is the subscription department's intake, same as an address
   add/remove call.
 - A complaint is tied to a specific stop/address and gets relayed to
-  the courier via the cover sheet of the *next* week's booklet,
-  interleaved with that week's additions/deletions as a tagged row
-  (confirmed format: address + free-text description + trailing
-  `COMPLAINT` tag) — same weekly cadence as the rest of the cover page,
-  not a separate channel or real-time alert.
-- Still unconfirmed: whether a complaint has any state after being
-  printed once (acknowledged/resolved), or whether "appears on next
-  week's cover sheet" is its entire lifecycle. The forthcoming cover
-  sheet sample should clarify this.
+  the courier via the cover sheet's Complaints section in the *next*
+  week's booklet — same weekly cadence as the rest of the cover page,
+  not a separate channel or real-time alert. See "Complaints —
+  historical retention" below for what happens to it after that.
 
 **Master list / route reconciliation**
 - One-time cleanup: take The Voice's master list, use AI matching to
@@ -160,55 +155,79 @@ integration — not MVP-blocking)**
   participants, or each publication is a fully independent tenant, is
   still open — but the schema needs a publication-scoped access layer
   either way, not a single flat permission model.
+- **2026-08-19 — export must support arbitrary publication combinations.**
+  Not just single-publication or full-14-bundle: publications are
+  sometimes delivered in combinations, so export needs to accept any
+  selected subset of publications for a zone/route, both for the
+  filtered address list and the cover sheet. See "Export publication
+  scope" below.
 
 ## Booklet structure (confirmed by Ari 2026-08-19)
 
 A booklet = the route itself (addresses + driving directions, in the
 exact structure shown in the zone samples) **plus** a cover sheet.
 
-## Cover sheet structure (from sample received 2026-08-19: "VOICE ZONE 48")
+## Cover sheet structure (confirmed by Ari 2026-08-19)
 
-- **Title is `{PUBLICATION} ZONE {n}`** — the cover sheet is scoped to
-  one publication *and* one zone, not the whole bundle. This is
-  independent confirmation of the per-publication access/export
-  decision above, and it means the current sample zone numbering
-  already reaches at least 48 — "expand to the rest of Lakewood, NJ and
-  surrounding areas" is realistically dozens of zones, not a handful.
-- **Body is a flat list of change rows**, not headed
-  additions/deletions/complaints sections. Each row states its own
-  action inline. Confirmed row shapes from the sample:
-  - **Deletion**: name, address, `Delete {Publication}` (e.g.
-    `Weinstock · 6 Goldcrest Dr · Delete Voice`).
-  - **Complaint**: address (name not required), free-text description,
-    trailing `COMPLAINT` tag (e.g. `27 Hawk Way · not getting voice ·
-    COMPLAINT`).
-  - **Addition**: not present in this sample; presumably parallel to
-    deletion (`Add {Publication}`) — confirm when a real addition
-    appears on a future sample.
-  - **Change** (new category, not previously captured): per the
-    footnote, "Change means Upstairs, Basement, or Apt # was added" —
-    i.e. a special-instructions update to an existing stop, distinct
-    from add/delete/complaint. Needs its own row/tag on export too.
+- **Four distinct sections: Additions, Deletions, Changes, Complaints.**
+  Correction to an earlier misreading of the sample: the "VOICE ZONE
+  48" PDF is a **content/concept reference only**, not a layout to
+  copy — Ari was explicit: "use this page as a concept, not design."
+  We own the actual visual design and should do it better than the
+  sample's plain flat list; the four-section grouping is the
+  structural requirement, not the sample's specific rendering of it.
+- Title is scoped to whichever publication(s)/zone the export was run
+  for — see "Export publication scope" below; the sample's zone
+  numbering (48) means the eventual full rollout is dozens of zones,
+  not a handful.
+- Row-level content confirmed by the sample (still our best source for
+  what data each row needs, independent of layout):
+  - **Deletion**: name, address, publication removed (e.g. `Weinstock ·
+    6 Goldcrest Dr · Delete Voice`).
+  - **Complaint**: address (name optional), free-text description of
+    the issue (e.g. `27 Hawk Way · not getting voice`).
+  - **Addition**: not present in this sample — presumably parallel to
+    deletion; still needs confirming.
+  - **Change**: an Upstairs/Basement/Apt # update to an existing stop's
+    special instructions.
 - **Standing footer**, same every week regardless of that week's
   changes: reminders to review routes weekly, a directive not to slam
   magazines into doors, a request to report missed/hard-to-find
   addresses immediately, "if unsure, ask, don't guess," and a direct
   contact number for Amrom (this sample: 732-666-1311, "24 hours a
   day" — distinct from the 732-546-9333 office line in his email
-  signature; record both, no need to reconcile). This footer is static
-  copy, not per-week data — model it as a template, not a database
-  field.
+  signature; record both, no need to reconcile). Static template copy,
+  not per-week data — model as a template, not a database field.
+
+## Complaints — historical retention (confirmed by Ari 2026-08-19)
+
+- Complaints must be **persisted and queryable for reporting**, not
+  discarded after being printed once.
+- Once a complaint has appeared on a cover sheet, **it must never
+  appear again on a future cover sheet** — the weekly Complaints
+  section only shows complaints not yet surfaced to the courier. This
+  is a one-time "already shown to courier" state, tracked independently
+  of whatever reporting/history view exists — e.g. a
+  `shown_on_cover_sheet_at` timestamp separate from any resident-facing
+  resolution status (still unconfirmed whether a resolution concept
+  beyond "already shown once" exists at all).
+
+## Export publication scope (confirmed by Ari 2026-08-19)
+
+- Publications are **sometimes delivered as combinations**, not just a
+  single publication or the full 14-publication bundle. Export must
+  support selecting **any combination of publications** for a given
+  zone/route — not a fixed single/all toggle.
+- This applies to both halves of an export: the filtered address/route
+  list (which stops appear) and the cover sheet (title, and which
+  publications' additions/deletions/changes/complaints appear).
 
 ## Open items to confirm with Amrom before/while building
 
-- Whether a complaint carries any state after it's printed once
-  (acknowledged/resolved), or whether appearing on the next cover sheet
-  is its entire lifecycle — this sample doesn't show any resolved/open
-  indicator.
-- What an **addition** row and a **change** row actually look like
-  (only a deletion and a complaint appear in this one sample).
-- Whether single-publication delivery passes (like "Voice Zone 48")
-  are how Voice *always* runs for this zone, or whether the same zone
-  is sometimes also run as one bundled multi-publication route — i.e.
-  is the publication-scoped pass the norm or the exception, and does
-  that vary by publication or by zone?
+- Whether a combination export filters addresses by requiring **all**
+  selected publications at a stop, or **any** of them — this changes
+  which addresses appear on a combined export.
+- What an **addition** row looks like (only a deletion and a complaint
+  appear in the one sample so far).
+- Whether there's any resident-facing "resolved" state for a complaint
+  beyond "already shown to the courier once."
