@@ -43,6 +43,14 @@ or Ari, rather than guessing.
   column set, since new publications should slot in the same way new
   zones will. Do not suggest narrowing back to Voice-only as a
   simplification — that door is closed.
+- **Confirmed 2026-08-19: access control needs a publication dimension,
+  not just a role dimension.** Subscription-staff-vs-courier is not
+  enough — a user or org tied to one publication should not see or
+  edit another publication's subscriber list, exports, or notes by
+  default. Design permissions as (role × publication), not a flat role
+  model, even before it's decided whether The Voice is sole operator
+  with others as scoped participants, or each publication is a fully
+  independent tenant.
 - **Creating/editing an address must never require the courier's
   cooperation.** Subscription staff get direct backend read/write;
   bulk-uploaded changes and backend edits both have to converge on the

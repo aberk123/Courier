@@ -126,12 +126,41 @@ integration — not MVP-blocking)**
   needs to be a real dimension (e.g. a `stop_publications` join, not a
   fixed set of boolean columns per publication), since new publications
   may need to be added later the same way zones will be.
+- **2026-08-19 — per-publication ownership/access is required.** Access
+  control is not just role-based (subscription staff vs. courier); it
+  also needs a publication dimension. A user (or org) tied to one
+  publication should not automatically see or edit another publication's
+  subscriber list, exports, or publication-specific notes/complaints.
+  Whether The Voice is the sole operator with the others as read/scoped
+  participants, or each publication is a fully independent tenant, is
+  still open — but the schema needs a publication-scoped access layer
+  either way, not a single flat permission model.
 
 ## Open items to confirm with Amrom before/while building
 
-- Exact meaning and ownership of `ControlSheet` (config vs. data).
-- What "complaints" actually are structurally (free text tied to a stop?
-  a separate log?) — only mentioned once, near the end of the call.
+- **`ControlSheet` meaning.** Each zone file's second sheet lists the 14
+  publication names, each flagged `TRUE`, "DON'T CHANGE MANUALLY." On
+  the call, Amrom described a dropdown/macro where the office picks
+  which magazine they're currently delivering, which then filters/
+  assembles the relevant stops — `ControlSheet` is likely that dropdown's
+  backing list. Unresolved: is it purely structural (just feeds the
+  picker), or does flipping a `TRUE` to `FALSE` already function as a
+  per-publication on/off switch in their current workflow? If the
+  latter, it's a real precedent for the per-publication access model
+  now in scope and should be reused, not reinvented — worth asking
+  Amrom directly rather than guessing either way.
+- **"Complaints" structure.** Mentioned once, briefly, near the end of
+  the call (30:19–31:01): Amrom wants the cover page split into
+  additions, deletions, and complaints ("I had an issue with
+  something"); Ari acknowledged but didn't follow up. Unresolved: is a
+  complaint its own record (who filed it, against which stop, resolved
+  or not), or just existing special-instructions/notes text surfaced
+  under a "complaints" heading on export? And who originates one —
+  subscription staff logging a resident's call-in complaint, or a
+  courier's delivery-problem note from the mobile app (a later,
+  separate phase)? Until answered, it's unclear whether "complaints"
+  belongs in the MVP cover page at all or got pulled forward from that
+  later feature in conversation.
 - Get one full sample **booklet PDF** (requested on the call, not yet
   received as of 2026-08-19; Ari confirmed on 2026-08-19 it's coming
   soon) to match the physical layout/typography, since Amrom also said
