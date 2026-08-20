@@ -116,7 +116,18 @@ Two things worth knowing:
 
 ## The immediate next task
 
-**Run the four post-deploy checks** (see `SETUP.md`), signed in as
+Two things, in this order.
+
+**1. Merge PR #2** (`claude/deploy-lakewooddeliveries-lovr9i`) — its migration is
+already applied to production, so the merge is the remaining half and it clears
+the live Remove-button breakage described below. The repo has no CI workflows, so
+only Vercel's own build gates it; that build is green. The PR's preview
+deployment points at the `browser-testing` project (verified: the Preview env
+vars were re-scoped at 17:00 UTC, the preview built at 18:24), so it is safe to
+click and exercise — though `/users` will not render there, since Preview
+deliberately has no service-role key.
+
+**2. Run the four post-deploy checks** (see `SETUP.md`), signed in as
 `ari@thevoiceoflakewood.com`. Ranked by how likely they are to find something:
 
 1. **Booklet PDF for the largest real route.** The most likely to fail. The
@@ -136,13 +147,21 @@ per-publication: a scoped staffer takes off only their own publications, the
 courier office takes off all of them and each gets its own Deletion row, and
 churn that cancels inside one cover-sheet cycle prints nothing.
 
-**This adds a migration, and it must reach the database before the code that
-calls it.** `supabase/migrations/20260820160000_whole_address_removal.sql`
-creates the `remove_stop_publications` RPC the Remove button now calls — deploy
-the code first and every removal fails with "function does not exist". Apply the
-migration to production, then merge. It has been replayed into a throwaway
-Postgres by `supabase/tests/rls.sh` (28 passing, 8 of them new) but has **not**
-been applied to the production or branch database yet.
+**The migration is applied; the code is not merged yet.**
+`supabase/migrations/20260820160000_whole_address_removal.sql` was applied to
+**both** the production project and the `browser-testing` branch on 2026-08-20,
+deliberately ahead of the code, because it is additive — deploying the code
+first would make every removal fail with "function does not exist". It is also
+replayed into a throwaway Postgres by `supabase/tests/rls.sh` (28 passing, 8 of
+them new).
+
+**Consequence while PR #2 is open:** production still runs `main` @ `7622734`,
+whose Remove button does the bare `update stops set active = false` that the new
+trigger now refuses. So removing an address in production currently fails with a
+visible error instead of silently ending another publication's delivery. That is
+fail-closed and better than the bug it replaces, but it is live breakage —
+merging PR #2 is what fixes it. Nothing else on `main` writes `stops.active`,
+so nothing else is affected.
 
 The migration also backfills addresses left in the split-brain state by the old
 code path — inactive, but still carrying `stop_publications` rows and no
