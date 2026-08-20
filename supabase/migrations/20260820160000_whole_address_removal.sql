@@ -109,6 +109,7 @@ begin
 end;
 $$;
 
+drop trigger if exists trg_enforce_stop_active_invariant on public.stops;
 create trigger trg_enforce_stop_active_invariant
 before update on public.stops
 for each row execute function public.enforce_stop_active_invariant();
