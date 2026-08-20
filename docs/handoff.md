@@ -54,7 +54,16 @@ scratchpad), but what they covered:
   footer, page numbers. Text extracted and asserted, not just byte-counted.
 - Weekly import: loose header aliases, fuzzy matching, auto zone inference,
   needs-a-choice and blocked rows, row exclusion, apply, and re-upload
-  correctly reporting already-applied rows. CSV and xlsx both.
+  correctly reporting already-applied rows. CSV and xlsx both. Also found and
+  fixed the 1 MB Server Action body cap (see below) — a 2 MB spreadsheet used
+  to fail with a 500 and *nothing shown on screen*.
+
+One thing worth knowing before the first real import: the review table renders
+every row of the file. A 2 MB / ~20,000-row spreadsheet plans correctly but the
+page becomes very heavy (a full-page screenshot of it times out). The real
+weekly file is expected to be a few hundred rows of changes, not the whole
+list, so this is not urgent — but if the office ever uploads a full master list,
+the table needs virtualising or paging.
 - Access boundary: the Voice-only user sees only Voice everywhere, cannot reach
   `/users`, and is refused by RLS on every forged write attempted with their own
   access token — except the two cases now recorded in `docs/domain-notes.md`.
@@ -81,6 +90,11 @@ against a live database; they typecheck, lint and build, and nothing more.
 After that, the two questions now at the bottom of `docs/domain-notes.md`
 (whole-address removal) need Ari's answer before the cover sheet can be trusted
 for a real week.
+
+Deployment to `lakewooddeliveries.com` (Ari's domain, on Cloudflare) is decided
+and documented in `SETUP.md` — the app goes there, the database stays on its
+Supabase hostname. The steps need a Cloudflare and a hosting account, so they
+cannot be done from a sandboxed session.
 
 ## Supabase projects
 
@@ -162,6 +176,14 @@ these if you can; rebuilding them is tedious.
   goes through the `create_stop_in_route` RPC rather than three client writes.
 - **Use `exceljs`, not `xlsx`** — the latter has two high-severity advisories
   with no fix available.
+- **Server Actions cap the request body at 1 MB by default**, and the rejection
+  happens in the framework *before* the action runs — so it cannot be caught and
+  turned into a message. The import page advertises 5 MB, so a 2 MB spreadsheet
+  produced a 500 and a button that appeared to do nothing.
+  `next.config.ts` now sets `experimental.serverActions.bodySizeLimit` to `6mb`,
+  above the app's own 5 MB check, and the import form also checks the size in
+  the browser so oversized files get a real message. Keep the config value above
+  the app's limit if either is ever changed.
 - Next.js treats underscore-prefixed app directories as private; a route in one
   will 404 with no error.
 - On Node >= 22.21 behind a proxy, set `NODE_USE_ENV_PROXY=1` or the Supabase
