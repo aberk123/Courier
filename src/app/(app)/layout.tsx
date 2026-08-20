@@ -19,6 +19,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           Lakewood Courier
         </Link>
         <div className="flex items-center gap-4 text-sm text-black/60 dark:text-white/60">
+          <Link href="/import" className="underline underline-offset-2">
+            Import
+          </Link>
           {profile?.is_courier_office ? (
             <Link href="/users" className="underline underline-offset-2">
               Manage users

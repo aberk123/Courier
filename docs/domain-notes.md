@@ -237,6 +237,28 @@ exact structure shown in the zone samples) **plus** a cover sheet.
   falling back to the end of the route when that street is not yet in
   the sequence.
 
+## Weekly import file format (assumption, built 2026-08-20)
+
+We have never seen The Voice's actual weekly spreadsheet, so the importer does
+not hard-code a layout. It reads CSV and .xlsx, treats row 1 as a header, and
+matches column names loosely (`FIELD_ALIASES` / `ACTION_ALIASES` in
+`src/lib/import/parse.ts`) against: action, name, house number, street,
+publication, floor/side, instructions. `/import/template` serves a known-good
+example.
+
+When a real file arrives, the likely change is adding aliases -- not rewriting
+the parser. If the office's file splits the address into one cell
+("123 Forest Ave") rather than separate house-number and street columns, that
+does need a small parser change.
+
+Matching behaviour, per the call: merge automatically only when the address is
+unambiguous (street suffixes are canonicalised and a two-character spelling
+slip is tolerated, then narrowed by floor/side and name), and otherwise ask.
+A brand-new address takes its route from other stops on the same street when
+that is unambiguous; otherwise the reviewer picks the route. Nothing is written
+until the reviewer confirms, and the plan is re-validated server-side because
+it round-trips through the browser.
+
 ## Items to confirm with Amrom (neither is blocking)
 
 Both only matter once export / the cover sheet exist, and both have a
