@@ -91,7 +91,25 @@ Do not browser-test against production; the branch exists for this.
 
 ## The immediate next task
 
-The two questions now at the bottom of `docs/domain-notes.md`
+**Deploy to `lakewooddeliveries.com`.** Ari's decision, taken 2026-08-20 ahead of
+fixing the removal issue below. The full runbook — current state, exact env var
+values, the Cloudflare gotcha, and the four post-deploy checks — is the
+deployment section of `SETUP.md`. Read that before touching anything; a Vercel
+project called `courier` already exists and already holds the service-role key,
+so this is link-and-configure, not create-from-scratch.
+
+Two things that will waste your time if you miss them:
+
+- **Vercel deploys `main`.** Confirm what `main` contains. As of this writing the
+  browser-testing work is in PR #1 and not yet merged, so deploying would ship
+  the old code — including the 1 MB import bug.
+- **`vercel.com`, `api.cloudflare.com` and `lakewooddeliveries.com` are blocked**
+  by the default cloud network policy (403 on CONNECT); only `api.vercel.com`
+  gets through. `vercel login` therefore cannot work. See the runbook for which
+  hosts to allow and which env vars to set, and note both only apply to a
+  container started after the change.
+
+After that, the two questions at the bottom of `docs/domain-notes.md`
 (whole-address removal) need Ari's answer before the cover sheet can be trusted
 for a real week. Nothing else is known-broken.
 
