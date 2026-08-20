@@ -111,9 +111,11 @@ Two things worth knowing:
   so `/users` will not render on a preview deployment.
 - **The post-deploy checks in `SETUP.md` were not run by the deploying session.**
   Every one of them needs a signed-in session and that session had no production
-  password. Since then, real use has settled the reset-link one (see the incident
-  below); the booklet-PDF and large-import checks are still outstanding. What *was* verified from outside: valid TLS, `/login` renders, and
-  the unauthenticated redirect boundary holds on the real domain.
+  password. Since then: the reset-link one was settled by real use (see the
+  incident below), the booklet PDF by measurement, and signing in by three real
+  accounts — leaving only the >1 MB import. What *was* verified from outside:
+  valid TLS, `/login` renders, and the unauthenticated redirect boundary holds
+  on the real domain.
 
 ## PR #2 merged and deployed — 2026-08-20
 
@@ -135,6 +137,39 @@ Also done in that pass:
   synthetic 735-entry route renders in 3.6–3.9s / 14 pages on a production
   build, so the feared timeout is not close. `maxDuration = 60` is set on the
   route regardless, for cold-start headroom.
+
+## PR #3 merged and deployed — 2026-08-20
+
+Merged as `2402f27`, production deployed from it.
+
+- **A top navigation trail**, requested by Ari: `Home / Zone 2 / Cover sheet &
+  print` under the header, every ancestor a link, the current page plain text.
+  Rationale and the two details worth keeping are in `docs/ux-notes.md`. Zone
+  labels come from the database, so naming a route changes the trail.
+- **`maxDuration = 60` on the booklet route**, as cold-start headroom. Not a fix
+  for an observed timeout — the measurement is 3.6–3.9s for a route larger than
+  any real one.
+
+Verified in Chromium against the test branch (14 checks) before merging; the
+trail itself is behind auth, so it was not re-checked on the production domain.
+What was confirmed on the real domain after deploy: `/login` renders and the
+unauthenticated redirect boundary still holds on every screen.
+
+## Auth state as of 2026-08-20 evening
+
+The reset-link fix works, and the auth tables prove it rather than anyone's
+recollection:
+
+- **Amrom is in.** He signed in at `20:31:34` and his `updated_at` is `20:33:50`
+  — later than the sign-in, which is what proves a password change actually
+  saved. Compare the failed attempt earlier that day, where `updated_at` never
+  moved. His current session is legitimately his; do not revoke it.
+- **Donath is still locked out.** Her `updated_at` is 2ms after her
+  `last_sign_in_at`, i.e. the same transaction — so she has never chosen a
+  password, only the one her account was created with. She has no pending link
+  and no session. She needs a fresh reset link, which will now survive being
+  previewed. That is the one outstanding action and it needs the office's hands,
+  since generating a link requires `/users`.
 
 ## The immediate next task
 
@@ -158,7 +193,7 @@ per-publication: a scoped staffer takes off only their own publications, the
 courier office takes off all of them and each gets its own Deletion row, and
 churn that cancels inside one cover-sheet cycle prints nothing.
 
-**The migration is applied; the code is not merged yet.**
+**Both the migration and the code are live** (the code as of PR #2).
 `supabase/migrations/20260820160000_whole_address_removal.sql` was applied to
 **both** the production project and the `browser-testing` branch on 2026-08-20,
 deliberately ahead of the code, because it is additive — deploying the code
