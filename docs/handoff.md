@@ -20,6 +20,7 @@ he decides something new.
 
 Built and pushed:
 
+- Home-screen address search across every route, with add-from-home
 - Zone/route workspace, in route order by default, with publication scoping
 - Five real routes imported from Amrom's spreadsheets (~8,000 publication links)
 - Cover sheet (Additions / Deletions / Changes / Complaints) per route
@@ -157,6 +158,33 @@ code path — inactive, but still carrying `stop_publications` rows and no
 - **Test branch: writes 2 events for 1 address**, the one retired through the
   old Remove button during browser testing. That is the case this backfill
   exists for, and a good place to see it work.
+
+## Home-screen address search — built 2026-08-20
+
+Ari: CSRs often don't know which route a customer is on until they search the
+address, so the home screen now leads with a search across all five routes
+instead of a list of routes to guess between. Requirement and behaviour are
+recorded in `docs/domain-notes.md`; results badge their route and deep-link
+into it via `/zones/N?stop=<id>`, and an address can be added from home with the
+route pre-selected from the street.
+
+Driven in real Chromium against the test branch as both fixture users — 25
+checks over two scripts, all passing, with the writes verified in the database
+and the two test addresses deleted afterwards (fixture back to 236 stops, zone 1
+back to 11). Worth knowing:
+
+- The zone suggestion is computed from a **street-only** query, deliberately not
+  from the search results. Deriving it from the results was the first attempt and
+  was wrong in the one case that matters: a new house number on a known street
+  matches nothing, so there were no results to derive it from and the route
+  select came up blank. Browser testing is what caught it.
+- `/zones/N?stop=<id>` only opens the address if it is among the first
+  `ROW_CAP` (1000) route entries. The largest real route is 735 entries, so this
+  does not bite today; if a route ever passes 1000 the page now says the address
+  is on the route but not shown, rather than silently opening nothing. Real fix
+  is still pagination.
+- Search is a plain GET form, so a result survives a reload and the back button
+  — a CSR is usually on the phone while using it.
 
 Nothing else is known-broken.
 

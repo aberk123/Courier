@@ -51,6 +51,7 @@ export function ZoneWorkspace({
   items,
   truncated,
   isCourierOffice,
+  initialOpenStopId,
 }: {
   zoneId: string;
   zoneNumber: number;
@@ -59,9 +60,10 @@ export function ZoneWorkspace({
   items: RouteItem[];
   truncated: boolean;
   isCourierOffice: boolean;
+  initialOpenStopId: string | null;
 }) {
   const [query, setQuery] = useState("");
-  const [openStopId, setOpenStopId] = useState<string | null>(null);
+  const [openStopId, setOpenStopId] = useState<string | null>(initialOpenStopId);
   const [addingStop, setAddingStop] = useState(false);
 
   const pubName = useMemo(
@@ -99,6 +101,16 @@ export function ZoneWorkspace({
           Cover sheet &amp; print
         </Link>
       </div>
+
+      {/* A deep link from the home-screen search points at one stop. If the route
+          was truncated above ROW_CAP the stop may not be on the page at all, and
+          silently opening nothing would look like the search lied. */}
+      {initialOpenStopId && !items.some((item) => item.kind === "stop" && item.stopId === initialOpenStopId) ? (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          That address is on this route but is not shown above — the route is too long to
+          load in one request. Search for it by name or number below.
+        </p>
+      ) : null}
 
       {truncated ? (
         <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">

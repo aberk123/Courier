@@ -259,6 +259,38 @@ that is unambiguous; otherwise the reviewer picks the route. Nothing is written
 until the reviewer confirms, and the plan is re-validated server-side because
 it round-trips through the browser.
 
+## Finding an address without knowing its route (confirmed by Ari 2026-08-20)
+
+Ari's words: *"many times the CSR does not know which route a customer is in
+until they search their address."* The old home screen was a list of five routes
+and nothing else, so every lookup began with a guess about which route to open —
+and if the guess was wrong the CSR searched the wrong 700-row list.
+
+The decision: **the home screen leads with a search across every route**, and an
+address can be added from there without picking a route first.
+
+How it behaves, since these details are the requirement:
+
+- One box searches all routes at once, on house number, street *and* recipient
+  name. A CSR types what they hear on the phone — "28 squankum rd" — so a
+  leading house number is split off and matched exactly while the rest is
+  matched loosely. Searching a bare street or a surname works too.
+- Street-type suffixes are ignored when matching, because the caller says "rd"
+  and the route sheet says "ROAD". "28 squankum rd" finds "28 SQUANKUM ROAD".
+- Each result is badged with the route it is on, and opens that address directly
+  in its route workspace — the CSR never has to find it a second time.
+- If nothing matches, the add-address form opens already filled in from the
+  search, with the route **pre-selected from the street**: a new house number on
+  a street already covered is almost always on that street's route. The CSR can
+  override it. If the street is on more than one route, the busiest wins.
+- Scoping is unchanged: the search runs through RLS, so a publication-scoped
+  staffer finds only addresses that receive a publication they hold, and is
+  offered only their own publications when adding.
+
+Deliberately not built: fuzzy/typo-tolerant search. The importer has edit-distance
+matching for spreadsheet rows, but that is for reconciling a file against the
+list, not for a CSR who can retype. Add it only if real use asks for it.
+
 ## Items to confirm with Amrom (neither is blocking)
 
 Both only matter once export / the cover sheet exist, and both have a

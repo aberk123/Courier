@@ -10,10 +10,16 @@ const ROW_CAP = 1000;
 
 export default async function ZonePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ number: string }>;
+  // `?stop=` arrives from the home-screen search, which found the address
+  // without the CSR ever knowing its route -- so open it on arrival rather
+  // than making them find it a second time in a 2,600-row list.
+  searchParams: Promise<{ stop?: string }>;
 }) {
   const { number } = await params;
+  const { stop: openStopId } = await searchParams;
   const zoneNumber = Number(number);
   const supabase = await createClient();
 
@@ -94,6 +100,7 @@ export default async function ZonePage({
       items={items}
       truncated={truncated}
       isCourierOffice={Boolean(profile?.is_courier_office)}
+      initialOpenStopId={openStopId ?? null}
     />
   );
 }
