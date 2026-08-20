@@ -16,10 +16,15 @@ export default async function ResetPasswordPage() {
         <SetPasswordForm />
       ) : (
         <div className="w-full max-w-sm space-y-4 rounded-xl border border-black/10 bg-white p-6 text-center shadow-sm dark:border-white/10 dark:bg-black">
-          <h1 className="text-xl font-semibold">Link expired</h1>
+          <h1 className="text-xl font-semibold">This link has already been used</h1>
           <p className="text-sm text-black/60 dark:text-white/60">
-            This password link is invalid or has already been used. Ask the courier office to
-            send you a new one, or sign in if you already know your password.
+            Password links work only once. This usually means it was opened before — often by
+            whoever sent it, checking that it worked — or that a newer link has since been
+            generated, which cancels the older one.
+          </p>
+          <p className="text-sm text-black/60 dark:text-white/60">
+            Ask the courier office for a fresh link and open it yourself, or sign in if you
+            already know your password.
           </p>
           <Link href="/login" className="inline-block underline underline-offset-2">
             Back to sign in

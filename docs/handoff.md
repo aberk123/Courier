@@ -320,6 +320,20 @@ not as ad-hoc SQL in the dashboard.
 Amrom could not sign in. The login itself was working correctly; the problem was
 one step earlier, and the shape of it will recur, so it is worth knowing.
 
+**Two separate things went wrong, and the second one hid the first.**
+
+The headline cause: **a password reset link authenticates as its recipient and is
+single-use, so opening one to "check it works" both consumes it and signs the
+checker in as that person.** Ari opened Amrom's link on his own computer; Amrom
+then got "expired" because it had already been spent, and Ari's browser was at
+that point signed in *as Amrom*. Production ended up with two live sessions on
+Amrom's account, at 17:24:01 and 18:31:45 — the two times a link was
+successfully opened — while Amrom himself never got in at all.
+
+The second cause: the replacement password never saved. Leaked-password
+protection refused it, and the refusal reads like advice, so it looked like it
+had worked.
+
 What the auth logs showed, in order:
 
 1. `18:31:37` a reset link was generated from Manage Users.
@@ -342,15 +356,24 @@ hand-inserted `auth.users` row with NULL token columns gives a `500 Database
 error querying schema`. Amrom's was the 400, which is what ruled out the schema
 bug immediately.
 
-Fixed on the app side: `/reset-password` now says up front that leaked passwords
-are rejected, and rewrites that particular refusal to lead with "That password
-was not saved". The raw Supabase wording reads like advice rather than a
-rejection, which is how a careful person ends up believing the change went
-through.
+Fixed on the app side, in three places:
 
-Operationally, a staffer in this state needs a **fresh** link — theirs is already
-consumed — and a password that is not in the breach list. Three or four unrelated
-words clears it comfortably.
+- Manage Users now says, on both the reset link and the invite link, **don't open
+  it yourself** — that it works only once, that opening it is what makes the
+  recipient see "expired", that it signs the opener in as that person, and that
+  each new link cancels the last.
+- `/reset-password`'s expired page now names the likely cause (already opened,
+  often by the sender, or superseded by a newer link) instead of just saying the
+  link is invalid.
+- The weak-password refusal now leads with "That password was not saved" and
+  suggests three or four unrelated words. Other errors pass through unchanged.
+
+Operationally, a staffer in this state needs a **fresh** link, opened by *them*,
+and a password not in the breach list. Better still, let them choose it — a
+password relayed by the office is one the office also knows.
+
+Worth doing once: the two stray sessions on Amrom's account should be revoked, so
+nobody is left holding his account in a browser tab.
 
 ## Open with Ari
 

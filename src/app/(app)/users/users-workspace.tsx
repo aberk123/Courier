@@ -105,12 +105,18 @@ export function UsersWorkspace({
             </p>
           ) : null}
           {inviteState.link ? (
-            <input
-              readOnly
-              value={inviteState.link}
-              onFocus={(event) => event.currentTarget.select()}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-xs dark:border-white/20 dark:bg-black"
-            />
+            <>
+              <p className="text-xs text-black/60 dark:text-white/60">
+                Send this link to the new staffer. <strong>Don&apos;t open it yourself</strong>{" "}
+                — it works only once, and opening it signs you in as them.
+              </p>
+              <input
+                readOnly
+                value={inviteState.link}
+                onFocus={(event) => event.currentTarget.select()}
+                className="w-full rounded-lg border border-black/15 px-3 py-2 text-xs dark:border-white/20 dark:bg-black"
+              />
+            </>
           ) : null}
 
           <button
@@ -291,8 +297,11 @@ function UserRow({
       {resetState.link ? (
         <div className="mt-2 space-y-1">
           <p className="text-xs text-black/60 dark:text-white/60">
-            Send this link to {user.email} however you like (text, email). It expires and can
-            only be used once.
+            Send this link to {user.email} however you like (text, email).{" "}
+            <strong>Don&apos;t open it yourself</strong> — it works only once, so opening it
+            here would use it up and they&apos;d be told the link had expired. It also signs
+            whoever opens it in as {user.email}, so testing it means browsing as them. If
+            they say it expired, generate a fresh one; each new link cancels the last.
           </p>
           <input
             readOnly
