@@ -127,9 +127,38 @@ Two things worth knowing:
 3. **A >1 MB import — upload and review only, do not apply.** That exercises the
    body-size cap without writing to the real list.
 
-After that, the two questions at the bottom of `docs/domain-notes.md`
-(whole-address removal) need Ari's answer before the cover sheet can be trusted
-for a real week. Nothing else is known-broken.
+## Whole-address removal — answered and built 2026-08-20
+
+The two open questions about whole-address removal have been answered by Ari and
+implemented; the decisions are recorded in `docs/domain-notes.md`. Removal is now
+per-publication: a scoped staffer takes off only their own publications, the
+courier office takes off all of them and each gets its own Deletion row, and
+churn that cancels inside one cover-sheet cycle prints nothing.
+
+**This adds a migration, and it must reach the database before the code that
+calls it.** `supabase/migrations/20260820160000_whole_address_removal.sql`
+creates the `remove_stop_publications` RPC the Remove button now calls — deploy
+the code first and every removal fails with "function does not exist". Apply the
+migration to production, then merge. It has been replayed into a throwaway
+Postgres by `supabase/tests/rls.sh` (28 passing, 8 of them new) but has **not**
+been applied to the production or branch database yet.
+
+The migration also backfills addresses left in the split-brain state by the old
+code path — inactive, but still carrying `stop_publications` rows and no
+`removed` event — by writing the missing events, backdated to the stop's
+`updated_at`. Checked against both databases before writing it:
+
+- **Production: a no-op.** All 196 inactive addresses there already carry zero
+  publication links, so the invariant already holds and the backfill writes
+  nothing. Production's event log is empty entirely (0 rows) — the ~8,000
+  publication links were loaded straight into `stop_publications` as
+  service_role — so there are no catch-up Deletions and the next cover sheet is
+  unaffected.
+- **Test branch: writes 2 events for 1 address**, the one retired through the
+  old Remove button during browser testing. That is the case this backfill
+  exists for, and a good place to see it work.
+
+Nothing else is known-broken.
 
 ## Supabase projects
 

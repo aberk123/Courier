@@ -93,6 +93,7 @@ export default async function ZonePage({
       publications={publications}
       items={items}
       truncated={truncated}
+      isCourierOffice={Boolean(profile?.is_courier_office)}
     />
   );
 }

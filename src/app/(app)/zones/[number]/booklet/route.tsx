@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getBooklet } from "@/lib/booklet";
 import { BookletDocument } from "@/lib/booklet-pdf";
 
+const LAKEWOOD_TIME_ZONE = "America/New_York";
+
 // One booklet per route, downloaded as its own PDF. Deliberately not a single
 // combined document: Lakewood Courier's printer auto-staples each print job, so
 // one continuous PDF would have to be manually sorted and stapled afterwards.
@@ -56,11 +58,24 @@ export async function GET(
     selected.map((pub) => pub.id),
   );
 
-  const printedOn = new Date().toLocaleDateString("en-US", {
+  // Pinned to Lakewood's clock, not the server's. Vercel runs in UTC, so a
+  // booklet printed after 8pm Eastern would otherwise be stamped -- and named
+  // -- with tomorrow's date.
+  const now = new Date();
+  const printedOn = now.toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: LAKEWOOD_TIME_ZONE,
+  });
+
+  // en-CA gives YYYY-MM-DD, so a folder of booklets sorts chronologically.
+  const printedOnFileDate = now.toLocaleDateString("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: LAKEWOOD_TIME_ZONE,
   });
 
   const buffer = await renderToBuffer(
@@ -72,7 +87,7 @@ export async function GET(
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="zone-${zone.number}-${slug}.pdf"`,
+      "Content-Disposition": `attachment; filename="zone-${zone.number}-${slug}-${printedOnFileDate}.pdf"`,
       "Cache-Control": "no-store",
     },
   });

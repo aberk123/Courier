@@ -278,26 +278,47 @@ high-confidence default we are building on rather than waiting.
   Cheap to change; show Amrom the first rendered booklet and let him
   correct it on a real page rather than describing it in the abstract.
 
-## Raised by browser testing 2026-08-20 — needs Ari's decision
+## Raised by browser testing 2026-08-20 — answered and built
 
 Found by exercising the app against the test branch, not by reading the code.
-Recorded here because each one is a *requirements* question, not a defect with
-an obvious fix.
+Recorded here because it was a *requirements* question, not a defect with an
+obvious fix. Both parts have since been decided and implemented.
 
-- **Removing a whole address is invisible to every other publication.**
-  "Remove this address" sets `stops.active = false`, which pulls the stop out of
-  every publication's booklet at once. It logs no `removed` events, so nothing
-  appears in any Deletions section, and `stop_publications` still says the
-  address is subscribed. A Voice staffer can therefore stop Shopper's delivery
-  to a shared address, silently — reproduced in the browser as
-  `voice@example.test` on 28 SQUANKUM RD, which receives both.
-  The confirmed Deletion row format is per-publication (`… · Delete Voice`), so
-  the likely intent is that whole-address removal should log a `removed` event
-  per publication the stop receives. Two sub-questions for Ari:
-  (a) should a publication-scoped staffer be able to remove an address at all,
-  or only remove *their own* publication from it? and (b) when the courier
-  office removes one, should every affected publication see a Deletion row?
-- **A removed address keeps its pending Additions.** Because deactivation logs
-  nothing, an address added and then removed inside one cover-sheet cycle still
-  prints under Additions — telling the courier to start delivering somewhere
-  that no longer exists on the route. Falls out of the same fix.
+### Whole-address removal is per-publication (Ari, 2026-08-20)
+
+The problem, for the record: "Remove this address" set `stops.active = false`,
+which pulled the address out of every publication's booklet at once while
+logging no `removed` events. Nothing appeared in any Deletions section,
+`stop_publications` still claimed the address was subscribed, and a Voice
+staffer could therefore end Shopper's delivery to a shared address silently —
+reproduced in the browser as `voice@example.test` on 28 SQUANKUM RD.
+
+Ari's decisions:
+
+- **A publication-scoped staffer removes only their own publications.** On a
+  shared address the address stays on the route and keeps receiving the other
+  paper. Voice has no authority over Shopper's delivery; only the courier office
+  retires an address outright. A staffer's removal *can* still retire it, but
+  only when theirs was the last publication on it — which is exactly when
+  retiring is correct and affects nobody else.
+- **Retiring a whole address logs one `removed` event per publication it
+  receives**, so each paper gets its own Deletion row in the already-confirmed
+  per-publication format (`… · Delete Voice`). No new whole-address row format
+  was introduced, since Amrom has not confirmed one.
+- **Churn inside one cover-sheet cycle nets out.** An address added and then
+  removed before the courier ever saw either event prints nothing at all,
+  rather than printing an Addition for somewhere that has already left the
+  route. The events stay in the log for history and are still stamped as shown,
+  so they do not resurface next week.
+
+Built as one invariant — **an address is active if and only if it still receives
+at least one publication.** Deactivation is no longer something a client asks
+for directly; it is a consequence of removing the last publication, which is
+already permission-checked and already produces the cover-sheet row. A database
+trigger refuses to retire an address that still receives something, so the
+event log cannot be sidestepped by a forged request. Re-adding a publication
+brings a retired address back, so the two tables cannot drift apart.
+
+See `supabase/migrations/20260820160000_whole_address_removal.sql`, and the
+`remove_stop_publications` block in `supabase/tests/rls.sh` — including a test
+that fails against the old code path.
