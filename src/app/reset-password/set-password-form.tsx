@@ -14,7 +14,9 @@ export function SetPasswordForm() {
       <div>
         <h1 className="text-xl font-semibold">Set a new password</h1>
         <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-          Choose a password for your Lakewood Courier account.
+          Choose a password for your Lakewood Courier account. At least 8 characters, and
+          it can&apos;t be one of the common passwords known to have been leaked — three or
+          four unrelated words works well.
         </p>
       </div>
 

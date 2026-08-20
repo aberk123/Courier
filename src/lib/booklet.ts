@@ -5,6 +5,28 @@ type Client = SupabaseClient<Database>;
 
 export type CoverRow = { id: string; address: string; detail: string };
 
+/**
+ * Collapses a stop/publication's pending events down to the one change the
+ * courier actually needs to hear about, or nothing at all.
+ *
+ * Every event passed in is unshown, so the courier's picture of this address is
+ * whatever it was *before* the first of them. You can only remove a publication
+ * that was subscribed, so the first event's type reveals that prior state: a
+ * leading `added` means they did not have it, a leading `removed` means they
+ * did. If the last event puts the address back where the courier already
+ * believes it to be, the churn cancels and nothing should print.
+ *
+ * That is what stops an address added and then removed inside one cycle from
+ * printing under Additions -- which told the courier to start delivering
+ * somewhere that had already left the route.
+ */
+export function netPendingEvent<T extends { event_type: string }>(group: T[]): T | null {
+  const first = group[0];
+  const last = group[group.length - 1];
+  if (!first || !last) return null;
+  return first.event_type === last.event_type ? last : null;
+}
+
 export type BookletStop = {
   recipientName: string | null;
   houseNumber: string;
@@ -78,7 +100,7 @@ export async function getBooklet(
     supabase
       .from("stop_publication_events")
       .select(
-        "id, event_type, publication_id, publications(name), stops!inner(zone_id, recipient_name, house_number, street, floor_side)",
+        "id, stop_id, event_type, publication_id, publications(name), stops!inner(zone_id, recipient_name, house_number, street, floor_side)",
       )
       .eq("stops.zone_id", zone.id)
       .is("shown_on_cover_sheet_at", null)
@@ -112,17 +134,33 @@ export async function getBooklet(
 
   const additions: CoverRow[] = [];
   const deletions: CoverRow[] = [];
-  for (const event of events.data ?? []) {
+
+  // One group per address-and-publication, in query order (`order("created_at")`),
+  // which grouping preserves -- so netPendingEvent's first/last really are.
+  const pendingEvents = (events.data ?? []).filter((event) =>
     // Cover sheet is scoped to the publications this booklet was run for.
-    if (!selected.has(event.publication_id)) continue;
+    selected.has(event.publication_id),
+  );
+  const byStopAndPublication = new Map<string, typeof pendingEvents>();
+  for (const event of pendingEvents) {
+    const key = `${event.stop_id}:${event.publication_id}`;
+    const group = byStopAndPublication.get(key);
+    if (group) group.push(event);
+    else byStopAndPublication.set(key, [event]);
+  }
+
+  for (const group of byStopAndPublication.values()) {
+    const net = netPendingEvent(group);
+    if (!net) continue;
+
     const row = {
-      id: event.id,
-      address: addressOf(event.stops),
-      detail: `${event.event_type === "added" ? "Add" : "Delete"} ${
-        event.publications?.name ?? "publication"
+      id: net.id,
+      address: addressOf(net.stops),
+      detail: `${net.event_type === "added" ? "Add" : "Delete"} ${
+        net.publications?.name ?? "publication"
       }`,
     };
-    (event.event_type === "added" ? additions : deletions).push(row);
+    (net.event_type === "added" ? additions : deletions).push(row);
   }
 
   const changeRows: CoverRow[] = (changes.data ?? []).map((row) => ({

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   createStop,
-  deactivateStop,
+  removeStopPublications,
   logComplaint,
   togglePublication,
   updateStopDetails,
@@ -50,6 +50,8 @@ export function ZoneWorkspace({
   publications,
   items,
   truncated,
+  isCourierOffice,
+  initialOpenStopId,
 }: {
   zoneId: string;
   zoneNumber: number;
@@ -57,9 +59,11 @@ export function ZoneWorkspace({
   publications: Publication[];
   items: RouteItem[];
   truncated: boolean;
+  isCourierOffice: boolean;
+  initialOpenStopId: string | null;
 }) {
   const [query, setQuery] = useState("");
-  const [openStopId, setOpenStopId] = useState<string | null>(null);
+  const [openStopId, setOpenStopId] = useState<string | null>(initialOpenStopId);
   const [addingStop, setAddingStop] = useState(false);
 
   const pubName = useMemo(
@@ -97,6 +101,16 @@ export function ZoneWorkspace({
           Cover sheet &amp; print
         </Link>
       </div>
+
+      {/* A deep link from the home-screen search points at one stop. If the route
+          was truncated above ROW_CAP the stop may not be on the page at all, and
+          silently opening nothing would look like the search lied. */}
+      {initialOpenStopId && !items.some((item) => item.kind === "stop" && item.stopId === initialOpenStopId) ? (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          That address is on this route but is not shown above — the route is too long to
+          load in one request. Search for it by name or number below.
+        </p>
+      ) : null}
 
       {truncated ? (
         <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
@@ -214,6 +228,7 @@ export function ZoneWorkspace({
               onToggleOpen={() =>
                 setOpenStopId(openStopId === item.stopId ? null : item.stopId)
               }
+              isCourierOffice={isCourierOffice}
             />
           ),
         )}
@@ -235,6 +250,7 @@ function StopRow({
   pubName,
   isOpen,
   onToggleOpen,
+  isCourierOffice,
 }: {
   stop: StopItem;
   zoneNumber: number;
@@ -242,6 +258,7 @@ function StopRow({
   pubName: Map<string, string>;
   isOpen: boolean;
   onToggleOpen: () => void;
+  isCourierOffice: boolean;
 }) {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
@@ -253,6 +270,19 @@ function StopRow({
     .map((id) => pubName.get(id))
     .filter(Boolean)
     .sort();
+
+  // "Remove" means different things to the two roles, so say which one this is.
+  // A scoped staffer only ever takes their own publications off, and cannot be
+  // told what else the address receives -- RLS hides the other publications'
+  // rows from them -- so the copy promises only what is actually true.
+  const address = `${stop.houseNumber} ${stop.street}`;
+  const removalWarning = isCourierOffice
+    ? `Retire ${address} from this route? All ${
+        receives.length ? receives.join(" \u00b7 ") : "publications"
+      } come off, each gets its own Deletion row on the cover sheet, and the address leaves the list.`
+    : `Stop delivering ${
+        receives.length ? receives.join(" \u00b7 ") : "your publications"
+      } to ${address}? Any other publication this address receives is unaffected, and it only leaves the route if yours was the last one.`;
 
   return (
     <li className="py-4">
@@ -390,19 +420,16 @@ function StopRow({
 
           {confirmingRemove ? (
             <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950">
-              <p className="text-sm text-red-800 dark:text-red-200">
-                Remove {stop.houseNumber} {stop.street} from this route? It stops being
-                delivered and disappears from the list.
-              </p>
+              <p className="text-sm text-red-800 dark:text-red-200">{removalWarning}</p>
               <div className="flex gap-2">
-                <form action={deactivateStop}>
+                <form action={removeStopPublications}>
                   <input type="hidden" name="stopId" value={stop.stopId} />
                   <input type="hidden" name="zoneNumber" value={zoneNumber} />
                   <button
                     type="submit"
                     className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white"
                   >
-                    Yes, remove it
+                    {isCourierOffice ? "Yes, retire it" : "Yes, stop delivering"}
                   </button>
                 </form>
                 <button
@@ -420,7 +447,7 @@ function StopRow({
               onClick={() => setConfirmingRemove(true)}
               className="text-sm text-red-600 underline underline-offset-2 dark:text-red-400"
             >
-              Remove this address
+              {isCourierOffice ? "Remove this address" : "Stop delivering here"}
             </button>
           )}
         </div>

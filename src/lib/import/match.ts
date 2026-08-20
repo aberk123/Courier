@@ -70,6 +70,20 @@ export function normalizeStreet(value: string): string {
   return words.join(" ");
 }
 
+/**
+ * Drops a trailing canonical street-type suffix from an already-normalized
+ * street, so a search for "squankum rd" still finds "SQUANKUM ROAD". Callers
+ * searching the database need this because the suffix a CSR types is rarely the
+ * one the route sheet used.
+ */
+export function stripStreetSuffix(normalizedStreet: string): string {
+  const words = normalizedStreet.split(" ").filter(Boolean);
+  if (words.length < 2) return normalizedStreet;
+  const suffixes = new Set(Object.values(SUFFIXES));
+  if (suffixes.has(words[words.length - 1])) words.pop();
+  return words.join(" ");
+}
+
 export function normalizeHouseNumber(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }

@@ -220,5 +220,49 @@ check "a Voice-only run does not bury pending Shopper changes" \
     | tail -1)" "2"
 
 echo
+echo "remove_stop_publications RPC (whole-address removal)"
+# The bug: "Remove this address" was a bare `update stops set active = false`,
+# so a Voice staffer could end The Shopper's delivery to a shared address with
+# nothing logged and no Deletion row anywhere.
+check "scoped staffer's removal takes only their own publication off a shared address" \
+  "$(as $VOICE "select public.remove_stop_publications('$C');
+     reset role;
+     select p.code from stop_publications sp join publications p on p.id=sp.publication_id where sp.stop_id='$C';
+     select active from stops where id='$C';")" \
+  "1,shopper,t"
+check "that removal is logged, so the cover sheet can show the Deletion" \
+  "$(as $VOICE "select public.remove_stop_publications('$C');
+     reset role;
+     select p.code || ':' || e.event_type from stop_publication_events e
+       join publications p on p.id=e.publication_id
+      where e.stop_id='$C' and e.event_type='removed';")" \
+  "1,voice:removed"
+check "scoped staffer cannot retire a shared address out from under another publication" \
+  "$(as $VOICE "update stops set active=false where id='$C';" | grep -c 'before retiring it')" "1"
+check "courier office retiring a shared address logs one Deletion per publication" \
+  "$(as $OFFICE "select public.remove_stop_publications('$C');
+     reset role;
+     select count(*) from stop_publication_events where stop_id='$C' and event_type='removed';
+     select active from stops where id='$C';")" \
+  "2,2,f"
+check "removing the last publication retires the address" \
+  "$(as $VOICE "select public.remove_stop_publications('$A');
+     reset role;
+     select active from stops where id='$A';")" \
+  "1,f"
+# Asserts the retired state and the revival in one transaction, so it cannot
+# pass by the address having simply never been retired.
+check "re-adding a publication brings a retired address back" \
+  "$(as $OFFICE "select public.remove_stop_publications('$A');
+     select 'retired:' || active from stops where id='$A';
+     insert into stop_publication_events (stop_id,publication_id,event_type) values ('$A','$PV','added');
+     select 'revived:' || active from stops where id='$A';")" \
+  "1,retired:false,revived:true"
+check "scoped staffer cannot remove an address they cannot see" \
+  "$(as $VOICE "select public.remove_stop_publications('$B');" | grep -c 'do not have access')" "1"
+check "staffer with no publication access cannot remove anything" \
+  "$(as $NONE "select public.remove_stop_publications('$A');" | grep -c 'do not have access')" "1"
+
+echo
 printf 'ceil %d passed, %d failed\n' "$pass" "$fail" | sed 's/^ceil //'
 [ "$fail" -eq 0 ]

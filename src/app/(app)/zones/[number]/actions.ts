@@ -114,12 +114,18 @@ export async function logComplaint(formData: FormData) {
   revalidatePath(`/zones/${zoneNumber}`);
 }
 
-export async function deactivateStop(formData: FormData) {
+// Removing an address is per-publication, not a flat deactivation. The courier
+// office takes off every publication the address receives; a scoped staffer
+// takes off only their own, and the address stays on the route if another
+// publication still wants it. The RPC logs a `removed` event for each one, so
+// every affected publication gets its own Deletion row on the cover sheet --
+// which a bare `update stops set active = false` did not.
+export async function removeStopPublications(formData: FormData) {
   const supabase = await createClient();
   const stopId = String(formData.get("stopId"));
   const zoneNumber = String(formData.get("zoneNumber"));
 
-  const { error } = await supabase.from("stops").update({ active: false }).eq("id", stopId);
+  const { error } = await supabase.rpc("remove_stop_publications", { p_stop_id: stopId });
   if (error) throw new Error(error.message);
 
   revalidatePath(`/zones/${zoneNumber}`);

@@ -105,12 +105,19 @@ export function UsersWorkspace({
             </p>
           ) : null}
           {inviteState.link ? (
-            <input
-              readOnly
-              value={inviteState.link}
-              onFocus={(event) => event.currentTarget.select()}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-xs dark:border-white/20 dark:bg-black"
-            />
+            <>
+              <p className="text-xs text-black/60 dark:text-white/60">
+                Send this link to the new staffer.{" "}
+                <strong>Don&apos;t open it yourself</strong> — it works only once, and using it
+                signs you in as them.
+              </p>
+              <input
+                readOnly
+                value={inviteState.link}
+                onFocus={(event) => event.currentTarget.select()}
+                className="w-full rounded-lg border border-black/15 px-3 py-2 text-xs dark:border-white/20 dark:bg-black"
+              />
+            </>
           ) : null}
 
           <button
@@ -291,8 +298,11 @@ function UserRow({
       {resetState.link ? (
         <div className="mt-2 space-y-1">
           <p className="text-xs text-black/60 dark:text-white/60">
-            Send this link to {user.email} however you like (text, email). It expires and can
-            only be used once.
+            Send this link to {user.email} however you like (text, email). They&apos;ll open it
+            and press Continue to choose their own password.{" "}
+            <strong>Don&apos;t open it yourself</strong> — pressing Continue signs whoever did
+            it in as {user.email}. Each new link cancels the previous one, so generate one
+            link and send that.
           </p>
           <input
             readOnly

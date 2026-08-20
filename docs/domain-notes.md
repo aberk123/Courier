@@ -259,6 +259,38 @@ that is unambiguous; otherwise the reviewer picks the route. Nothing is written
 until the reviewer confirms, and the plan is re-validated server-side because
 it round-trips through the browser.
 
+## Finding an address without knowing its route (confirmed by Ari 2026-08-20)
+
+Ari's words: *"many times the CSR does not know which route a customer is in
+until they search their address."* The old home screen was a list of five routes
+and nothing else, so every lookup began with a guess about which route to open —
+and if the guess was wrong the CSR searched the wrong 700-row list.
+
+The decision: **the home screen leads with a search across every route**, and an
+address can be added from there without picking a route first.
+
+How it behaves, since these details are the requirement:
+
+- One box searches all routes at once, on house number, street *and* recipient
+  name. A CSR types what they hear on the phone — "28 squankum rd" — so a
+  leading house number is split off and matched exactly while the rest is
+  matched loosely. Searching a bare street or a surname works too.
+- Street-type suffixes are ignored when matching, because the caller says "rd"
+  and the route sheet says "ROAD". "28 squankum rd" finds "28 SQUANKUM ROAD".
+- Each result is badged with the route it is on, and opens that address directly
+  in its route workspace — the CSR never has to find it a second time.
+- If nothing matches, the add-address form opens already filled in from the
+  search, with the route **pre-selected from the street**: a new house number on
+  a street already covered is almost always on that street's route. The CSR can
+  override it. If the street is on more than one route, the busiest wins.
+- Scoping is unchanged: the search runs through RLS, so a publication-scoped
+  staffer finds only addresses that receive a publication they hold, and is
+  offered only their own publications when adding.
+
+Deliberately not built: fuzzy/typo-tolerant search. The importer has edit-distance
+matching for spreadsheet rows, but that is for reconciling a file against the
+list, not for a CSR who can retype. Add it only if real use asks for it.
+
 ## Items to confirm with Amrom (neither is blocking)
 
 Both only matter once export / the cover sheet exist, and both have a
@@ -278,26 +310,47 @@ high-confidence default we are building on rather than waiting.
   Cheap to change; show Amrom the first rendered booklet and let him
   correct it on a real page rather than describing it in the abstract.
 
-## Raised by browser testing 2026-08-20 — needs Ari's decision
+## Raised by browser testing 2026-08-20 — answered and built
 
 Found by exercising the app against the test branch, not by reading the code.
-Recorded here because each one is a *requirements* question, not a defect with
-an obvious fix.
+Recorded here because it was a *requirements* question, not a defect with an
+obvious fix. Both parts have since been decided and implemented.
 
-- **Removing a whole address is invisible to every other publication.**
-  "Remove this address" sets `stops.active = false`, which pulls the stop out of
-  every publication's booklet at once. It logs no `removed` events, so nothing
-  appears in any Deletions section, and `stop_publications` still says the
-  address is subscribed. A Voice staffer can therefore stop Shopper's delivery
-  to a shared address, silently — reproduced in the browser as
-  `voice@example.test` on 28 SQUANKUM RD, which receives both.
-  The confirmed Deletion row format is per-publication (`… · Delete Voice`), so
-  the likely intent is that whole-address removal should log a `removed` event
-  per publication the stop receives. Two sub-questions for Ari:
-  (a) should a publication-scoped staffer be able to remove an address at all,
-  or only remove *their own* publication from it? and (b) when the courier
-  office removes one, should every affected publication see a Deletion row?
-- **A removed address keeps its pending Additions.** Because deactivation logs
-  nothing, an address added and then removed inside one cover-sheet cycle still
-  prints under Additions — telling the courier to start delivering somewhere
-  that no longer exists on the route. Falls out of the same fix.
+### Whole-address removal is per-publication (Ari, 2026-08-20)
+
+The problem, for the record: "Remove this address" set `stops.active = false`,
+which pulled the address out of every publication's booklet at once while
+logging no `removed` events. Nothing appeared in any Deletions section,
+`stop_publications` still claimed the address was subscribed, and a Voice
+staffer could therefore end Shopper's delivery to a shared address silently —
+reproduced in the browser as `voice@example.test` on 28 SQUANKUM RD.
+
+Ari's decisions:
+
+- **A publication-scoped staffer removes only their own publications.** On a
+  shared address the address stays on the route and keeps receiving the other
+  paper. Voice has no authority over Shopper's delivery; only the courier office
+  retires an address outright. A staffer's removal *can* still retire it, but
+  only when theirs was the last publication on it — which is exactly when
+  retiring is correct and affects nobody else.
+- **Retiring a whole address logs one `removed` event per publication it
+  receives**, so each paper gets its own Deletion row in the already-confirmed
+  per-publication format (`… · Delete Voice`). No new whole-address row format
+  was introduced, since Amrom has not confirmed one.
+- **Churn inside one cover-sheet cycle nets out.** An address added and then
+  removed before the courier ever saw either event prints nothing at all,
+  rather than printing an Addition for somewhere that has already left the
+  route. The events stay in the log for history and are still stamped as shown,
+  so they do not resurface next week.
+
+Built as one invariant — **an address is active if and only if it still receives
+at least one publication.** Deactivation is no longer something a client asks
+for directly; it is a consequence of removing the last publication, which is
+already permission-checked and already produces the cover-sheet row. A database
+trigger refuses to retire an address that still receives something, so the
+event log cannot be sidestepped by a forged request. Re-adding a publication
+brings a retired address back, so the two tables cannot drift apart.
+
+See `supabase/migrations/20260820160000_whole_address_removal.sql`, and the
+`remove_stop_publications` block in `supabase/tests/rls.sh` — including a test
+that fails against the old code path.

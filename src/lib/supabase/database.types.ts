@@ -369,6 +369,7 @@ export type Database = {
         Args: { p_zone_id: string; p_publication_ids: string[] }
         Returns: number
       }
+      remove_stop_publications: { Args: { p_stop_id: string }; Returns: number }
     }
     Enums: {
       [_ in never]: never
