@@ -33,6 +33,11 @@ export function CoverWorkspace({
     [publications, selected],
   );
 
+  const selectedNames = useMemo(
+    () => publications.filter((pub) => selected.includes(pub.id)).map((pub) => pub.name),
+    [publications, selected],
+  );
+
   const allSelected = selected.length === publications.length;
   const pdfHref =
     `/zones/${zoneNumber}/booklet` + (allSelected ? "" : `?pubs=${selectedCodes.join(",")}`);
@@ -118,10 +123,19 @@ export function CoverWorkspace({
         <div className="mt-8 rounded-xl border border-black/10 p-4 dark:border-white/10">
           {confirming ? (
             <div className="space-y-3">
+              {/* Deliberately not a count: markPrinted stamps additions and
+                  deletions only for the selected publications, while changes
+                  and complaints are address-level and always stamped. With a
+                  partial selection any single number here would overstate what
+                  is about to happen. */}
               <p className="text-sm">
-                Mark these {pendingTotal} items as printed? They will not appear on any future
-                cover sheet, but stay in the record for reporting. Do this after the booklet is
-                actually printed.
+                Mark this route&rsquo;s pending items as printed for{" "}
+                {allSelected ? "every publication" : selectedNames.join(" + ")}?
+                {allSelected
+                  ? " "
+                  : " Additions and deletions for the other publications stay pending, and changes and complaints apply to the address, so those are marked either way. "}
+                Printed items stop appearing on future cover sheets but stay in the record for
+                reporting. Do this after the booklet is actually printed.
               </p>
               <div className="flex gap-2">
                 <form action={markPrinted}>
