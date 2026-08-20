@@ -89,34 +89,47 @@ use the branch dropdown. Never point a dev server at production to test this.
 
 Do not browser-test against production; the branch exists for this.
 
+## Deployed — 2026-08-20
+
+**The app is live at `https://lakewooddeliveries.com`.** PR #1 was merged, so
+`main` (and therefore production) has the browser-testing work and the 1 MB
+import fix. Full detail, including the exact DNS records and Vercel ids, is the
+deployment section of `SETUP.md`.
+
+The short version of what was done: the Vercel repo link already existed, so
+this was mostly configuration — re-scoping env vars, attaching the apex and
+`www`, and creating three grey-cloud records in an empty Cloudflare zone.
+
+Two things worth knowing:
+
+- **All three Supabase env vars had been scoped to `preview` *and*
+  `production`** — including `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS.
+  Every preview build of every branch was a live editor for the real subscriber
+  list. Fixed: production vars are Production-only, and Preview now points at the
+  `browser-testing` branch project. Preview deliberately has no service-role key,
+  so `/users` will not render on a preview deployment.
+- **The four post-deploy checks in `SETUP.md` have not been run.** Every one of
+  them needs a signed-in session and the deploying session had no production
+  password. What *was* verified from outside: valid TLS, `/login` renders, and
+  the unauthenticated redirect boundary holds on the real domain.
+
 ## The immediate next task
 
-**Deploy to `lakewooddeliveries.com`.** Ari's decision, taken 2026-08-20 ahead of
-fixing the removal issue below. The full runbook — current state, exact env var
-values, the Cloudflare gotcha, and the four post-deploy checks — is the
-deployment section of `SETUP.md`. Read that before touching anything; a Vercel
-project called `courier` already exists and already holds the service-role key,
-so this is link-and-configure, not create-from-scratch.
+**Run the four post-deploy checks** (see `SETUP.md`), signed in as
+`ari@thevoiceoflakewood.com`. Ranked by how likely they are to find something:
 
-Two things that will waste your time if you miss them:
-
-- **Vercel deploys `main`.** Confirm what `main` contains. As of this writing the
-  browser-testing work is in PR #1 and not yet merged, so deploying would ship
-  the old code — including the 1 MB import bug.
-- **`vercel.com`, `api.cloudflare.com` and `lakewooddeliveries.com` are blocked**
-  by the default cloud network policy (403 on CONNECT); only `api.vercel.com`
-  gets through. `vercel login` therefore cannot work. See the runbook for which
-  hosts to allow and which env vars to set, and note both only apply to a
-  container started after the change.
+1. **Booklet PDF for the largest real route.** The most likely to fail. The
+   route calls `renderToBuffer` and nothing in the app sets `maxDuration`, so it
+   runs on Vercel's default function timeout against 2,623 stops. Fix if needed
+   is `export const maxDuration = 60` on that route.
+2. **A password reset link's host.** Structurally it looks right, but only a real
+   link proves it, and a wrong one looks fine until someone clicks it.
+3. **A >1 MB import — upload and review only, do not apply.** That exercises the
+   body-size cap without writing to the real list.
 
 After that, the two questions at the bottom of `docs/domain-notes.md`
 (whole-address removal) need Ari's answer before the cover sheet can be trusted
 for a real week. Nothing else is known-broken.
-
-Deployment to `lakewooddeliveries.com` (Ari's domain, on Cloudflare) is decided
-and documented in `SETUP.md` — the app goes there, the database stays on its
-Supabase hostname. The steps need a Cloudflare and a hosting account, so they
-cannot be done from a sandboxed session.
 
 ## Supabase projects
 
