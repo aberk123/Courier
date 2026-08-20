@@ -20,7 +20,7 @@ export type ManagedUser = {
 
 type Publication = { id: string; code: string; name: string };
 
-const initialInviteState: InviteState = { error: null, success: null };
+const initialInviteState: InviteState = { error: null, success: null, link: null };
 const initialResetState: ResetLinkState = { error: null, link: null };
 
 export function UsersWorkspace({
@@ -44,7 +44,7 @@ export function UsersWorkspace({
           onClick={() => setShowInvite((value) => !value)}
           className="rounded-lg border border-black/15 px-4 py-2 text-sm font-medium dark:border-white/20"
         >
-          {showInvite ? "Cancel" : "+ Invite user"}
+          {showInvite ? "Cancel" : "+ Add user"}
         </button>
       </div>
 
@@ -98,13 +98,21 @@ export function UsersWorkspace({
               {inviteState.success}
             </p>
           ) : null}
+          {inviteState.link ? (
+            <input
+              readOnly
+              value={inviteState.link}
+              onFocus={(event) => event.currentTarget.select()}
+              className="w-full rounded-lg border border-black/15 px-3 py-2 text-xs dark:border-white/20 dark:bg-black"
+            />
+          ) : null}
 
           <button
             type="submit"
             disabled={invitePending}
             className="rounded-lg bg-black px-4 py-2 font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
           >
-            {invitePending ? "Sending invite…" : "Send invite"}
+            {invitePending ? "Adding…" : "Add user"}
           </button>
         </form>
       ) : null}

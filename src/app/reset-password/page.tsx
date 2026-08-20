@@ -1,23 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SetPasswordForm } from "./set-password-form";
 
-export default async function ResetPasswordPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ code?: string }>;
-}) {
-  const { code } = await searchParams;
+// Token verification happens in /auth/confirm (a Route Handler) before landing
+// here, so by this point the visitor either has a session or the link was bad.
+export default async function ResetPasswordPage() {
   const supabase = await createClient();
-
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    // Redirect to the same path without the code so a page refresh doesn't
-    // try to exchange an already-used code again.
-    redirect(error ? "/reset-password?expired=1" : "/reset-password");
-  }
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
