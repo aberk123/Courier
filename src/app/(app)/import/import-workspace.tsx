@@ -18,6 +18,12 @@ const ACTION_LABEL: Record<PlanRow["action"], string> = {
   unknown: "?",
 };
 
+// Mirrors the server-side check in actions.ts, and next.config.ts raises the
+// Server Action body limit above it. Checked here too because the framework
+// rejects an oversized body before the action runs, which surfaces as a bare
+// 500 with nothing rendered -- the office would just see the button do nothing.
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
 export function ImportWorkspace({
   zones,
   publications,
@@ -30,6 +36,7 @@ export function ImportWorkspace({
 
   const [rows, setRows] = useState<PlanRow[]>([]);
   const [excluded, setExcluded] = useState<number[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   // Reset the review table during render rather than in an effect: a fresh plan
   // replaces whatever was on screen (including choices made against the
@@ -135,15 +142,28 @@ export function ImportWorkspace({
           name="file"
           accept=".csv,.txt,.xlsx"
           required
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            setFileError(
+              file && file.size > MAX_FILE_BYTES
+                ? `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB, over the 5 MB limit. Split it into two files and import them one after the other.`
+                : null,
+            );
+          }}
           className="text-sm"
         />
         <button
           type="submit"
-          disabled={planPending}
+          disabled={planPending || Boolean(fileError)}
           className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
         >
           {planPending ? "Reading…" : "Review file"}
         </button>
+        {fileError ? (
+          <p className="w-full rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+            {fileError}
+          </p>
+        ) : null}
         <p className="w-full text-xs text-black/60 dark:text-white/60">
           CSV or .xlsx, up to 5 MB. Columns: action, name, house number, street, publication,
           floor/side, instructions — header names are matched loosely.

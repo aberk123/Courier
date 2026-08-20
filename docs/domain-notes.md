@@ -277,3 +277,27 @@ high-confidence default we are building on rather than waiting.
   of the confirmed deletion row: `Name · Address · Add {Publication}`.
   Cheap to change; show Amrom the first rendered booklet and let him
   correct it on a real page rather than describing it in the abstract.
+
+## Raised by browser testing 2026-08-20 — needs Ari's decision
+
+Found by exercising the app against the test branch, not by reading the code.
+Recorded here because each one is a *requirements* question, not a defect with
+an obvious fix.
+
+- **Removing a whole address is invisible to every other publication.**
+  "Remove this address" sets `stops.active = false`, which pulls the stop out of
+  every publication's booklet at once. It logs no `removed` events, so nothing
+  appears in any Deletions section, and `stop_publications` still says the
+  address is subscribed. A Voice staffer can therefore stop Shopper's delivery
+  to a shared address, silently — reproduced in the browser as
+  `voice@example.test` on 28 SQUANKUM RD, which receives both.
+  The confirmed Deletion row format is per-publication (`… · Delete Voice`), so
+  the likely intent is that whole-address removal should log a `removed` event
+  per publication the stop receives. Two sub-questions for Ari:
+  (a) should a publication-scoped staffer be able to remove an address at all,
+  or only remove *their own* publication from it? and (b) when the courier
+  office removes one, should every affected publication see a Deletion row?
+- **A removed address keeps its pending Additions.** Because deactivation logs
+  nothing, an address added and then removed inside one cover-sheet cycle still
+  prints under Additions — telling the courier to start delivering somewhere
+  that no longer exists on the route. Falls out of the same fix.

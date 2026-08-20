@@ -1,8 +1,13 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { STANDING_FOOTER, type Booklet, type CoverRow } from "./booklet";
 
+// The cover page reserves room for the standing footer; the route pages carry
+// only a page number, so they get most of that space back as printable rows.
+const pageBase = { paddingTop: 34, paddingHorizontal: 34, fontSize: 9.5 };
+
 const styles = StyleSheet.create({
-  page: { paddingTop: 34, paddingBottom: 46, paddingHorizontal: 34, fontSize: 9.5 },
+  page: { ...pageBase, paddingBottom: 46 },
+  routePage: { ...pageBase, paddingBottom: 26 },
   title: { fontSize: 16, fontFamily: "Helvetica-Bold" },
   subtitle: { fontSize: 9.5, color: "#555", marginTop: 3 },
   sectionTitle: {
@@ -69,9 +74,12 @@ function Section({ title, rows }: { title: string; rows: CoverRow[] }) {
   );
 }
 
+// Deliberately NOT `fixed`: react-pdf repeats a fixed element on every page of
+// its flow, which put the driver instructions on all ~15 pages of a long route.
+// Unfixed, `position: absolute` pins it to the bottom of the cover page alone.
 function Footer() {
   return (
-    <View style={styles.footer} fixed>
+    <View style={styles.footer}>
       {STANDING_FOOTER.map((line) => (
         <Text key={line}>{line}</Text>
       ))}
@@ -109,7 +117,7 @@ export function BookletDocument({ booklet, printedOn }: { booklet: Booklet; prin
       </Page>
 
       {/* The route itself, in driving order, directions in position. */}
-      <Page size="LETTER" style={styles.page}>
+      <Page size="LETTER" style={styles.routePage}>
         <Text style={styles.title}>{zoneLabel} — route</Text>
         <Text style={styles.subtitle}>In delivery order.</Text>
 
@@ -133,7 +141,6 @@ export function BookletDocument({ booklet, printedOn }: { booklet: Booklet; prin
           )}
         </View>
 
-        <Footer />
         <Text
           style={styles.pageNumber}
           render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
