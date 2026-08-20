@@ -6,12 +6,13 @@ import { BookletDocument } from "@/lib/booklet-pdf";
 
 const LAKEWOOD_TIME_ZONE = "America/New_York";
 
-// renderToBuffer builds the whole PDF in memory in one pass, and the largest
-// real route is 735 stops. Vercel's default function timeout is well under a
-// minute, so a big route printed on a slow cold start could be cut off midway
-// -- and the office would see a failed download on print day with no clue why.
-// 60s is the ceiling on every Vercel plan, so this is safe to set anywhere.
-// Measured against a synthetic 735-stop route: see docs/handoff.md.
+// renderToBuffer builds the whole PDF in memory in one pass, so the ceiling
+// matters. Measured before setting this: a synthetic 735-entry route -- larger
+// than any real one -- renders in 3.6-3.9s over 14 pages on a production build
+// (see SETUP.md). So this is cold-start headroom, not a fix for a timeout we
+// have actually seen. 60s is the most a Hobby plan allows and is valid on every
+// plan above it, so it is safe without knowing which plan this project is on;
+// raise it if a route ever genuinely outgrows it.
 export const maxDuration = 60;
 
 // One booklet per route, downloaded as its own PDF. Deliberately not a single
