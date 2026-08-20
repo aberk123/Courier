@@ -25,7 +25,8 @@ Built and pushed:
 - Cover sheet (Additions / Deletions / Changes / Complaints) per route
 - Booklet PDF export, per route, filtered to selected publications
 - Weekly import: CSV/xlsx upload, fuzzy address matching, auto route assignment
-- Manage Users page: invite, publication scoping, password-reset links
+- Manage Users page: invite, edit (email/name), delete, publication scoping,
+  password-reset links
 - RLS throughout, with a regression suite (`supabase/tests/rls.sh`)
 
 Deliberately deferred by Ari — do not build these without being asked:
@@ -34,15 +35,52 @@ Deliberately deferred by Ari — do not build these without being asked:
 - Courier check-off app and SMS check-off
 - Courier-to-route assignment
 
+## Browser testing — done 2026-08-20
+
+Every screen has now been driven in real Chromium against the test branch, as
+both `office@example.test` and `voice@example.test`, with each write verified in
+the database afterwards. Scripts are throwaway (they lived in the session
+scratchpad), but what they covered:
+
+- Auth: unauthenticated deep links redirect, bad credentials error correctly,
+  both logins work, signed-in `/login` bounces home, sign-out clears the cookie.
+- Zone workspace: route order, search (including matching on instructions),
+  publication toggle on *and* off, details edit, complaint, add address, remove
+  address. All landed correctly in the database.
+- Cover sheet: all four sections populate, publication chips scope the export,
+  "Mark as printed" stamps only the selected publications and leaves the others
+  pending — verified with a Voice-only run against pending Shopper events.
+- Booklet PDF: real multi-page PDFs, correct per-publication scoping, standing
+  footer, page numbers. Text extracted and asserted, not just byte-counted.
+- Weekly import: loose header aliases, fuzzy matching, auto zone inference,
+  needs-a-choice and blocked rows, row exclusion, apply, and re-upload
+  correctly reporting already-applied rows. CSV and xlsx both.
+- Access boundary: the Voice-only user sees only Voice everywhere, cannot reach
+  `/users`, and is refused by RLS on every forged write attempted with their own
+  access token — except the two cases now recorded in `docs/domain-notes.md`.
+
+**Two things remain unverified in a browser**, both for the same reason:
+
+- **The Manage Users page has never rendered.** It needs
+  `SUPABASE_SERVICE_ROLE_KEY`, which the Supabase MCP cannot hand out (it only
+  exposes publishable keys). Without it `createAdminClient()` throws and the
+  page dies before painting. Everything on that page — invite, edit, delete,
+  reset links — is therefore build-verified only. Get the branch's service_role
+  key from the dashboard into `.env.local` and re-test.
+- Anything reached *from* that page, for the same reason.
+
+Do not browser-test against production; the branch exists for this.
+
 ## The immediate next task
 
-**Browser-test the app.** Nothing has ever been exercised in a real browser —
-the previous sandbox was blocked by network policy from reaching
-`*.supabase.co`, so every screen is unverified against live data. The build is
-clean and the logic is tested, but that is not the same thing.
+Get `SUPABASE_SERVICE_ROLE_KEY` for the test branch into `.env.local` and
+browser-test the Manage Users page end to end — invite, edit, delete, reset
+link. The edit and delete actions were added on 2026-08-20 and have never run
+against a live database; they typecheck, lint and build, and nothing more.
 
-A Supabase dev branch exists for exactly this. Do not browser-test against
-production.
+After that, the two questions now at the bottom of `docs/domain-notes.md`
+(whole-address removal) need Ari's answer before the cover sheet can be trusted
+for a real week.
 
 ## Supabase projects
 
@@ -70,15 +108,35 @@ preinstalled at `/opt/pw-browsers/chromium` with `PLAYWRIGHT_BROWSERS_PATH`
 already set — do not run `playwright install`.
 
 Test logins on the branch are `office@example.test` (courier office, sees
-everything) and `voice@example.test` (Voice-only, publication-scoped). The
-passwords are not committed. If they are lost, reset them:
+everything) and `voice@example.test` (Voice-only, publication-scoped). Both
+passwords were reset to `BrowserTest!2026` on 2026-08-20. If they are lost,
+reset them:
 
 ```sql
 update auth.users set encrypted_password = crypt('<new password>', gen_salt('bf'))
 where email = 'office@example.test';
 ```
 
+## What is in the test branch's fixture
+
+Synthetic only, but shaped like the real thing. As of 2026-08-20: zone 1 has a
+direction row and ~10 stops, zone 2 has 4, zone 3 has 1, and **zone 4 has 220
+stops** — added deliberately so the booklet spills across several PDF pages,
+which is the only way to test paging and footer behaviour. `999 HIDDEN LANE` in
+zone 1 is Shopper-only and exists to prove the Voice user cannot see it. Keep
+these if you can; rebuilding them is tedious.
+
 ## Gotchas that have already cost time
+
+- **A hand-inserted `auth.users` row breaks login with a 500.** The fixture's
+  two users were inserted with `confirmation_token`, `recovery_token`,
+  `email_change_token_new` and `email_change` left NULL. GoTrue scans those
+  columns into non-nullable Go strings, so the password grant fails with
+  `{"code":500,"msg":"Database error querying schema"}` — for the *real* user
+  only; a nonexistent email still returns a clean 400, which makes it look like
+  a password problem rather than a data problem. Fix is to set them to `''`
+  (and add an `auth.identities` row). This cost the first part of a session;
+  if you rebuild the fixture, insert users through the Admin API instead.
 
 - **`service_role` bypasses RLS entirely.** Anything verified only through the
   Supabase MCP or a service-role client proves nothing about what a real user

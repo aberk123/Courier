@@ -22,7 +22,10 @@ export function CoverWorkspace({
   sections: { additions: CoverRow[]; deletions: CoverRow[]; changes: CoverRow[]; complaints: CoverRow[] };
   isCourierOffice: boolean;
 }) {
-  const [selected, setSelected] = useState<string[]>(publications.map((pub) => pub.id));
+  // Starts empty on purpose: the publications in a booklet decide what gets
+  // printed AND what "Mark as printed" stamps as delivered, so it has to be a
+  // deliberate choice rather than a default the user can print straight past.
+  const [selected, setSelected] = useState<string[]>([]);
   const [confirming, setConfirming] = useState(false);
 
   const selectedCodes = useMemo(

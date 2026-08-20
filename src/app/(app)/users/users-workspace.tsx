@@ -2,12 +2,16 @@
 
 import { useActionState, useState } from "react";
 import {
+  deleteUser,
   inviteUser,
   sendResetLink,
   setCourierOffice,
   togglePublicationAccess,
+  updateUser,
+  type DeleteUserState,
   type InviteState,
   type ResetLinkState,
+  type UpdateUserState,
 } from "./actions";
 
 export type ManagedUser = {
@@ -22,6 +26,8 @@ type Publication = { id: string; code: string; name: string };
 
 const initialInviteState: InviteState = { error: null, success: null, link: null };
 const initialResetState: ResetLinkState = { error: null, link: null };
+const initialUpdateState: UpdateUserState = { error: null, success: null };
+const initialDeleteState: DeleteUserState = { error: null };
 
 export function UsersWorkspace({
   currentUserId,
@@ -141,6 +147,10 @@ function UserRow({
   isSelf: boolean;
 }) {
   const [resetState, resetAction, resetPending] = useActionState(sendResetLink, initialResetState);
+  const [updateState, updateAction, updatePending] = useActionState(updateUser, initialUpdateState);
+  const [deleteState, deleteAction, deletePending] = useActionState(deleteUser, initialDeleteState);
+  const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
     <li className="py-4">
@@ -204,16 +214,74 @@ function UserRow({
         </p>
       )}
 
-      <form action={resetAction} className="mt-3 flex items-center gap-2">
-        <input type="hidden" name="email" value={user.email} />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <form action={resetAction}>
+          <input type="hidden" name="email" value={user.email} />
+          <button
+            type="submit"
+            disabled={resetPending}
+            className="rounded-lg border border-black/15 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-white/20"
+          >
+            {resetPending ? "Generating…" : "Get password reset link"}
+          </button>
+        </form>
         <button
-          type="submit"
-          disabled={resetPending}
-          className="rounded-lg border border-black/15 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-white/20"
+          type="button"
+          onClick={() => setEditing((value) => !value)}
+          className="rounded-lg border border-black/15 px-3 py-1.5 text-sm font-medium dark:border-white/20"
         >
-          {resetPending ? "Generating…" : "Get password reset link"}
+          {editing ? "Cancel" : "Edit"}
         </button>
-      </form>
+      </div>
+
+      {editing ? (
+        <form
+          action={updateAction}
+          className="mt-3 space-y-2 rounded-xl border border-black/10 p-4 dark:border-white/10"
+        >
+          <input type="hidden" name="userId" value={user.id} />
+          <input type="hidden" name="previousEmail" value={user.email} />
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium">Email</span>
+            <input
+              type="email"
+              name="email"
+              required
+              defaultValue={user.email}
+              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm dark:border-white/20 dark:bg-black"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium">Name</span>
+            <input
+              name="fullName"
+              defaultValue={user.fullName ?? ""}
+              placeholder="Name (optional)"
+              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm dark:border-white/20 dark:bg-black"
+            />
+          </label>
+          <p className="text-xs text-black/60 dark:text-white/60">
+            Changing the email changes how they sign in. Their password is unaffected.
+          </p>
+          {updateState.error ? (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+              {updateState.error}
+            </p>
+          ) : null}
+          {updateState.success ? (
+            <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950 dark:text-green-300">
+              {updateState.success}
+            </p>
+          ) : null}
+          <button
+            type="submit"
+            disabled={updatePending}
+            className="rounded-lg border border-black/15 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-white/20"
+          >
+            {updatePending ? "Saving…" : "Save changes"}
+          </button>
+        </form>
+      ) : null}
 
       {resetState.error ? (
         <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
@@ -234,6 +302,50 @@ function UserRow({
           />
         </div>
       ) : null}
+
+      {deleteState.error ? (
+        <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+          {deleteState.error}
+        </p>
+      ) : null}
+
+      {/* Two-step, matching the address-removal pattern on the zone workspace:
+          this is unrecoverable, so it should never be one stray tap away. */}
+      {isSelf ? null : confirmingDelete ? (
+        <div className="mt-3 space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950">
+          <p className="text-sm text-red-800 dark:text-red-200">
+            Delete {user.email}? They lose access immediately and their publication access is
+            removed. Addresses, complaints and route history are not affected.
+          </p>
+          <div className="flex gap-2">
+            <form action={deleteAction}>
+              <input type="hidden" name="userId" value={user.id} />
+              <button
+                type="submit"
+                disabled={deletePending}
+                className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {deletePending ? "Deleting…" : "Yes, delete this user"}
+              </button>
+            </form>
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(false)}
+              className="rounded-lg border border-black/15 px-3 py-2 text-sm font-medium dark:border-white/20"
+            >
+              Keep them
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirmingDelete(true)}
+          className="mt-3 block text-sm text-red-600 underline underline-offset-2 dark:text-red-400"
+        >
+          Delete this user
+        </button>
+      )}
     </li>
   );
 }

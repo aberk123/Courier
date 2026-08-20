@@ -185,3 +185,97 @@ export async function sendResetLink(
 
   return { error: null, link: confirmUrl(origin, data.properties.hashed_token) };
 }
+
+export type UpdateUserState = { error: string | null; success: string | null };
+
+/**
+ * Edit an existing user's email and display name.
+ *
+ * The email lives in auth.users and the name in profiles, so this touches both:
+ * the email through the Admin API (the only way to change a login), the name
+ * through the RLS client so profiles_update still gates it on courier office.
+ */
+export async function updateUser(
+  _prevState: UpdateUserState,
+  formData: FormData,
+): Promise<UpdateUserState> {
+  const fail = (error: string): UpdateUserState => ({ error, success: null });
+
+  let supabase;
+  try {
+    ({ supabase } = await requireCourierOffice());
+  } catch (error) {
+    return fail((error as Error).message);
+  }
+
+  const userId = String(formData.get("userId") ?? "");
+  const email = String(formData.get("email") ?? "").trim();
+  const previousEmail = String(formData.get("previousEmail") ?? "").trim();
+  const fullName = String(formData.get("fullName") ?? "").trim() || null;
+
+  if (!userId) return fail("Missing user.");
+  if (!email) return fail("Email is required.");
+
+  const changes: string[] = [];
+
+  if (email !== previousEmail) {
+    // email_confirm so the new address is trusted immediately -- without it the
+    // account is left needing a confirmation click that depends on outbound
+    // SMTP, which this project deliberately does not rely on (see inviteUser).
+    const { error } = await createAdminClient().auth.admin.updateUserById(userId, {
+      email,
+      email_confirm: true,
+    });
+    if (error) return fail(error.message);
+    changes.push(`email changed to ${email}`);
+  }
+
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update({ full_name: fullName })
+    .eq("id", userId);
+  if (profileError) return fail(profileError.message);
+
+  revalidatePath("/users");
+  return {
+    error: null,
+    success: changes.length ? `Saved — ${changes.join(", ")}.` : "Saved.",
+  };
+}
+
+export type DeleteUserState = { error: string | null };
+
+/**
+ * Delete a user outright. profiles and user_publication_access both cascade
+ * from auth.users, so removing the auth account takes their access with it.
+ *
+ * Returns state rather than throwing so a failure renders inline on the row
+ * instead of replacing the whole page with the error boundary.
+ */
+export async function deleteUser(
+  _prevState: DeleteUserState,
+  formData: FormData,
+): Promise<DeleteUserState> {
+  let user;
+  try {
+    ({ user } = await requireCourierOffice());
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+
+  const userId = String(formData.get("userId") ?? "");
+  if (!userId) return { error: "Missing user." };
+
+  // Refusing self-deletion is also what keeps at least one courier office
+  // account alive: whoever is doing the deleting necessarily survives it, so
+  // this page can never be orphaned.
+  if (userId === user.id) {
+    return { error: "You can't delete your own account." };
+  }
+
+  const { error } = await createAdminClient().auth.admin.deleteUser(userId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/users");
+  return { error: null };
+}
