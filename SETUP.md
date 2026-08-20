@@ -148,15 +148,16 @@ allowlist is not involved.
 
 ### Post-deploy checks
 
-These are the ones that pass in dev and can still fail in production. **All four
-are still outstanding** — every one of them needs a signed-in session, and the
-deploying session had no production password. They must be run by someone who
-can sign in as `ari@thevoiceoflakewood.com`.
+These are the ones that pass in dev and can still fail in production. The
+deploying session could run none of them — each needs a signed-in session and it
+had no production password. Real use since has settled the first two; **checks 3
+and 4 are still outstanding.**
 
 1. Sign in as `ari@thevoiceoflakewood.com` (already courier-office in production).
-   *Not run.* The sign-in page itself renders on the live domain, and the
-   unauthenticated redirect boundary is confirmed, but no credential was
-   available to complete a login.
+   **Done.** Three production accounts have signed in successfully:
+   `ari@thevoiceoflakewood.com` at 17:21:53 UTC, `rdonath@circmag.com` at
+   17:22:20, and `amrom@mailpak.com` at 18:31:45 on 2026-08-20, each confirmed by
+   `auth.users.last_sign_in_at`.
 2. Generate a password reset link from Manage Users and confirm its host is
    `lakewooddeliveries.com`. Those links are built from `X-Forwarded-Host`, so a
    proxy misconfiguration silently produces links pointing at the wrong domain —
