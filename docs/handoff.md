@@ -68,28 +68,32 @@ the table needs virtualising or paging.
   `/users`, and is refused by RLS on every forged write attempted with their own
   access token — except the two cases now recorded in `docs/domain-notes.md`.
 
-**Two things remain unverified in a browser**, both for the same reason:
+- Manage Users, once Ari supplied the branch's service_role key: the page
+  renders, invite creates a confirmed account with the right publication scope,
+  edit changes email and name, delete removes the account, and the scoped user
+  is still redirected away from `/users`. The self-delete guard was tested
+  adversarially — rewriting the delete form's hidden `userId` to the signed-in
+  user's own id is refused by the server, not just hidden in the UI.
+- The **password-reset flow end to end**, which had also never run: generated a
+  link from Manage Users, opened it in a clean browser, set a password at
+  `/reset-password`, then signed in as that new staffer and confirmed they saw
+  only their own publication's addresses. `/auth/confirm` works, and the link
+  points at our own domain rather than Supabase's `/verify`.
 
-- **The Manage Users page has never rendered.** It needs
-  `SUPABASE_SERVICE_ROLE_KEY`, which the Supabase MCP cannot hand out (it only
-  exposes publishable keys). Without it `createAdminClient()` throws and the
-  page dies before painting. Everything on that page — invite, edit, delete,
-  reset links — is therefore build-verified only. Get the branch's service_role
-  key from the dashboard into `.env.local` and re-test.
-- Anything reached *from* that page, for the same reason.
+Note for whoever tests this next: `SUPABASE_SERVICE_ROLE_KEY` is required for
+`/users` to render at all, and the Supabase MCP cannot supply it (it only
+exposes publishable keys). Get it from the *branch's* dashboard — the branch is
+not in the projects list, since it is a preview branch of `lakewood-courier`;
+go to `https://supabase.com/dashboard/project/txfulvngxgjwdoicurdv` directly, or
+use the branch dropdown. Never point a dev server at production to test this.
 
 Do not browser-test against production; the branch exists for this.
 
 ## The immediate next task
 
-Get `SUPABASE_SERVICE_ROLE_KEY` for the test branch into `.env.local` and
-browser-test the Manage Users page end to end — invite, edit, delete, reset
-link. The edit and delete actions were added on 2026-08-20 and have never run
-against a live database; they typecheck, lint and build, and nothing more.
-
-After that, the two questions now at the bottom of `docs/domain-notes.md`
+The two questions now at the bottom of `docs/domain-notes.md`
 (whole-address removal) need Ari's answer before the cover sheet can be trusted
-for a real week.
+for a real week. Nothing else is known-broken.
 
 Deployment to `lakewooddeliveries.com` (Ari's domain, on Cloudflare) is decided
 and documented in `SETUP.md` — the app goes there, the database stays on its
@@ -104,7 +108,10 @@ cannot be done from a sandboxed session.
 | Test branch `browser-testing` | `txfulvngxgjwdoicurdv` | Same schema, synthetic fixture only. Write freely. |
 
 The branch costs about $9.70/month while it exists. Ask Ari before deleting it,
-and remind him it is still running if the testing work is finished.
+and remind him it is still running if the testing work is finished. Note it is a
+**non-persistent preview branch**: Supabase auto-pauses it after inactivity and
+deletes it when its PR closes, so it may disappear on its own. If it is wanted
+as a standing staging environment, mark it persistent.
 
 ### Getting the app pointed at the branch
 
