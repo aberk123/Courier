@@ -109,9 +109,10 @@ Two things worth knowing:
   list. Fixed: production vars are Production-only, and Preview now points at the
   `browser-testing` branch project. Preview deliberately has no service-role key,
   so `/users` will not render on a preview deployment.
-- **The four post-deploy checks in `SETUP.md` have not been run.** Every one of
-  them needs a signed-in session and the deploying session had no production
-  password. What *was* verified from outside: valid TLS, `/login` renders, and
+- **The post-deploy checks in `SETUP.md` were not run by the deploying session.**
+  Every one of them needs a signed-in session and that session had no production
+  password. Since then, real use has settled the reset-link one (see the incident
+  below); the booklet-PDF and large-import checks are still outstanding. What *was* verified from outside: valid TLS, `/login` renders, and
   the unauthenticated redirect boundary holds on the real domain.
 
 ## The immediate next task
@@ -134,8 +135,11 @@ deliberately has no service-role key.
    route calls `renderToBuffer` and nothing in the app sets `maxDuration`, so it
    runs on Vercel's default function timeout against 2,623 stops. Fix if needed
    is `export const maxDuration = 60` on that route.
-2. **A password reset link's host.** Structurally it looks right, but only a real
-   link proves it, and a wrong one looks fine until someone clicks it.
+2. ~~A password reset link's host.~~ **Effectively done** — a real reset link was
+   generated and used successfully in production on 2026-08-20 (see the incident
+   below), which no wrong-host link could have achieved. Only caveat: that proves
+   the link worked, not which origin it carried, so keep the office on the apex
+   rather than the `*.vercel.app` alias.
 3. **A >1 MB import — upload and review only, do not apply.** That exercises the
    body-size cap without writing to the real list.
 
@@ -311,10 +315,50 @@ constraints, indexes, function bodies, and all 18 policies match by checksum.
 also a drift check. Keep it that way: apply schema changes as migration files,
 not as ad-hoc SQL in the dashboard.
 
+## Incident: "Invalid login credentials" after a password reset (2026-08-20)
+
+Amrom could not sign in. The login itself was working correctly; the problem was
+one step earlier, and the shape of it will recur, so it is worth knowing.
+
+What the auth logs showed, in order:
+
+1. `18:31:37` a reset link was generated from Manage Users.
+2. `18:31:45` he opened it — `/verify` succeeded and logged him in. This is also
+   the last time `auth.users.updated_at` changed for him.
+3. `18:34`–`18:35` he re-clicked the same link: "One-time token not found".
+   Recovery links are single-use, so a second click always fails.
+4. `18:40:06` he submitted a new password and Supabase **refused it**: "Password
+   is known to be weak and easy to guess, please choose a different one."
+5. `18:44` he tried to sign in with that password: `400 Invalid login
+   credentials` — correctly, because it was never saved.
+
+`updated_at` still being `18:31:45` is what proves step 4 saved nothing.
+
+The diagnosis is worth repeating because the symptom points at the wrong screen.
+"Invalid login credentials" on `/login` meant the *reset* had failed, not the
+login. Note also the distinction already recorded under Gotchas: a wrong password
+or unknown email gives a clean `400 Invalid login credentials`, whereas a
+hand-inserted `auth.users` row with NULL token columns gives a `500 Database
+error querying schema`. Amrom's was the 400, which is what ruled out the schema
+bug immediately.
+
+Fixed on the app side: `/reset-password` now says up front that leaked passwords
+are rejected, and rewrites that particular refusal to lead with "That password
+was not saved". The raw Supabase wording reads like advice rather than a
+rejection, which is how a careful person ends up believing the change went
+through.
+
+Operationally, a staffer in this state needs a **fresh** link — theirs is already
+consumed — and a password that is not in the breach list. Three or four unrelated
+words clears it comfortably.
+
 ## Open with Ari
 
-- Leaked-password protection is still disabled (Supabase → Authentication →
-  Sign In / Providers → Email). It cannot be set via SQL.
+- Leaked-password protection is now **enabled** on production (it was disabled
+  when this file was first written). Confirmed from the auth logs, not the
+  dashboard: a password update on 2026-08-20 was refused with "Password is known
+  to be weak and easy to guess". Keep it on — but see the incident below, because
+  it has already confused one real user.
 - The real weekly spreadsheet from The Voice has never been seen. The importer
   matches header names loosely and will probably need new aliases on first
   contact; if the address arrives as one cell rather than separate house-number

@@ -161,12 +161,15 @@ can sign in as `ari@thevoiceoflakewood.com`.
    `lakewooddeliveries.com`. Those links are built from `X-Forwarded-Host`, so a
    proxy misconfiguration silently produces links pointing at the wrong domain —
    and they look fine until someone clicks one.
-   *Partially evidenced, not run.* `siteOrigin()` in
-   `src/app/(app)/users/actions.ts` reads `x-forwarded-host`, and the live
-   domain's own redirects come back as absolute URLs on
-   `https://lakewooddeliveries.com`, so the forwarded host is reaching the app
-   correctly. That is the same header the link is built from, but it is not the
-   same code path — still worth eyeballing one real link.
+   **Effectively confirmed in production on 2026-08-20, by real use rather than
+   by testing.** A reset link generated from Manage Users at 18:31:37 was opened
+   by its recipient at 18:31:45: `/auth/confirm` ran, Supabase logged a
+   successful `/verify` and a `Login`, and `auth.users.last_sign_in_at` moved. A
+   link pointing at the wrong host could not have produced any of that, since the
+   recipient would never have reached our own route. The one thing this does not
+   pin down is *which* origin the link carried — that depends on the host the
+   office had open when generating it — so if the office ever works from the
+   `*.vercel.app` alias, links will carry that instead of the apex.
 3. Download a booklet PDF for a real zone. Production has 2,623 stops across 5
    zones; the largest route is far bigger than anything tested on the branch, and
    PDF rendering is the heaviest thing in the app.
