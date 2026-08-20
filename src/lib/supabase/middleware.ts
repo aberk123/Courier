@@ -27,15 +27,20 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
+  const isLoginRoute = request.nextUrl.pathname.startsWith("/login");
+  // The password-reset link lands here before the visitor is signed in
+  // (code exchange happens on the page itself) and they stay signed in
+  // afterwards to set a new password, so this route is exempt from both
+  // redirect rules below.
+  const isResetPasswordRoute = request.nextUrl.pathname.startsWith("/reset-password");
 
-  if (!user && !isAuthRoute) {
+  if (!user && !isLoginRoute && !isResetPasswordRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  if (user && isAuthRoute) {
+  if (user && isLoginRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);

@@ -7,6 +7,13 @@ and publishable (anon) key (Supabase dashboard → Settings → API). The
 Supabase project itself (`lakewood-courier`, in the MyMatSH org) already
 has the schema applied — see `supabase/migrations/` for what ran.
 
+Also set `SUPABASE_SERVICE_ROLE_KEY` (same API settings page, "service_role"
+key — **not** the publishable/anon key) as a **server-only** env var, both
+in `.env.local` and in Vercel's project environment variables. It powers the
+Manage Users page (inviting users, generating password-reset links via the
+Supabase Admin API). Never prefix it with `NEXT_PUBLIC_` — it bypasses Row
+Level Security entirely and must never reach the browser.
+
 ## Bootstrapping the first admin (courier office) account
 
 There's a chicken-and-egg problem on a fresh database: access is
@@ -25,9 +32,11 @@ access rows yet. To create the first admin:
    where id = (select id from auth.users where email = 'the-real-admin-email@example.com');
    ```
 
-From there, that account can be used to grant scoped
-`user_publication_access` rows to other staff (once an admin UI for that
-exists — not yet built; do it via the SQL editor for now).
+From there, that account can sign in and use the "Manage users" page
+(visible in the header for courier-office accounts) to invite other staff,
+set their courier-office/publication-scoped access, and generate
+password-reset links — no more manual SQL needed beyond this first
+bootstrap step.
 
 ## Local development
 
