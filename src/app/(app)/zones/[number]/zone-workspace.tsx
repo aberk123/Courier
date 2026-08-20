@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   createStop,
@@ -81,11 +82,21 @@ export function ZoneWorkspace({
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
-      <h1 className="text-2xl font-semibold">{zoneName ?? `Zone ${zoneNumber}`}</h1>
-      <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-        In delivery order. {stopCount} {stopCount === 1 ? "address" : "addresses"}
-        {query ? " matching" : ""}.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">{zoneName ?? `Zone ${zoneNumber}`}</h1>
+          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+            In delivery order. {stopCount} {stopCount === 1 ? "address" : "addresses"}
+            {query ? " matching" : ""}.
+          </p>
+        </div>
+        <Link
+          href={`/zones/${zoneNumber}/cover`}
+          className="shrink-0 rounded-lg border border-black/15 px-3 py-1.5 text-sm dark:border-white/20"
+        >
+          Cover sheet &amp; print
+        </Link>
+      </div>
 
       {truncated ? (
         <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">

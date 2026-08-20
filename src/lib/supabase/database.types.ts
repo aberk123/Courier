@@ -365,6 +365,10 @@ export type Database = {
         Returns: string
       }
       is_courier_office: { Args: { p_user_id?: string }; Returns: boolean }
+      mark_cover_sheet_printed: {
+        Args: { p_zone_id: string; p_publication_ids: string[] }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never
