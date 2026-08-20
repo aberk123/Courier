@@ -1,0 +1,12 @@
+-- Making apply_stop_publication_event security definer exposed it at
+-- /rest/v1/rpc/, which the Supabase linter flags. Postgres refuses to call a
+-- trigger function directly anyway, but there is no reason for it to be
+-- callable, so take the grant away.
+--
+-- Safe here specifically because this function is NOT referenced by any RLS
+-- policy. Revoking EXECUTE from PUBLIC on a function that IS referenced by a
+-- policy breaks every query for every user with 42501 -- that is what happened
+-- with can_access_stop, and why is_courier_office/can_access_stop/
+-- accessible_publication_ids must keep their grants. Trigger firing does not
+-- consult the caller's EXECUTE privilege; it is checked at CREATE TRIGGER time.
+revoke execute on function public.apply_stop_publication_event() from public, anon, authenticated;
