@@ -151,10 +151,11 @@ integration — not MVP-blocking)**
   also needs a publication dimension. A user (or org) tied to one
   publication should not automatically see or edit another publication's
   subscriber list, exports, or publication-specific notes/complaints.
-  Whether The Voice is the sole operator with the others as read/scoped
-  participants, or each publication is a fully independent tenant, is
-  still open — but the schema needs a publication-scoped access layer
-  either way, not a single flat permission model.
+  **Resolved 2026-08-20 by Ari: The Voice is the sole operator and the
+  other publications are scoped participants** — not independent
+  tenants. Ari may revisit and make them fully independent later, so
+  keep the publication-scoped access layer general enough to support
+  that, but do not build multi-tenant isolation now.
 - **2026-08-19 — export must support arbitrary publication combinations.**
   Not just single-publication or full-14-bundle: publications are
   sometimes delivered in combinations, so export needs to accept any
@@ -222,20 +223,35 @@ exact structure shown in the zone samples) **plus** a cover sheet.
   list (which stops appear) and the cover sheet (title, and which
   publications' additions/deletions/changes/complaints appear).
 
-## Open items to confirm with Amrom before/while building
+## Route ordering (confirmed by Ari 2026-08-20)
+
+- **Route order is the default view.** The zone screen renders the
+  `route_entries` sequence as imported — driving-direction rows
+  interleaved in position with the stops they precede — not an
+  alphabetical street listing. Search filters that list while keeping
+  route order, so a staffer looking someone up also sees where they
+  fall in the run.
+- Consequence for writes: any stop created in-app must be given a
+  `route_entries` row, or it is invisible in the default view. New
+  stops are placed after the last existing stop on the same street,
+  falling back to the end of the route when that street is not yet in
+  the sequence.
+
+## Items to confirm with Amrom (neither is blocking)
+
+Both only matter once export / the cover sheet exist, and both have a
+high-confidence default we are building on rather than waiting.
 
 - **Combination export inclusion logic: ALL vs ANY.** "Any combination"
   (confirmed 2026-08-19) means the export accepts an arbitrary subset
   of publications, but doesn't say whether a stop needs to receive
   *every* selected publication to appear, or just *any one* of them.
-  Working assumption, not yet confirmed: **ANY** — a stop should
-  appear if it receives at least one of the selected publications,
-  since the courier still has to physically visit it regardless of
-  which of the bundled publications it gets. Confirm before locking
-  in the query logic; getting this wrong means either missed
-  deliveries (if ALL is used) or bloated routes (if the true intent
-  was ALL and we default to ANY).
+  **Building on ANY** — the courier carries the selected publications
+  on one run and physically visits any stop needing at least one of
+  them, so ALL only makes sense as an analytics question, not a routing
+  one. Flag on the first export for confirmation.
 - **Addition row format** — no real example yet (only a deletion and a
-  complaint appear in the one sample). By symmetry with the confirmed
-  deletion row, presumably `Name · Address · Add {Publication}`, but
-  this is inference, not a confirmed example — get one from Amrom.
+  complaint appear in the one sample). **Building the symmetric form**
+  of the confirmed deletion row: `Name · Address · Add {Publication}`.
+  Cheap to change; show Amrom the first rendered booklet and let him
+  correct it on a real page rather than describing it in the abstract.

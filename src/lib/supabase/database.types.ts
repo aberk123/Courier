@@ -352,6 +352,18 @@ export type Database = {
         Args: { p_stop_id: string; p_user_id?: string }
         Returns: boolean
       }
+      create_stop_in_route: {
+        Args: {
+          p_zone_id: string
+          p_recipient_name: string | null
+          p_house_number: string
+          p_street: string
+          p_floor_side: string | null
+          p_special_instructions: string | null
+          p_publication_ids: string[]
+        }
+        Returns: string
+      }
       is_courier_office: { Args: { p_user_id?: string }; Returns: boolean }
     }
     Enums: {
