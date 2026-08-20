@@ -115,33 +115,40 @@ Two things worth knowing:
   below); the booklet-PDF and large-import checks are still outstanding. What *was* verified from outside: valid TLS, `/login` renders, and
   the unauthenticated redirect boundary holds on the real domain.
 
+## PR #2 merged and deployed — 2026-08-20
+
+Merged as `ab6ddac`; production deployed from it and was verified from outside:
+
+- A scanner-style GET of `/auth/confirm?token_hash=…` now returns 200 with the
+  "Set your password" form instead of redirecting to the expired page. The token
+  is only spent on the explicit POST, so preview fetches are harmless.
+- The expired page names the likely cause.
+- The Remove button works again — the code matching the new trigger is live.
+
+Also done in that pass:
+
+- **The three stray sessions were revoked** (two on Amrom, one on Donath),
+  created by whatever spent their links. Ari's own session was left alone, the
+  refresh tokens cascaded, and Amrom's *pending* link was checked to still be
+  intact first — revoking sessions does not touch `auth.one_time_tokens`.
+- **The booklet PDF was measured rather than guessed.** See `SETUP.md`: a
+  synthetic 735-entry route renders in 3.6–3.9s / 14 pages on a production
+  build, so the feared timeout is not close. `maxDuration = 60` is set on the
+  route regardless, for cold-start headroom.
+
 ## The immediate next task
 
-Two things, in this order.
+**One post-deploy check is left** (see `SETUP.md` for all four): **import a
+spreadsheet over 1 MB — upload and review only, do not click apply.** That
+exercises the Server Action body-size cap without writing a row to the real
+list. It needs a signed-in production session, which is the only reason it is
+still open.
 
-**1. Merge PR #2** (`claude/deploy-lakewooddeliveries-lovr9i`) — its migration is
-already applied to production, so the merge is the remaining half and it clears
-the live Remove-button breakage described below. The repo has no CI workflows, so
-only Vercel's own build gates it; that build is green. The PR's preview
-deployment points at the `browser-testing` project (verified: the Preview env
-vars were re-scoped at 17:00 UTC, the preview built at 18:24), so it is safe to
-click and exercise — though `/users` will not render there, since Preview
-deliberately has no service-role key.
-
-**2. Run the four post-deploy checks** (see `SETUP.md`), signed in as
-`ari@thevoiceoflakewood.com`. Ranked by how likely they are to find something:
-
-1. **Booklet PDF for the largest real route.** The most likely to fail. The
-   route calls `renderToBuffer` and nothing in the app sets `maxDuration`, so it
-   runs on Vercel's default function timeout against 2,623 stops. Fix if needed
-   is `export const maxDuration = 60` on that route.
-2. ~~A password reset link's host.~~ **Effectively done** — a real reset link was
-   generated and used successfully in production on 2026-08-20 (see the incident
-   below), which no wrong-host link could have achieved. Only caveat: that proves
-   the link worked, not which origin it carried, so keep the office on the apex
-   rather than the `*.vercel.app` alias.
-3. **A >1 MB import — upload and review only, do not apply.** That exercises the
-   body-size cap without writing to the real list.
+The other three are settled: signing in is proven by three real accounts, the
+reset-link host by a link that a recipient actually used, and the booklet PDF by
+measurement (3.6–3.9s for a 735-entry route). One standing caveat from the
+reset-link one: generated links carry whatever host the office had open, so keep
+staff on `lakewooddeliveries.com` rather than the `*.vercel.app` alias.
 
 ## Whole-address removal — answered and built 2026-08-20
 

@@ -53,6 +53,30 @@
   changes data the cover sheet prints weekly shouldn't be invisible
   in-app until next week's export.
 
+## Navigation (Ari, 2026-08-20)
+
+Ari asked for "a navigation bar on top to be able to choose a previous page or
+the home page." The header had a home link but no way to move *up*: from a cover
+sheet the only route back to its own route was one "Route" button, and the only
+way home was the wordmark, which does not read as a link to non-technical staff.
+
+Built as a breadcrumb trail under the header — `Home / Zone 2 / Cover sheet &
+print` — every ancestor a link, the current page plain text rather than a dead
+link. Recognition over recall: the trail says where you are as well as offering
+where to go, so nobody has to remember which route they opened.
+
+Two details worth keeping:
+
+- **Zone labels come from the database, not the URL.** A route Ari has named
+  reads as its name in the trail; only an unnamed one falls back to "Zone N".
+  All five are currently unnamed, so the distinction is invisible today and will
+  matter the moment he names one.
+- **No trail on the home screen.** It would say only "Home", which is noise.
+
+The existing "Route" and "Cover sheet & print" buttons were deliberately left in
+place. They duplicate the trail, but they are large touch targets and staff may
+already use them; removing a working affordance is the riskier change.
+
 ## Open items
 
 - No wireframes exist yet — this document is principles, not mockups.

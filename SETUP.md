@@ -150,8 +150,8 @@ allowlist is not involved.
 
 These are the ones that pass in dev and can still fail in production. The
 deploying session could run none of them — each needs a signed-in session and it
-had no production password. Real use since has settled the first two; **checks 3
-and 4 are still outstanding.**
+had no production password. Real use has since settled the first two and the
+third has been measured, so **only check 4 is still outstanding.**
 
 1. Sign in as `ari@thevoiceoflakewood.com` (already courier-office in production).
    **Done.** Three production accounts have signed in successfully:
@@ -172,19 +172,21 @@ and 4 are still outstanding.**
    office had open when generating it — so if the office ever works from the
    `*.vercel.app` alias, links will carry that instead of the apex.
 3. Download a booklet PDF for a real zone. Production has 2,623 stops across 5
-   zones; the largest route is far bigger than anything tested on the branch, and
-   PDF rendering is the heaviest thing in the app.
-   *Not run, and this is the one most likely to actually fail.*
-   `src/app/(app)/zones/[number]/booklet/route.tsx` calls `renderToBuffer`,
-   which builds the whole PDF in memory in one shot, and **no route in the app
-   exports `maxDuration`** — so the booklet runs on Vercel's default function
-   timeout. If the largest real route times out or runs out of memory, add
-   `export const maxDuration = 60` (or higher, plan permitting) to that route
-   before reaching for anything more invasive.
+   zones and the largest route is 735 entries.
+   **Measured, and the risk turned out to be small.** A synthetic 735-entry
+   route (1,102 publication links) was rendered through the real route handler
+   on a production build: **3.6–3.9 seconds, 14 pages**, valid PDF, correct
+   dated filename. The 220-entry fixture zone took 1.1–2.6s. So rendering is
+   roughly linear and nowhere near a timeout.
+   `export const maxDuration = 60` is set on that route anyway — `renderToBuffer`
+   builds the whole document in one pass, and 60s is the ceiling on every Vercel
+   plan, so it is safe to set and leaves ~15x headroom for a cold start. Still
+   worth downloading one real booklet before print day, but a timeout is no
+   longer the thing to expect.
 4. Import a spreadsheet over 1 MB. If it 500s, the `bodySizeLimit` setting in
    `next.config.ts` did not ship — meaning the deploy came from the wrong branch.
-   *Cause ruled out, functional run still pending.* The live build is `main` @
-   `7622734`, and that commit's `next.config.ts` does carry
+   *Cause ruled out, functional run still pending.* Production now serves `main`
+   @ `ab6ddac` (the PR #2 merge), and `next.config.ts` there carries
    `bodySizeLimit: "6mb"`, so the wrong-branch failure mode is excluded.
    When running this for real, **upload and review only — do not click apply.**
    The check is about whether the upload survives the body-size cap, and

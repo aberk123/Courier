@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "./actions";
+import { Breadcrumbs } from "./breadcrumbs";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -8,9 +9,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: profile } = user
-    ? await supabase.from("profiles").select("is_courier_office").eq("id", user.id).single()
-    : { data: null };
+  const [{ data: profile }, { data: zones }] = await Promise.all([
+    user
+      ? supabase.from("profiles").select("is_courier_office").eq("id", user.id).single()
+      : Promise.resolve({ data: null }),
+    // Five rows, so cheap enough to fetch on every page in exchange for a trail
+    // that shows a route's real name rather than its number.
+    supabase.from("zones").select("number, name"),
+  ]);
+
+  const zoneLabels = Object.fromEntries(
+    (zones ?? []).map((zone) => [String(zone.number), zone.name ?? `Zone ${zone.number}`]),
+  );
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
@@ -35,6 +45,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </form>
         </div>
       </header>
+      <Breadcrumbs zoneLabels={zoneLabels} />
       <main className="flex flex-1 flex-col">{children}</main>
     </div>
   );
