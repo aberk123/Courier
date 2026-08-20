@@ -320,28 +320,56 @@ not as ad-hoc SQL in the dashboard.
 Amrom could not sign in. The login itself was working correctly; the problem was
 one step earlier, and the shape of it will recur, so it is worth knowing.
 
-**Two separate things went wrong, and the second one hid the first.**
+**Two separate bugs, and the second one hid the first.**
 
-The headline cause: **a password reset link authenticates as its recipient and is
-single-use, so opening one to "check it works" both consumes it and signs the
-checker in as that person.** Ari opened Amrom's link on his own computer; Amrom
-then got "expired" because it had already been spent, and Ari's browser was at
-that point signed in *as Amrom*. Production ended up with two live sessions on
-Amrom's account, at 17:24:01 and 18:31:45 — the two times a link was
-successfully opened — while Amrom himself never got in at all.
+*A first pass at this blamed the sender for opening the links to test them. That
+was wrong, and worth recording as a warning about plausible-but-unverified
+diagnoses. Both recipients — Amrom and Donath — hit "expired" on their **first**
+tap, before anyone else had touched their link. Two independent people failing
+the same way is a system bug, not user error.*
 
-The second cause: the replacement password never saved. Leaked-password
-protection refused it, and the refusal reads like advice, so it looked like it
-had worked.
+**Cause 1: `/auth/confirm` spent the one-time token on a plain GET.** These links
+are single-use, and a link sent by text or email is fetched by things that are not
+the recipient — iMessage/WhatsApp building a preview card, Outlook Safe Links and
+other mail scanners, antivirus, corporate proxies. Whichever touched the URL first
+consumed the token; the actual person then got "expired". The Manage Users copy
+even suggested sending it by "text, email", which is exactly what triggers a
+preview fetch.
+
+Confirmed empirically rather than reasoned: a single unauthenticated POST to
+GoTrue's `/verify` with a token — precisely what the old GET handler did on *any*
+fetch — returns `200` and removes the row from `auth.one_time_tokens`. One
+automated fetch was enough.
+
+Fixed: `/auth/confirm` is now a page, not a Route Handler. The GET only renders a
+"Set your password" form; the token is spent by a Server Action on explicit POST.
+A preview fetch renders the page and changes nothing. Verified in Chromium
+against the test branch — two scanner GETs followed by a successful human
+Continue, and correct refusal on reuse.
+
+**Cause 2: the replacement password never saved.** Leaked-password protection
+refused it, and the refusal reads like advice, so it looked like it had worked.
+
+One further consequence worth knowing: because a recovery link authenticates *as
+its recipient*, pressing Continue signs the opener in as that person. Production
+accumulated two live sessions on Amrom's account, at 17:24:01 and 18:31:45 — the
+two times a link was successfully spent — while Amrom never got in. Those
+sessions belong to whatever consumed the links. Revoking them is harmless
+housekeeping.
 
 What the auth logs showed, in order:
 
-1. `18:31:37` a reset link was generated from Manage Users.
-2. `18:31:45` he opened it — `/verify` succeeded and logged him in. This is also
-   the last time `auth.users.updated_at` changed for him.
-3. `18:34`–`18:35` he re-clicked the same link: "One-time token not found".
-   Recovery links are single-use, so a second click always fails.
-4. `18:40:06` he submitted a new password and Supabase **refused it**: "Password
+1. `17:23:10` a link was generated for Amrom; `17:24:01` something spent it
+   successfully. `17:22:10`–`17:22:21` shows the same shape for Donath: a
+   success, then a second `/verify` **one second later** that failed — the
+   signature of an automated fetch beating the human to it.
+2. `18:08`–`18:28` Amrom's own taps: "One-time token not found", every time.
+3. `18:31:37` a fresh link was generated; `18:31:45` it was spent — the one time
+   somebody got through. This is also the last time `auth.users.updated_at`
+   changed for him.
+4. `18:34`–`18:35` further taps: "One-time token not found". Single-use, already
+   spent.
+5. `18:40:06` a new password was submitted and Supabase **refused it**: "Password
    is known to be weak and easy to guess, please choose a different one."
 5. `18:44` he tried to sign in with that password: `400 Invalid login
    credentials` — correctly, because it was never saved.

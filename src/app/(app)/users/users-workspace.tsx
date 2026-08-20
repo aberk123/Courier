@@ -107,8 +107,9 @@ export function UsersWorkspace({
           {inviteState.link ? (
             <>
               <p className="text-xs text-black/60 dark:text-white/60">
-                Send this link to the new staffer. <strong>Don&apos;t open it yourself</strong>{" "}
-                — it works only once, and opening it signs you in as them.
+                Send this link to the new staffer.{" "}
+                <strong>Don&apos;t open it yourself</strong> — it works only once, and using it
+                signs you in as them.
               </p>
               <input
                 readOnly
@@ -297,11 +298,11 @@ function UserRow({
       {resetState.link ? (
         <div className="mt-2 space-y-1">
           <p className="text-xs text-black/60 dark:text-white/60">
-            Send this link to {user.email} however you like (text, email).{" "}
-            <strong>Don&apos;t open it yourself</strong> — it works only once, so opening it
-            here would use it up and they&apos;d be told the link had expired. It also signs
-            whoever opens it in as {user.email}, so testing it means browsing as them. If
-            they say it expired, generate a fresh one; each new link cancels the last.
+            Send this link to {user.email} however you like (text, email). They&apos;ll open it
+            and press Continue to choose their own password.{" "}
+            <strong>Don&apos;t open it yourself</strong> — pressing Continue signs whoever did
+            it in as {user.email}. Each new link cancels the previous one, so generate one
+            link and send that.
           </p>
           <input
             readOnly
