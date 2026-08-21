@@ -375,6 +375,50 @@ appear nowhere in the file.
   picks up weekly changes, not a decision about whose list is authoritative.
   **That question is still open** and must be settled before any real apply.
 
+### Match by address only, and count (Ari, 2026-08-21)
+
+Ari, after spot-checking a sample and finding my unit assignments wrong: *"why do
+we need to use surname matching? I think that's adding an item that can cause
+more complexity. I think rather just match addresses. If there are two of the
+same address, then keep two of the same thing again in the delivery list as
+well."*
+
+**Reconciliation is a count per address, not an identity match.** For each
+(house number, street): compare how many lines we hold against how many the file
+has. More in the file → add that many lines. Fewer → remove that many. Equal →
+no change. Names are never compared, and no unit is assigned.
+
+Measured against issue 907, this is not a worse answer — it is the same answer
+without the guessing:
+
+| Method | Additions | Deletions |
+| --- | --- | --- |
+| Surname + unit matching | 86 | 60 |
+| Address counting only | 88 | 60 |
+
+It also removes three real errors that surname matching had introduced into a
+hand-built sample: an addition placed on the upstairs unit when the file said
+`BSMT`, a kept row placed on the wrong unit, and an address counted as matched
+when the file's household was neither of ours. Under counting, all three are
+either "one line, driver picks the door" or "no change".
+
+And it is immune to the two sources spelling one family differently, which they
+do constantly: DIAMANT/DIAMOND, NOSENCHUCK/NOSENCHUK, HERSKOWITZ/HERSHKOWITZ,
+Neuhaus/NEWHOUSE, ZELKOWITZ/ZELKOVITZ, KOEGEL/KOGEL, Kaplan/KAPLUN,
+KRONGLAS/KRONGLASS, Weinreb/WEINRIB. Nine of twenty apparent name conflicts were
+just spelling.
+
+**Accepted limitation:** counting cannot notice a change of occupant. 12
+BRIDGEWOOD went Greenwald → Pressburger between our list and the file, and
+counting calls that no change. That is correct for the courier — still one paper
+to that door. Only the publication's billing would care.
+
+**Implementation note:** when a count drops from 2 to 1 at an address, either of
+our two stops may lose the publication; the driver treats them as
+interchangeable. Today no Mishpacha address is held twice, so the case does not
+yet arise. The 907 file does list three of our addresses twice (17 NEWBERRY,
+5 CEDAR, 55 CANARY), so it will.
+
 ### Most "additions" are not new addresses
 
 Measured on zone 1: of the 10 additions the 907 file implies, **nine are
