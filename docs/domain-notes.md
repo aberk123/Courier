@@ -340,6 +340,59 @@ run, because the sample files' columns trail off before showing them:
 each and Hundred currently reaches none, so the exposure is small — but a wrong
 letter on a route sheet is a misdelivery.
 
+## The real publication master list — measured 2026-08-21
+
+Ari supplied two genuine Mishpacha subscriber reports (issues 906 and 907) and
+said *"the Mishpacha list that we have now in the system should match the 907
+list."* **It does not.** Measured, not assumed:
+
+| Comparison | Result |
+| --- | --- |
+| 906 vs 907, streets we deliver | 2 dropped, 3 added |
+| **907 vs our Mishpacha list** | **60 deletions, 86 additions, 107 matched** |
+
+The first row is the control: two consecutive weeks of the publication's own file
+differ by five addresses, which is believable churn and proves the parsing and
+matching work. The second row therefore is not a matching artifact — **our list
+and Mishpacha's list have genuinely diverged.** Our data came from Amrom's route
+spreadsheets, which the courier maintains by hand; the file is Mishpacha's own
+billing view. Whole streets we carry (CLAIRE DR, PRINCEWOOD AVE, STONEWALL CT)
+appear nowhere in the file.
+
+**Consequence: the first master-list import is a data-reconciliation event of
+~150 changes, not a routine week of ~5.** It must not be auto-applied.
+
+### What the real file actually looks like
+
+Nothing like what the importer currently expects:
+
+- **Legacy `.xls`** (BIFF8, Excel 97). `exceljs` cannot read it and the upload
+  only accepts `.csv`/`.txt`/`.xlsx`, so today the file is rejected outright.
+- **No header row.** Data starts at row 0.
+- **Three columns**: last name, first name(s), and the whole address in **one
+  cell** — `1 DEBRA WAY`.
+- **No action column** and **no publication column**. It is a plain list, so the
+  publication has to be chosen by the user at upload time, and additions and
+  deletions can only come from comparing.
+- **1801 rows covering all of Lakewood.** Only ~169 fall on the 71 streets our
+  five routes cover; 1619 addresses across 778 streets do not. Deletions must be
+  scoped to what we actually deliver, or the diff would try to cancel nothing and
+  add 1600 addresses to routes that do not exist.
+
+### Address variants that break naive matching
+
+Found in the real file, each of which produced a false deletion or a false
+addition before being handled:
+
+- `7 SHENANDOAH DR BSMT` — floor/side rides along in the address cell.
+- `1024 NETHERWOOD DR # A` — unit marker likewise.
+- `12 SHENANDOAH DRV`, `140 LANCEWOOD CRT` — suffix abbreviations absent from
+  our table (`DRV`, `CRT`).
+- `6 SHENANDOAH` — no street suffix at all.
+
+Handling these moved matched from 101 to 107 out of 167. The remainder is real
+divergence, not spelling.
+
 ## Items to confirm with Amrom (neither is blocking)
 
 Both only matter once export / the cover sheet exist, and both have a
