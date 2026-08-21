@@ -77,6 +77,34 @@ The existing "Route" and "Cover sheet & print" buttons were deliberately left in
 place. They duplicate the trail, but they are large touch targets and staff may
 already use them; removing a working affordance is the riskier change.
 
+## Courier booklet legibility (Ari, 2026-08-20)
+
+Three rounds, each driven by Ari looking at a real printed page rather than a
+mockup — worth remembering that none of these were caught by reading the code:
+
+1. Publications were full names in small grey text. Now the drivers' own single
+   letters, 13.5pt bold black. See `docs/domain-notes.md` for the letters.
+2. Rows were too tight to follow down the page. Spacing opened up, accepting
+   more pages; the measured cost is in `docs/domain-notes.md`.
+3. With airy rows, the eye had too far to travel from the address on the left to
+   the letters on the right. Alternate rows now carry a `#f4f4f4` band.
+
+The zebra brought one thing with it: direction rows were `#eee`, which stopped
+reading as different once the stripes arrived. They are now `#d8d8d8`, so the
+hierarchy is white → `#f4f4f4` stops → `#d8d8d8` driving instructions. A driving
+instruction has to stay the loudest thing on the page.
+
+The stripes cost no extra pages: the row gap moved from `marginBottom` to
+`paddingVertical` so the band fills the row, which keeps row height identical.
+
+## Import screen
+
+- **The file input must look like a button.** Ari: *"there's a button to choose
+  file. It's just text. It doesn't look like a button."* Styled via Tailwind's
+  `file:` modifiers so it stays a real `<input type="file">` — keyboard and
+  screen-reader behaviour unchanged — while rendering as an outlined button.
+  Deliberately outlined, not filled, so "Review file" stays the primary action.
+
 ## Open items
 
 - No wireframes exist yet — this document is principles, not mockups.
