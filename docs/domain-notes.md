@@ -419,6 +419,31 @@ interchangeable. Today no Mishpacha address is held twice, so the case does not
 yet arise. The 907 file does list three of our addresses twice (17 NEWBERRY,
 5 CEDAR, 55 CANARY), so it will.
 
+### What this does NOT change: the printed floor label (Ari, 2026-08-21)
+
+Asked whether the upstairs/basement label should stop printing, since the driver
+can infer it when an address appears twice, Ari was specific: *"Keep all labels.
+If there is currently no label at an address, keep it that way but don't delete
+two of the same address. Most likely one is upstairs and one is downstairs. But
+we don't need to add a label to it if it's not currently there."*
+
+So the booklet's printing is unchanged. The rules are:
+
+- **Keep every floor label we already hold.** 1,305 active stops carry one, and
+  292 of those are the only unit at their address — there the label is the only
+  thing telling the driver which of two doors, so dropping it would have been a
+  misdelivery risk. This is why the label was not removed.
+- **Never invent a label.** An address with no floor label keeps none. The
+  importer must not guess "upstairs" or "basement" for a new line.
+- **Never collapse two identical addresses.** If the file lists an address twice,
+  the delivery list carries it twice. The driver assumes one door each. Two bare
+  identical lines are correct output, not a bug to be deduplicated.
+- **Apartment numbers always print.** They are not in `floor_side` at all —
+  `floor_side` only ever holds `upstairs`, `basement` or nothing. Apartments live
+  in the instructions column (35 stops, e.g. `APT 409` in the Cedar Bridge
+  buildings) and print regardless. A 40-unit building cannot be inferred the way
+  a two-family house can.
+
 ### Most "additions" are not new addresses
 
 Measured on zone 1: of the 10 additions the 907 file implies, **nine are
