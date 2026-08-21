@@ -301,10 +301,26 @@ large and bold.
 
 - **13.5pt bold black**, against 9.5pt body text — the largest thing on the row
   by a clear margin.
-- **Row height is unchanged**, so no booklet gains a page. Measured: 57 stop rows
-  per page before and after, zone 4 of the fixture at 5 pages either way. This
-  works because the letters are all capitals with no descenders, so their line
-  box can be set tighter than their font size without clipping.
+- **Rows are spaced for legibility, not for paper.** The first version squeezed
+  the letters' line box so row height stayed identical and no booklet gained a
+  page. Ari looked at it and rejected that trade: *"The lines are too close on
+  top of each other. There should be more space so that it's easier to follow the
+  list, even if some zones will take up an extra page."* So the letters now sit
+  at their natural height and the row gap is `marginBottom: 5`.
+
+  What that costs, measured rather than guessed — rows per route page and the
+  resulting page count for the largest real route (735 entries):
+
+  | Row gap | Rows/page | Pages for 735 |
+  | --- | --- | --- |
+  | 1.5 (the rejected tight version) | 57 | 14 |
+  | 3 | 44 | 18 |
+  | 4 | 41 | 19 |
+  | **5 (shipped)** | **39** | **20** |
+
+  Most of the loss comes from letting the letters sit at natural height, not from
+  the margin itself. Do not shrink this back to save paper without asking Ari —
+  the gap is the point.
 - The letters are **per publication in the database** (`publications.courier_letter`),
   not hardcoded, so the office can correct one without a deploy. A unique index
   stops two publications sharing a letter, which would make a route sheet
