@@ -33,7 +33,12 @@ export type BookletStop = {
   street: string;
   floorSide: string | null;
   instructions: string[];
-  publications: string[];
+  /**
+   * The single letters the drivers already read off the paper route sheets --
+   * not full names. The courier PDF prints these big and bold so they can be
+   * read at night; see docs/domain-notes.md.
+   */
+  publicationLetters: string[];
 };
 
 export type BookletLine =
@@ -88,7 +93,10 @@ function addressOf(stop: {
 export async function getBooklet(
   supabase: Client,
   zone: { id: string; number: number; name: string | null },
-  publications: { id: string; name: string }[],
+  // courier_letter is required, not optional: if a caller forgets to select it
+  // the fallback would quietly hand Bina "B", which BP already owns, and two
+  // publications would share a letter on the route sheet. Better a type error.
+  publications: { id: string; name: string; courier_letter: string | null }[],
   publicationIds: string[],
 ): Promise<Booklet> {
   const selected = new Set(publicationIds);
@@ -131,6 +139,15 @@ export async function getBooklet(
   ]);
 
   const pubName = new Map(publications.map((pub) => [pub.id, pub.name]));
+  // Falls back to the name's first letter so a publication added before anyone
+  // assigns it a letter still marks its addresses, rather than vanishing from
+  // the route sheet entirely.
+  const pubLetter = new Map(
+    publications.map((pub) => [
+      pub.id,
+      (pub.courier_letter ?? pub.name.charAt(0)).toUpperCase(),
+    ]),
+  );
 
   const additions: CoverRow[] = [];
   const deletions: CoverRow[] = [];
@@ -207,9 +224,9 @@ export async function getBooklet(
         instructions: [stop.special_instructions, stop.special_instructions_2].filter(
           (value): value is string => Boolean(value),
         ),
-        publications: forThisBooklet
-          .map((id) => pubName.get(id))
-          .filter((name): name is string => Boolean(name))
+        publicationLetters: forThisBooklet
+          .map((id) => pubLetter.get(id))
+          .filter((letter): letter is string => Boolean(letter))
           .sort(),
       },
     });

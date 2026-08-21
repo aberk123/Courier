@@ -38,7 +38,19 @@ const styles = StyleSheet.create({
   // but de-emphasized -- it still disambiguates two units at one address, and
   // it is present in the sheets they use today.
   stopName: { width: "18%", color: "#666" },
-  stopPubs: { width: "24%", color: "#333" },
+  // Big and bold, because the drivers read these off the sheet at night, often
+  // by dome light. Deliberately a tight lineHeight: the letters are all capitals
+  // with no descenders, so the line box can be smaller than the font size
+  // without clipping -- which keeps the row the same height as before and stops
+  // the bigger type from adding pages to every booklet.
+  stopPubs: {
+    width: "24%",
+    fontSize: 13.5,
+    lineHeight: 0.76,
+    fontFamily: "Helvetica-Bold",
+    color: "#000",
+    letterSpacing: 1,
+  },
   stopNotes: { width: "28%", color: "#111" },
   footer: {
     position: "absolute",
@@ -134,7 +146,9 @@ export function BookletDocument({ booklet, printedOn }: { booklet: Booklet; prin
                   {line.stop.floorSide ? ` (${line.stop.floorSide})` : ""}
                 </Text>
                 <Text style={styles.stopName}>{line.stop.recipientName ?? ""}</Text>
-                <Text style={styles.stopPubs}>{line.stop.publications.join(", ")}</Text>
+                <Text style={styles.stopPubs}>
+                  {line.stop.publicationLetters.join(" ")}
+                </Text>
                 <Text style={styles.stopNotes}>{line.stop.instructions.join(" · ")}</Text>
               </View>
             ),
