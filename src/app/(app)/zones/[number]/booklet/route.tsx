@@ -41,7 +41,11 @@ export async function GET(
   const [{ data: profile }, { data: access }, { data: allPublications }] = await Promise.all([
     supabase.from("profiles").select("is_courier_office").eq("id", user.id).single(),
     supabase.from("user_publication_access").select("publication_id"),
-    supabase.from("publications").select("id, code, name").eq("active", true).order("name"),
+    supabase
+      .from("publications")
+      .select("id, code, name, courier_letter")
+      .eq("active", true)
+      .order("name"),
   ]);
 
   const accessibleIds = new Set((access ?? []).map((row) => row.publication_id));

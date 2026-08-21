@@ -264,5 +264,24 @@ check "staffer with no publication access cannot remove anything" \
   "$(as $NONE "select public.remove_stop_publications('$A');" | grep -c 'do not have access')" "1"
 
 echo
+echo "Courier letters on publications"
+# These print on the drivers' route sheets, so a duplicate or a stray lowercase
+# letter is a real defect, not a cosmetic one.
+check "Bina is N, not B -- BP already owns B" \
+  "$(psql -tAq -c "select code || '=' || courier_letter from publications where code in ('bp','bina') order by code;")" \
+  "bina=N,bp=B"
+check "The Voice is V, as the sample zone files use" \
+  "$(psql -tAq -c "select courier_letter from publications where code='voice';")" "V"
+check "every active publication has a letter" \
+  "$(psql -tAq -c "select count(*) from publications where active and courier_letter is null;")" "0"
+check "no two publications share a letter" \
+  "$(psql -tAq -c "select count(*) from (select courier_letter from publications where courier_letter is not null group by courier_letter having count(*) > 1) d;")" \
+  "0"
+check "a duplicate letter is refused" \
+  "$(psql -tAq -c "update publications set courier_letter='V' where code='shopper';" 2>&1 | grep -c 'duplicate key\|unique')" "1"
+check "a lowercase or multi-character letter is refused" \
+  "$(psql -tAq -c "update publications set courier_letter='vv' where code='shopper';" 2>&1 | grep -c 'courier_letter_format')" "1"
+
+echo
 printf 'ceil %d passed, %d failed\n' "$pass" "$fail" | sed 's/^ceil //'
 [ "$fail" -eq 0 ]

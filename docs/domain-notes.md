@@ -291,6 +291,39 @@ Deliberately not built: fuzzy/typo-tolerant search. The importer has edit-distan
 matching for spreadsheet rows, but that is for reconciling a file against the
 list, not for a CSR who can retype. Add it only if real use asks for it.
 
+## Publication marks on the courier booklet (confirmed by Ari 2026-08-20)
+
+Ari asked for each address's publications to be marked so a driver can read them
+"at night". He first suggested two-letter codes (his example: The Voice → `TV`),
+then chose instead to **keep the single letters the drivers already use** on
+Lakewood Courier's own spreadsheets, so nobody has to relearn anything. Printed
+large and bold.
+
+- **13.5pt bold black**, against 9.5pt body text — the largest thing on the row
+  by a clear margin.
+- **Row height is unchanged**, so no booklet gains a page. Measured: 57 stop rows
+  per page before and after, zone 4 of the fixture at 5 pages either way. This
+  works because the letters are all capitals with no descenders, so their line
+  box can be set tighter than their font size without clipping.
+- The letters are **per publication in the database** (`publications.courier_letter`),
+  not hardcoded, so the office can correct one without a deploy. A unique index
+  stops two publications sharing a letter, which would make a route sheet
+  ambiguous; the format check keeps it to a single capital.
+- **The cover sheet still uses full names** (`Delete The Voice`). That page is for
+  the office, not the driver, and its per-publication Deletion format is already
+  confirmed.
+
+Ten letters are confirmed by the sample zone files: `B` BP, `V` The Voice,
+`S` Shopper, `Y` Yated, `M` Mishpacha, `A` Ami, `C` Circle, `H` Hamodia,
+`N` Bina, `L` Lakewood Courier. Note **Bina is N, not B** — BP owns B.
+
+**Five are guesses and need Amrom's confirmation** before the first real print
+run, because the sample files' columns trail off before showing them:
+`D` Dee Voch, `W` Wellsprings, `K` Kindline, `T` Shtenderel (S is Shopper's),
+`U` Hundred (H is Hamodia's). Four of these five reach fewer than 20 addresses
+each and Hundred currently reaches none, so the exposure is small — but a wrong
+letter on a route sheet is a misdelivery.
+
 ## Items to confirm with Amrom (neither is blocking)
 
 Both only matter once export / the cover sheet exist, and both have a
