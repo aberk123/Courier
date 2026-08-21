@@ -28,7 +28,6 @@ export function netPendingEvent<T extends { event_type: string }>(group: T[]): T
 }
 
 export type BookletStop = {
-  recipientName: string | null;
   houseNumber: string;
   street: string;
   floorSide: string | null;
@@ -69,16 +68,21 @@ export const STANDING_FOOTER = [
   "Amrom — 732-666-1311 (24 hours a day) · Office 732-546-9333",
 ];
 
+/**
+ * Ari, 2026-08-21: "in general, we don't need last names on courier list."
+ * Amrom had already said the name "doesn't really matter to the driver". The
+ * floor/side is what distinguishes two households at one house number, and that
+ * is kept -- so dropping the name loses nothing the courier uses. Names stay on
+ * the in-app screens, where staff need them to answer the phone.
+ */
 function addressOf(stop: {
   house_number: string;
   street: string;
-  recipient_name?: string | null;
   floor_side?: string | null;
 }) {
   const parts = [`${stop.house_number} ${stop.street}`];
   if (stop.floor_side) parts.push(stop.floor_side);
-  const address = parts.join(" · ");
-  return stop.recipient_name ? `${stop.recipient_name} · ${address}` : address;
+  return parts.join(" · ");
 }
 
 /**
@@ -108,7 +112,7 @@ export async function getBooklet(
     supabase
       .from("stop_publication_events")
       .select(
-        "id, stop_id, event_type, publication_id, publications(name), stops!inner(zone_id, recipient_name, house_number, street, floor_side)",
+        "id, stop_id, event_type, publication_id, publications(name), stops!inner(zone_id, house_number, street, floor_side)",
       )
       .eq("stops.zone_id", zone.id)
       .is("shown_on_cover_sheet_at", null)
@@ -116,7 +120,7 @@ export async function getBooklet(
     supabase
       .from("stop_instruction_changes")
       .select(
-        "id, description, stops!inner(zone_id, recipient_name, house_number, street, floor_side)",
+        "id, description, stops!inner(zone_id, house_number, street, floor_side)",
       )
       .eq("stops.zone_id", zone.id)
       .is("shown_on_cover_sheet_at", null)
@@ -124,7 +128,7 @@ export async function getBooklet(
     supabase
       .from("complaints")
       .select(
-        "id, description, stops!inner(zone_id, recipient_name, house_number, street, floor_side)",
+        "id, description, stops!inner(zone_id, house_number, street, floor_side)",
       )
       .eq("stops.zone_id", zone.id)
       .is("shown_on_cover_sheet_at", null)
@@ -132,7 +136,7 @@ export async function getBooklet(
     supabase
       .from("route_entries")
       .select(
-        "sequence, kind, direction_text, stops(id, recipient_name, house_number, street, floor_side, special_instructions, special_instructions_2, active, stop_publications(publication_id))",
+        "sequence, kind, direction_text, stops(id, house_number, street, floor_side, special_instructions, special_instructions_2, active, stop_publications(publication_id))",
       )
       .eq("zone_id", zone.id)
       .order("sequence"),
@@ -217,7 +221,6 @@ export async function getBooklet(
     lines.push({
       kind: "stop",
       stop: {
-        recipientName: stop.recipient_name,
         houseNumber: stop.house_number,
         street: stop.street,
         floorSide: stop.floor_side,

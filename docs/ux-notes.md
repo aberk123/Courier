@@ -84,18 +84,28 @@ mockup — worth remembering that none of these were caught by reading the code:
 
 1. Publications were full names in small grey text. Now the drivers' own single
    letters, 13.5pt bold black. See `docs/domain-notes.md` for the letters.
+1b. **Recipient names came off entirely** (Ari, 2026-08-21: "in general, we don't
+   need last names on courier list"). Amrom had already said the name "doesn't
+   really matter to the driver". The floor/side is what distinguishes two
+   households at one house number, and that stays — so nothing the courier uses
+   was lost, and the address column got the freed width. Names remain on the
+   in-app screens, where staff need them on the phone. Also removed from the
+   cover sheet's Additions/Deletions rows, which already carried floor/side.
 2. Rows were too tight to follow down the page. Spacing opened up, accepting
    more pages; the measured cost is in `docs/domain-notes.md`.
 3. With airy rows, the eye had too far to travel from the address on the left to
-   the letters on the right. Alternate rows now carry a `#f4f4f4` band.
+   the letters on the right. Alternate rows now carry a `#ededed` band.
 
 The zebra brought one thing with it: direction rows were `#eee`, which stopped
 reading as different once the stripes arrived. They are now `#d8d8d8`, so the
-hierarchy is white → `#f4f4f4` stops → `#d8d8d8` driving instructions. A driving
+hierarchy is white → `#ededed` stops → `#d8d8d8` driving instructions. A driving
 instruction has to stay the loudest thing on the page.
 
 The stripes cost no extra pages: the row gap moved from `marginBottom` to
 `paddingVertical` so the band fills the row, which keeps row height identical.
+The band started at `#f4f4f4`, which turned out to be near-invisible at print
+size — Ari asked for the stripes again after seeing a page that already had
+them. `#ededed` reads clearly and is still well clear of the direction rows.
 
 ## Import screen
 

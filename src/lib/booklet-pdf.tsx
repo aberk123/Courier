@@ -28,7 +28,7 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     marginTop: 9,
     marginBottom: 3,
-    // Darker than it was, because the zebra stripes below are #f4f4f4 and a
+    // Darker than it was, because the zebra stripes below are #ededed and a
     // driving instruction must stay the loudest thing on the page -- against
     // stripes, the old #eee no longer read as different.
     backgroundColor: "#d8d8d8",
@@ -45,26 +45,25 @@ const styles = StyleSheet.create({
   stopRow: { flexDirection: "row", paddingVertical: 2.5, paddingHorizontal: 4 },
   // Light enough to survive a photocopy and not drink toner, and lighter than
   // the direction rows' #eee so those still read as the louder element.
-  stopRowAlt: { backgroundColor: "#f4f4f4" },
-  stopAddress: { width: "30%", fontFamily: "Helvetica-Bold" },
-  // Amrom noted the name "doesn't really matter to the driver", so it is kept
-  // but de-emphasized -- it still disambiguates two units at one address, and
-  // it is present in the sheets they use today.
-  stopName: { width: "18%", color: "#666" },
+  stopRowAlt: { backgroundColor: "#ededed" },
+  // Wider now that the recipient name column is gone. The floor/side rides in
+  // this cell, which is what actually tells two households at one house number
+  // apart now that the name does not.
+  stopAddress: { width: "42%", fontFamily: "Helvetica-Bold" },
   // Big and bold, because the drivers read these off the sheet at night, often
   // by dome light. The lineHeight was previously squeezed to 0.76 to keep row
   // height identical to before; that made the letters of consecutive rows almost
   // touch. Now that Ari has accepted extra pages for legibility, it sits at its
   // natural height instead.
   stopPubs: {
-    width: "24%",
+    width: "20%",
     fontSize: 13.5,
     lineHeight: 1,
     fontFamily: "Helvetica-Bold",
     color: "#000",
     letterSpacing: 1,
   },
-  stopNotes: { width: "28%", color: "#111" },
+  stopNotes: { width: "38%", color: "#111" },
   footer: {
     position: "absolute",
     bottom: 20,
@@ -170,7 +169,6 @@ export function BookletDocument({ booklet, printedOn }: { booklet: Booklet; prin
                   {line.stop.houseNumber} {line.stop.street}
                   {line.stop.floorSide ? ` (${line.stop.floorSide})` : ""}
                 </Text>
-                <Text style={styles.stopName}>{line.stop.recipientName ?? ""}</Text>
                 <Text style={styles.stopPubs}>
                   {line.stop.publicationLetters.join(" ")}
                 </Text>
