@@ -362,6 +362,41 @@ appear nowhere in the file.
 **Consequence: the first master-list import is a data-reconciliation event of
 ~150 changes, not a routine week of ~5.** It must not be auto-applied.
 
+### Ari's decisions on reconciliation (2026-08-21)
+
+- **New addresses slot in by house number.** Read the neighbouring house numbers
+  already on that street within that route and insert between them, so the
+  courier's existing walking pattern is inherited. If the street appears in
+  several separate blocks of the route, ask rather than guess. No map.
+- **Out-of-area rows are listed in full** as an "unknown street" section, not
+  merely counted. Note this is ~1,600 rows on the Mishpacha file, which will
+  dwarf the ~150 that need action — revisit if it proves unusable.
+- The ~150-change first import is understood to be a test of whether the system
+  picks up weekly changes, not a decision about whose list is authoritative.
+  **That question is still open** and must be settled before any real apply.
+
+### Most "additions" are not new addresses
+
+Measured on zone 1: of the 10 additions the 907 file implies, **nine are
+addresses the courier already delivers to** — they simply have no Mishpacha link
+yet. Only one (314 CEDAR BRIDGE AVE) is genuinely new and needs inserting into
+the route.
+
+That reframes the work. The dominant case is *turn a publication on for a stop we
+already have*, which needs no sequencing at all. Route insertion is the rare
+case. It also means the importer must match an existing stop before considering
+creating one, or it would duplicate nine addresses out of ten.
+
+Two further things the real data forces:
+
+- **Floor/side is part of identity.** `7 SHENANDOAH DR` exists twice — upstairs
+  and basement, different families. The file writes the basement one as
+  `7 SHENANDOAH DR BSMT`. Matching on house and street alone would pick the wrong
+  household, so the unit token has to be parsed and used.
+- **The surname disambiguates.** Where a house has several units, the file's name
+  column is the only way to tell which one. `12 SHENANDOAH DRV | HOLLANDER` is the
+  upstairs Hollander, not the basement Friedman.
+
 ### What the real file actually looks like
 
 Nothing like what the importer currently expects:
