@@ -32,21 +32,24 @@ const styles = StyleSheet.create({
     paddingVertical: 2.5,
     paddingHorizontal: 4,
   },
-  stopRow: { flexDirection: "row", marginBottom: 1.5, paddingHorizontal: 4 },
+  // Ari, 2026-08-20: the rows were too tight to follow down the page, and he
+  // accepted extra pages to fix it. The gap is the point of this number -- do
+  // not shrink it back to save paper without asking him.
+  stopRow: { flexDirection: "row", marginBottom: 5, paddingHorizontal: 4 },
   stopAddress: { width: "30%", fontFamily: "Helvetica-Bold" },
   // Amrom noted the name "doesn't really matter to the driver", so it is kept
   // but de-emphasized -- it still disambiguates two units at one address, and
   // it is present in the sheets they use today.
   stopName: { width: "18%", color: "#666" },
   // Big and bold, because the drivers read these off the sheet at night, often
-  // by dome light. Deliberately a tight lineHeight: the letters are all capitals
-  // with no descenders, so the line box can be smaller than the font size
-  // without clipping -- which keeps the row the same height as before and stops
-  // the bigger type from adding pages to every booklet.
+  // by dome light. The lineHeight was previously squeezed to 0.76 to keep row
+  // height identical to before; that made the letters of consecutive rows almost
+  // touch. Now that Ari has accepted extra pages for legibility, it sits at its
+  // natural height instead.
   stopPubs: {
     width: "24%",
     fontSize: 13.5,
-    lineHeight: 0.76,
+    lineHeight: 1,
     fontFamily: "Helvetica-Bold",
     color: "#000",
     letterSpacing: 1,
