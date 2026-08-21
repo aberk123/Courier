@@ -28,14 +28,24 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     marginTop: 9,
     marginBottom: 3,
-    backgroundColor: "#eee",
-    paddingVertical: 2.5,
+    // Darker than it was, because the zebra stripes below are #f4f4f4 and a
+    // driving instruction must stay the loudest thing on the page -- against
+    // stripes, the old #eee no longer read as different.
+    backgroundColor: "#d8d8d8",
+    paddingVertical: 3.5,
     paddingHorizontal: 4,
   },
   // Ari, 2026-08-20: the rows were too tight to follow down the page, and he
-  // accepted extra pages to fix it. The gap is the point of this number -- do
-  // not shrink it back to save paper without asking him.
-  stopRow: { flexDirection: "row", marginBottom: 5, paddingHorizontal: 4 },
+  // accepted extra pages to fix it. The spacing is the point here -- do not
+  // shrink it back to save paper without asking him.
+  //
+  // It is paddingVertical rather than marginBottom so the zebra band below can
+  // fill the whole row. A margin would leave white gutters between bands, which
+  // reads as separate blocks rather than a continuous striped list.
+  stopRow: { flexDirection: "row", paddingVertical: 2.5, paddingHorizontal: 4 },
+  // Light enough to survive a photocopy and not drink toner, and lighter than
+  // the direction rows' #eee so those still read as the louder element.
+  stopRowAlt: { backgroundColor: "#f4f4f4" },
   stopAddress: { width: "30%", fontFamily: "Helvetica-Bold" },
   // Amrom noted the name "doesn't really matter to the driver", so it is kept
   // but de-emphasized -- it still disambiguates two units at one address, and
@@ -137,13 +147,25 @@ export function BookletDocument({ booklet, printedOn }: { booklet: Booklet; prin
         <Text style={styles.subtitle}>In delivery order.</Text>
 
         <View style={{ marginTop: 8 }}>
-          {booklet.lines.map((line, index) =>
-            line.kind === "direction" ? (
-              <Text key={index} style={styles.direction}>
-                {line.text}
-              </Text>
-            ) : (
-              <View key={index} style={styles.stopRow} wrap={false}>
+          {(() => {
+            let stopNumber = 0;
+            return booklet.lines.map((line, index) => {
+              if (line.kind === "direction") {
+                return (
+                  <Text key={index} style={styles.direction}>
+                    {line.text}
+                  </Text>
+                );
+              }
+              // Counted across direction rows rather than reset by them, so the
+              // stripes stay regular down the whole page.
+              const shaded = stopNumber++ % 2 === 1;
+              return (
+                <View
+                  key={index}
+                  style={shaded ? [styles.stopRow, styles.stopRowAlt] : styles.stopRow}
+                  wrap={false}
+                >
                 <Text style={styles.stopAddress}>
                   {line.stop.houseNumber} {line.stop.street}
                   {line.stop.floorSide ? ` (${line.stop.floorSide})` : ""}
@@ -152,10 +174,13 @@ export function BookletDocument({ booklet, printedOn }: { booklet: Booklet; prin
                 <Text style={styles.stopPubs}>
                   {line.stop.publicationLetters.join(" ")}
                 </Text>
-                <Text style={styles.stopNotes}>{line.stop.instructions.join(" · ")}</Text>
-              </View>
-            ),
-          )}
+                  <Text style={styles.stopNotes}>
+                    {line.stop.instructions.join(" · ")}
+                  </Text>
+                </View>
+              );
+            });
+          })()}
         </View>
 
         <Text

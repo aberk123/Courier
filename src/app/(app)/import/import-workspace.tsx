@@ -150,7 +150,13 @@ export function ImportWorkspace({
                 : null,
             );
           }}
-          className="text-sm"
+          // The native "Choose file" control renders as bare text, which Ari
+          // reported does not read as something you can click. The file:
+          // modifiers style the browser's own button, so it stays a real file
+          // input -- keyboard and screen-reader behaviour unchanged -- while
+          // looking like the secondary button it is. Deliberately outlined
+          // rather than filled, so "Review file" stays the primary action.
+          className="text-sm text-black/60 file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-black/20 file:bg-black/[.04] file:px-4 file:py-2 file:text-sm file:font-medium file:text-black hover:file:bg-black/[.08] dark:text-white/60 dark:file:border-white/25 dark:file:bg-white/10 dark:file:text-white dark:hover:file:bg-white/20"
         />
         <button
           type="submit"
