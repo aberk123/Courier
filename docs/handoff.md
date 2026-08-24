@@ -70,13 +70,13 @@ Confirmed by Ari and built:
 - Every floor label already in the data prints; none is ever invented; two
   identical addresses print twice.
 
-Unmerged on the branch, and the one judgement call waiting: `collapseSkippedStretches`
-in `src/lib/booklet.ts`. A publication-scoped booklet inherits the whole route's
-directions, so filtering to one publication leaves long runs with nothing under
-them — 21 of zone 1's 32 directions, 46 of zone 2's 65, with unbroken runs of 17
-and 14. **The shipped code deleted those runs, which silently removed real
-turns.** The replacement collapses them into one quiet line and keeps every word.
-It changes output for every publication, so Ari has not yet said to merge it.
+- **Dead stretches are collapsed, never deleted** (`collapseSkippedStretches` in
+  `src/lib/booklet.ts`). A publication-scoped booklet inherits the whole route's
+  directions, so filtering to one publication leaves long runs with nothing under
+  them — 21 of zone 1's 32 directions, 46 of zone 2's 65, with unbroken runs of 17
+  and 14. **The code before this deleted those runs, which silently removed real
+  turns.** Now every word is kept and a dead run is merged into one quiet line.
+  Approved by Ari 2026-08-24 with the deadness correction below applied first.
 
 ### Verified 2026-08-24 against the real zone 1 route — one defect found
 
@@ -145,7 +145,7 @@ booklet:
 | 3 | 410–412 | `TURN BACK TO SPRUCE, TURN RIGHT` + the Washington/Pine/Raven chain | 1 Raven Ln (`BLSV`) |
 | 4 | 234–237 | `PARK ON CORNER OF JENNA CT & HEARTSTONE`, `WALKING ROUTE` | 148 Clairmont Ct (`BLSV`) |
 
-**The fix, verified but not yet applied:** decide deadness from the *unfiltered*
+**The fix, applied 2026-08-24 before merging (Ari's call):** decide deadness from the *unfiltered*
 route. A run of consecutive direction rows is one navigation unit, and it is dead
 only when every stop it leads to was filtered out or retired. On zone 1 the whole
 diff against this change is a single hunk — 419's drive and door code return to
@@ -153,7 +153,21 @@ full weight — and the Voice, Mishpacha and Voice+Shopper booklets come out
 byte-identical. Over all 16 filters: nothing mislabelled, no words lost, same page
 count. The "keep the last direction of a run loud" rule becomes unnecessary once
 deadness is computed properly, because a dead run is always followed either by a
-live direction (already loud) or by the end of the route (already dropped).
+live direction (already loud) or by the end of the route (already dropped) — so it
+was removed.
+
+`markDeadDirections` is the function that does it, and it is deliberately separate
+from `collapseSkippedStretches`: the first decides *what* is dead from the whole
+route, the second only decides *how loud* it prints. `survives` is named and shared
+so the liveness test and the stop filter cannot drift apart — if they ever did, a
+live stretch would be muted again.
+
+Re-verified against the real zone 1 route with the fix in `src/`, over all 16
+publication filters: **0 mislabelled directions, 0 directions missing from before
+the last delivery**, page counts unchanged (all-publications 12, Voice 7,
+Mishpacha 3). The code's own dead set was cross-checked against an independently
+recomputed one — 0 mismatches on every filter. `supabase/tests/rls.sh` 34/34,
+`npm run build` and `eslint` clean.
 
 ### Two things the fix above does NOT solve
 
