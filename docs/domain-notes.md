@@ -419,6 +419,52 @@ interchangeable. Today no Mishpacha address is held twice, so the case does not
 yet arise. The 907 file does list three of our addresses twice (17 NEWBERRY,
 5 CEDAR, 55 CANARY), so it will.
 
+### The street NAME varies too, not just the suffix (2026-08-21)
+
+An independent review of the first corrected booklets caught two deletions that
+would have cut real subscribers. The suffix rules below were right but
+incomplete: **the publication misspells the street name itself.**
+
+- `2 BRIDGE WOOD` is our `2 BRIDGEWOOD AVE` — one inserted space, no suffix at
+  all. The household name matches exactly (SENDER), and the file carries it in
+  every issue from 906 to 1125.
+- `22 NEWWOOD HILL AVE` is our `22 NEWWOOD HILLS AVE` — one missing character.
+  The same file spells the same street `NEWWOOD HILLS AVE` two rows later, at 24
+  and 31. It is inconsistent about its own street.
+
+So, in addition to the suffix rules:
+
+4. **Strip all whitespace from the street base before comparing.** That alone
+   resolves `BRIDGE WOOD`, with no fuzzy matching at all.
+5. **Tolerate a one-character slip, but only on a base of six or more
+   characters.** `NEWWOOD HILL` → `NEWWOOD HILLS` is safe at that threshold.
+   A looser rule is actively dangerous: at two characters it matched
+   `RIVKA LA`→`RICKY LN`, `DINO BLVD`→`PINE BLVD` and `DINA PL`→`GILA PL`, all
+   different streets. Tested against the real file, ≤1 on 6+ characters accepts
+   only three variants across 1,960 rows — `NETHERWOOOD DR`, `HADASSA LANE` and
+   `NEWWOOD HILL AVE` — and rejects every false one.
+6. **A near-miss must suppress the matching deletion.** If a file row is held
+   back as unresolved, our address at that house number must not then be counted
+   as removed — that is precisely the deletion the near-miss list exists to
+   prevent. Withholding `781 CYPRESS ST` while still printing "delete 781
+   CYPRESS AVE" is the same mistake wearing a different hat.
+
+With rules 1-6, issue 1125 against our list is **160 of 167 matched, 11 added,
+4 removed, 3 held back** — against 154/13/11 at the start of the day, when three
+of those removals were real households.
+
+### New addresses are not sequenced without confirmation
+
+The review also found that `1471 OAK ST` and the six odd-side Pine St addresses
+had been given route positions while the cover sheet simultaneously said the
+position needed confirming. Ari's rule is to ask, not guess, when a street spans
+several blocks — Oak St is reached at five separate points in zone 3, Pine St at
+four in zone 2 — or when the house number falls outside the covered range.
+
+**An unconfirmed address is listed on the cover as unplaced and kept off the
+route pages entirely.** A note in the instructions column is not enough: it sits
+on a row the driver will otherwise simply walk.
+
 ### Street-suffix rules, learned the hard way (2026-08-21)
 
 A worker spotted that the first sample booklets looked wrong. He was right, and
