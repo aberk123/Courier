@@ -253,6 +253,26 @@ back to 11). Worth knowing:
 
 Nothing else is known-broken.
 
+## Subagents
+
+`.claude/agents/` holds four project subagents. They load at session start, so a
+newly added one is not callable until the next session.
+
+- **lakewood-courier-advisor** — architecture and data-model decisions.
+- **lakewood-courier-reviewer** — independent review of a plan or a diff against
+  the requirements record. Earning its keep: it caught two deletions in a sample
+  booklet that would have cut real subscribers.
+- **lakewood-courier-ux** — screens, forms and export layout.
+- **lakewood-courier-routing** — route order and driving directions. Added
+  2026-08-21 after the courier spotted that a booklet's directions did not make
+  sense. Use it for anything touching sequencing, where a new address is
+  inserted, which zone a street belongs to, street-name matching against a
+  publication file, and to audit a rendered booklet before it reaches a driver.
+  It encodes the hazards this project has actually hit: dropping a direction
+  that carries a turn, guessing an insertion point on a street that spans
+  several blocks, collapsing OAK ST/LN/DR into one street, and reading the route
+  as geometry when it is really a walking pattern.
+
 ## Supabase projects
 
 | Purpose | Project ref | Contains |
