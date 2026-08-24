@@ -42,6 +42,21 @@ const styles = StyleSheet.create({
   // It is paddingVertical rather than marginBottom so the zebra band below can
   // fill the whole row. A margin would leave white gutters between bands, which
   // reads as separate blocks rather than a continuous striped list.
+  // A stretch with no deliveries for this booklet. Every word is kept -- it
+  // carries the turns between the stops that ARE here -- but it reads quieter
+  // than a live instruction so the eye skips to the next delivery.
+  skipped: {
+    fontSize: 8,
+    color: "#666",
+    fontStyle: "italic",
+    backgroundColor: "#fafafa",
+    borderLeftWidth: 2,
+    borderLeftColor: "#c8c8c8",
+    marginTop: 6,
+    marginBottom: 3,
+    paddingVertical: 2,
+    paddingHorizontal: 5,
+  },
   stopRow: { flexDirection: "row", paddingVertical: 2.5, paddingHorizontal: 4 },
   // Light enough to survive a photocopy and not drink toner, and lighter than
   // the direction rows' #eee so those still read as the louder element.
@@ -150,7 +165,11 @@ export function BookletDocument({ booklet, printedOn }: { booklet: Booklet; prin
             let stopNumber = 0;
             return booklet.lines.map((line, index) => {
               if (line.kind === "direction") {
-                return (
+                return line.skipped ? (
+                  <Text key={index} style={styles.skipped}>
+                    Nothing for this booklet along here — {line.text}
+                  </Text>
+                ) : (
                   <Text key={index} style={styles.direction}>
                     {line.text}
                   </Text>

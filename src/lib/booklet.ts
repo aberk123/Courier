@@ -41,8 +41,111 @@ export type BookletStop = {
 };
 
 export type BookletLine =
-  | { kind: "direction"; text: string }
+  /**
+   * `skipped` marks a stretch of the route where this booklet's publications
+   * have no deliveries. The text is never dropped -- see
+   * collapseSkippedStretches for why -- only quietened.
+   */
+  | { kind: "direction"; text: string; skipped?: boolean }
   | { kind: "stop"; stop: BookletStop };
+
+/** Runs shorter than this keep every direction at full weight. */
+const SKIP_RUN_MIN = 3;
+
+/**
+ * Collapses stretches of the route that this booklet has no deliveries on.
+ *
+ * A publication-scoped booklet inherits the whole route's driving directions,
+ * so filtering to one publication leaves long runs of instructions with nothing
+ * under them. Measured on the real routes for Mishpacha alone: 21 of zone 1's 32
+ * directions, 46 of zone 2's 65, 24 of zone 3's 51, with unbroken runs of 17, 14
+ * and 8. Printed as-is it reads as a fault, and Ari's courier said so.
+ *
+ * Deleting them is NOT safe, and this is the important part. Those runs contain
+ * real turns: zone 2's run of 14 holds "TURN LEFT ON MARC DR", "TURN RIGHT ONTO
+ * SPRUCE" and "TURN RIGHT ON HOWARD DR" -- drop it and the courier cannot get
+ * from Ned Dr to Howard Dr. Zone 1's holds the whole drive out of the Cedar
+ * Bridge complex. So every word is kept; a run is merged into one quiet block.
+ *
+ * Deadness must be decided from the UNFILTERED route -- see markDeadDirections --
+ * and NOT from whether directions happen to sit next to each other in the output.
+ * Directions are consecutive in the source route for their own reasons: a door
+ * code follows the drive to the building, "WALKING ROUTE" follows the park
+ * instruction. Grouping on adjacency muted the 419 Cedar Bridge door code on the
+ * all-publications booklet -- where nothing is filtered out at all -- directly
+ * above 23 deliveries in that building, under the words "Nothing for this booklet
+ * along here". Zone 1 seq 158-160, and the same shape at zone 2 seq 357-359 and
+ * 617-619, zone 3 seq 410-412, zone 4 seq 234-237.
+ *
+ * Once deadness is correct there is no need to keep the last direction of a run
+ * at full weight: a dead run is always followed either by a live direction, which
+ * is already loud, or by the end of the route, which is dropped.
+ */
+export function collapseSkippedStretches(lines: BookletLine[]): BookletLine[] {
+  const out: BookletLine[] = [];
+  let run: string[] = [];
+
+  const flush = () => {
+    if (!run.length) return;
+    if (run.length < SKIP_RUN_MIN) {
+      // One or two lines are not worth a collapsed block, and the driver still
+      // has to drive them.
+      for (const text of run) out.push({ kind: "direction", text });
+    } else {
+      out.push({ kind: "direction", text: run.join("   >   "), skipped: true });
+    }
+    run = [];
+  };
+
+  for (const line of lines) {
+    if (line.kind === "direction" && line.skipped) {
+      run.push(line.text);
+      continue;
+    }
+    flush();
+    out.push(line);
+  }
+  flush();
+  return out;
+}
+
+/**
+ * Marks the directions this booklet has no deliveries under, reading the route
+ * the way the courier wrote it: a run of consecutive direction rows is one
+ * navigation unit, and it is dead only when every stop that unit leads to was
+ * filtered out or retired. `survives` is the same test the line builder applies.
+ *
+ * Returns indexes into `entries`, so the caller can flag each direction as it
+ * builds its lines.
+ */
+export function markDeadDirections<S>(
+  entries: { kind: string; direction_text: string | null; stop: S | null }[],
+  survives: (stop: S) => boolean,
+): Set<number> {
+  const dead = new Set<number>();
+  let unit: number[] = [];
+  let live = false;
+  let inStops = false;
+
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index];
+    if (entry.kind === "direction") {
+      // A direction after a run of stops opens a new unit and closes the last.
+      if (inStops) {
+        if (!live) for (const j of unit) dead.add(j);
+        unit = [];
+        live = false;
+        inStops = false;
+      }
+      if (entry.direction_text) unit.push(index);
+      continue;
+    }
+    inStops = true;
+    if (entry.stop && survives(entry.stop)) live = true;
+  }
+  if (!live) for (const j of unit) dead.add(j);
+  return dead;
+}
 
 export type Booklet = {
   zoneNumber: number;
@@ -200,17 +303,42 @@ export async function getBooklet(
   const counts = new Map<string, number>();
   let stopCount = 0;
 
-  for (const entry of entries.data ?? []) {
+  const routeEntries = entries.data ?? [];
+
+  // ANY-inclusion: a stop is on this booklet if it is live and receives at least
+  // one selected publication. Named because markDeadDirections needs the very
+  // same test -- if the two ever drift, a live stretch would be muted again.
+  const survives = (stop: NonNullable<(typeof routeEntries)[number]["stops"]>) =>
+    stop.active && stop.stop_publications.some((sp) => selected.has(sp.publication_id));
+
+  // Which stretches are dead is a fact about the whole route, so it is settled
+  // before any stop is dropped.
+  const dead = markDeadDirections(
+    routeEntries.map((entry) => ({
+      kind: entry.kind,
+      direction_text: entry.direction_text,
+      stop: entry.stops,
+    })),
+    survives,
+  );
+
+  for (let index = 0; index < routeEntries.length; index++) {
+    const entry = routeEntries[index];
     if (entry.kind === "direction") {
-      if (entry.direction_text) lines.push({ kind: "direction", text: entry.direction_text });
+      if (entry.direction_text)
+        lines.push({
+          kind: "direction",
+          text: entry.direction_text,
+          ...(dead.has(index) ? { skipped: true } : {}),
+        });
       continue;
     }
     const stop = entry.stops;
-    if (!stop || !stop.active) continue;
+    if (!stop || !survives(stop)) continue;
 
-    const stopPubIds = stop.stop_publications.map((sp) => sp.publication_id);
-    const forThisBooklet = stopPubIds.filter((id) => selected.has(id));
-    if (!forThisBooklet.length) continue; // ANY-inclusion
+    const forThisBooklet = stop.stop_publications
+      .map((sp) => sp.publication_id)
+      .filter((id) => selected.has(id));
 
     for (const id of forThisBooklet) {
       const name = pubName.get(id);
@@ -235,21 +363,23 @@ export async function getBooklet(
     });
   }
 
-  // A direction row with no stops under it in this booklet is navigation to
-  // somewhere the courier isn't going -- drop trailing/orphaned ones.
-  const pruned: BookletLine[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.kind === "direction") {
-      const next = lines.slice(i + 1).find((candidate) => candidate.kind === "stop");
-      const nextDirection = lines.slice(i + 1).findIndex((c) => c.kind === "direction");
-      const stopBefore = lines
-        .slice(i + 1, nextDirection === -1 ? undefined : i + 1 + nextDirection)
-        .some((c) => c.kind === "stop");
-      if (!next || !stopBefore) continue;
-    }
-    pruned.push(line);
-  }
+  // This used to DROP any direction with no stop under it, on the reasoning that
+  // it was navigation to somewhere the courier isn't going. That is wrong and it
+  // was shipped: those runs carry the turns between the places he IS going.
+  // Zone 2's dead stretch contains "TURN LEFT ON MARC DR", "TURN RIGHT ONTO
+  // SPRUCE" and "TURN RIGHT ON HOWARD DR" -- dropping it strands him between Ned
+  // Dr and Howard Dr. Ari, 2026-08-21: "If you remove a street without any
+  // deliveries, the courier may be missing an important turn in order to get to
+  // the next street." Nothing is removed now; dead stretches are only quietened.
+  //
+  // Trailing directions after the last stop are still dropped -- there is no
+  // delivery left to navigate to. In production those are only DONE / DONE! /
+  // END OF ROUTE. Note the consequence: a booklet for a publication with no
+  // stops in this zone comes out with no route rows at all.
+  const lastStop = lines.map((l) => l.kind).lastIndexOf("stop");
+  const pruned = collapseSkippedStretches(
+    lastStop === -1 ? [] : lines.slice(0, lastStop + 1),
+  );
 
   return {
     zoneNumber: zone.number,

@@ -107,6 +107,45 @@ The band started at `#f4f4f4`, which turned out to be near-invisible at print
 size — Ari asked for the stripes again after seeing a page that already had
 them. `#ededed` reads clearly and is still well clear of the direction rows.
 
+## Dead stretches in a publication-scoped booklet (Ari, 2026-08-21)
+
+A booklet filtered to one publication inherits the whole route's driving
+directions, so long runs of instructions end up with no deliveries under them.
+For Mishpacha alone: **21 of zone 1's 32 directions, 46 of zone 2's 65, 24 of
+zone 3's 51**, with unbroken runs of 17, 14 and 8. With every publication
+selected the same routes have only 8, 9 and 3 — so this is an artifact of
+filtering, not of the route data. Ari's courier read a page of it and said it did
+not make sense.
+
+**The code used to delete them, and that was dangerous.** `getBooklet` dropped
+any direction with no stop under it, reasoning it was navigation to somewhere the
+courier was not going. It is not: those runs carry the turns *between* the places
+he is going. Zone 2's dead run of 14 contains `TURN LEFT ON MARC DR`,
+`TURN RIGHT ONTO SPRUCE` and `TURN RIGHT ON HOWARD DR` — delete it and there is
+no way to get from Ned Dr to Howard Dr. Zone 1's contains the entire drive out of
+the Cedar Bridge complex. Ari: *"If you remove a street without any deliveries,
+the courier may be missing an important turn in order to get to the next
+street."*
+
+**So nothing is removed — a dead run is collapsed instead.** `collapseSkippedStretches`
+merges a run of three or more into one quiet italic block prefixed "Nothing for
+this booklet along here", keeping every word, and always leaves the **last**
+direction of the run at full weight because that is the one leading to the next
+delivery. Runs of one or two are left alone entirely.
+
+Zone 2 goes from 99 rows to 66 with all 65 directions still on the page.
+
+**There is no unit test for this.** An earlier version of this paragraph claimed
+the property was "unit-tested against all three real routes"; it is not — the
+repo has no test file, no test runner and no `test` script. What has been done
+instead, 2026-08-24: zone 1 of the production route was rendered through the real
+`getBooklet` and the real `BookletDocument` and read page by page, over all 16
+publication filters. That found a defect no such test would have caught. See
+`docs/handoff.md`.
+
+Note the separator is `>` and not an arrow — Helvetica in react-pdf has no arrow
+glyph and renders it as an apostrophe.
+
 ## Import screen
 
 - **The file input must look like a button.** Ari: *"there's a button to choose

@@ -375,6 +375,152 @@ appear nowhere in the file.
   picks up weekly changes, not a decision about whose list is authoritative.
   **That question is still open** and must be settled before any real apply.
 
+### Match by address only, and count (Ari, 2026-08-21)
+
+Ari, after spot-checking a sample and finding my unit assignments wrong: *"why do
+we need to use surname matching? I think that's adding an item that can cause
+more complexity. I think rather just match addresses. If there are two of the
+same address, then keep two of the same thing again in the delivery list as
+well."*
+
+**Reconciliation is a count per address, not an identity match.** For each
+(house number, street): compare how many lines we hold against how many the file
+has. More in the file → add that many lines. Fewer → remove that many. Equal →
+no change. Names are never compared, and no unit is assigned.
+
+Measured against issue 907, this is not a worse answer — it is the same answer
+without the guessing:
+
+| Method | Additions | Deletions |
+| --- | --- | --- |
+| Surname + unit matching | 86 | 60 |
+| Address counting only | 88 | 60 |
+
+It also removes three real errors that surname matching had introduced into a
+hand-built sample: an addition placed on the upstairs unit when the file said
+`BSMT`, a kept row placed on the wrong unit, and an address counted as matched
+when the file's household was neither of ours. Under counting, all three are
+either "one line, driver picks the door" or "no change".
+
+And it is immune to the two sources spelling one family differently, which they
+do constantly: DIAMANT/DIAMOND, NOSENCHUCK/NOSENCHUK, HERSKOWITZ/HERSHKOWITZ,
+Neuhaus/NEWHOUSE, ZELKOWITZ/ZELKOVITZ, KOEGEL/KOGEL, Kaplan/KAPLUN,
+KRONGLAS/KRONGLASS, Weinreb/WEINRIB. Nine of twenty apparent name conflicts were
+just spelling.
+
+**Accepted limitation:** counting cannot notice a change of occupant. 12
+BRIDGEWOOD went Greenwald → Pressburger between our list and the file, and
+counting calls that no change. That is correct for the courier — still one paper
+to that door. Only the publication's billing would care.
+
+**Implementation note:** when a count drops from 2 to 1 at an address, either of
+our two stops may lose the publication; the driver treats them as
+interchangeable. Today no Mishpacha address is held twice, so the case does not
+yet arise. The 907 file does list three of our addresses twice (17 NEWBERRY,
+5 CEDAR, 55 CANARY), so it will.
+
+### The street NAME varies too, not just the suffix (2026-08-21)
+
+An independent review of the first corrected booklets caught two deletions that
+would have cut real subscribers. The suffix rules below were right but
+incomplete: **the publication misspells the street name itself.**
+
+- `2 BRIDGE WOOD` is our `2 BRIDGEWOOD AVE` — one inserted space, no suffix at
+  all. The household name matches exactly (SENDER), and the file carries it in
+  every issue from 906 to 1125.
+- `22 NEWWOOD HILL AVE` is our `22 NEWWOOD HILLS AVE` — one missing character.
+  The same file spells the same street `NEWWOOD HILLS AVE` two rows later, at 24
+  and 31. It is inconsistent about its own street.
+
+So, in addition to the suffix rules:
+
+4. **Strip all whitespace from the street base before comparing.** That alone
+   resolves `BRIDGE WOOD`, with no fuzzy matching at all.
+5. **Tolerate a one-character slip, but only on a base of six or more
+   characters.** `NEWWOOD HILL` → `NEWWOOD HILLS` is safe at that threshold.
+   A looser rule is actively dangerous: at two characters it matched
+   `RIVKA LA`→`RICKY LN`, `DINO BLVD`→`PINE BLVD` and `DINA PL`→`GILA PL`, all
+   different streets. Tested against the real file, ≤1 on 6+ characters accepts
+   only three variants across 1,960 rows — `NETHERWOOOD DR`, `HADASSA LANE` and
+   `NEWWOOD HILL AVE` — and rejects every false one.
+6. **A near-miss must suppress the matching deletion.** If a file row is held
+   back as unresolved, our address at that house number must not then be counted
+   as removed — that is precisely the deletion the near-miss list exists to
+   prevent. Withholding `781 CYPRESS ST` while still printing "delete 781
+   CYPRESS AVE" is the same mistake wearing a different hat.
+
+With rules 1-6, issue 1125 against our list is **160 of 167 matched, 11 added,
+4 removed, 3 held back** — against 154/13/11 at the start of the day, when three
+of those removals were real households.
+
+### New addresses are not sequenced without confirmation
+
+The review also found that `1471 OAK ST` and the six odd-side Pine St addresses
+had been given route positions while the cover sheet simultaneously said the
+position needed confirming. Ari's rule is to ask, not guess, when a street spans
+several blocks — Oak St is reached at five separate points in zone 3, Pine St at
+four in zone 2 — or when the house number falls outside the covered range.
+
+**An unconfirmed address is listed on the cover as unplaced and kept off the
+route pages entirely.** A note in the instructions column is not enough: it sits
+on a row the driver will otherwise simply walk.
+
+### Street-suffix rules, learned the hard way (2026-08-21)
+
+A worker spotted that the first sample booklets looked wrong. He was right, and
+the cause was street-suffix handling. Both naive approaches fail, in opposite
+directions:
+
+- **Ignoring suffixes** merges genuinely different streets. Lakewood has OAK ST,
+  OAK LN *and* OAK DR; READ ST and READ PL; CEDAR ST, CEDAR CT and CEDAR DR;
+  PINE ST and PINE BLVD. Dropping the suffix silently merged them and invented
+  additions that did not exist.
+- **Requiring exact suffixes** invents deletions. The publication writes
+  `6 SHENANDOAH` with no suffix at all, `22 EAGLE LA` for Eagle Ln, and
+  `781 CYPRESS ST` for what our route calls Cypress Ave.
+
+The rule that works:
+
+1. **Canonical match including the suffix.** Expand abbreviations first — `LA`,
+   `CRT`, `DRV`, `PLC`, `WY` and friends all normalise. This is the only
+   automatic match.
+2. **A missing suffix may match**, but only when exactly one of our streets has
+   that base name. `6 SHENANDOAH` → SHENANDOAH DR is safe because we carry no
+   other Shenandoah.
+3. **A different suffix is a different street.** Never auto-match. `781 CYPRESS
+   ST` against our CYPRESS AVE is *probably* the same street — the house numbers
+   sit in the same run as 658/707/761 — but "probably" must go to a human, not
+   into a deletion. These belong in a near-miss list.
+
+With those rules, issue 1125 against our list: **156 of 167 matched, 11 added,
+11 removed.** Under exact-suffix-only it looked like 154/13/11, and three of
+those "removals" were real subscribers.
+
+### What this does NOT change: the printed floor label (Ari, 2026-08-21)
+
+Asked whether the upstairs/basement label should stop printing, since the driver
+can infer it when an address appears twice, Ari was specific: *"Keep all labels.
+If there is currently no label at an address, keep it that way but don't delete
+two of the same address. Most likely one is upstairs and one is downstairs. But
+we don't need to add a label to it if it's not currently there."*
+
+So the booklet's printing is unchanged. The rules are:
+
+- **Keep every floor label we already hold.** 1,305 active stops carry one, and
+  292 of those are the only unit at their address — there the label is the only
+  thing telling the driver which of two doors, so dropping it would have been a
+  misdelivery risk. This is why the label was not removed.
+- **Never invent a label.** An address with no floor label keeps none. The
+  importer must not guess "upstairs" or "basement" for a new line.
+- **Never collapse two identical addresses.** If the file lists an address twice,
+  the delivery list carries it twice. The driver assumes one door each. Two bare
+  identical lines are correct output, not a bug to be deduplicated.
+- **Apartment numbers always print.** They are not in `floor_side` at all —
+  `floor_side` only ever holds `upstairs`, `basement` or nothing. Apartments live
+  in the instructions column (35 stops, e.g. `APT 409` in the Cedar Bridge
+  buildings) and print regardless. A 40-unit building cannot be inferred the way
+  a two-family house can.
+
 ### Most "additions" are not new addresses
 
 Measured on zone 1: of the 10 additions the 907 file implies, **nine are
