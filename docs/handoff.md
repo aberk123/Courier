@@ -1,8 +1,14 @@
 # Handoff — read this first
 
-Written 2026-08-20 at the end of a session, for whoever (or whatever) picks
-this up next. `docs/domain-notes.md` is the requirements record and is the
-authority on *what* to build; this file is the current *state* of the work.
+Rewritten 2026-08-21 for a fresh session. `docs/domain-notes.md` is the
+requirements record and the authority on *what* to build; this file is the
+current *state* of the work and the shortest path into it.
+
+**The one habit that matters here:** every serious defect on this project was
+caught by a person looking at real output, not by a test — a courier reading a
+booklet, a worker spot-checking deletions, Ari noticing directions that made no
+sense. Render the actual artifact, look at it, and use the subagents below
+before anything reaches a driver.
 
 ## What this is
 
@@ -16,242 +22,220 @@ spreadsheets. Every decision Ari has confirmed is recorded in
 `docs/domain-notes.md` — read it before changing behaviour, and add to it when
 he decides something new.
 
-## Where the work stands
+## Start here
 
-Built and pushed:
+1. Read `docs/domain-notes.md` — the requirements record, and the authority on
+   what to build. Its later sections carry rules that were learned by getting
+   them wrong on real data; do not re-derive them.
+2. Skim "Gotchas that have already cost time" below before writing code.
+3. Check "What is open" for the current front.
 
-- Home-screen address search across every route, with add-from-home
-- Zone/route workspace, in route order by default, with publication scoping
-- Five real routes imported from Amrom's spreadsheets (~8,000 publication links)
+## What is live
+
+The app runs at **`https://lakewooddeliveries.com`** and production deploys from
+`main` automatically. `SETUP.md` has the deployment runbook, DNS records and
+Vercel ids.
+
+Shipped and working:
+
+- Home-screen address search across all five routes, with add-from-home
+- Zone/route workspace in route order, scoped per publication
+- Five real routes from Amrom's spreadsheets (~8,000 publication links)
 - Cover sheet (Additions / Deletions / Changes / Complaints) per route
-- Booklet PDF export, per route, filtered to selected publications
-- Weekly import: CSV/xlsx upload, fuzzy address matching, auto route assignment
-- Manage Users page: invite, edit (email/name), delete, publication scoping,
-  password-reset links
-- RLS throughout, with a regression suite (`supabase/tests/rls.sh`)
+- Booklet PDF per route, filtered to selected publications, dated filename
+- Weekly import: upload, fuzzy match, review, apply
+- Manage Users: invite, edit, delete, publication scoping, reset links
+- Breadcrumb navigation
+- RLS throughout, with a regression suite (`supabase/tests/rls.sh`, 34 passing)
 
-Deliberately deferred by Ari — do not build these without being asked:
+Deliberately deferred by Ari — do not build without being asked: master-list
+reconciliation across all routes beyond the five-route MVP, the courier check-off
+app and SMS check-off, and courier-to-route assignment.
 
-- Master-list reconciliation across all routes (MVP is five routes only)
-- Courier check-off app and SMS check-off
-- Courier-to-route assignment
+## The courier booklet: current state
 
-## Browser testing — done 2026-08-20
+This is where the recent work has been, and where the recent mistakes were.
 
-Every screen has now been driven in real Chromium against the test branch, as
-both `office@example.test` and `voice@example.test`, with each write verified in
-the database afterwards. Scripts are throwaway (they lived in the session
-scratchpad), but what they covered:
+Confirmed by Ari and built:
 
-- Auth: unauthenticated deep links redirect, bad credentials error correctly,
-  both logins work, signed-in `/login` bounces home, sign-out clears the cookie.
-- Zone workspace: route order, search (including matching on instructions),
-  publication toggle on *and* off, details edit, complaint, add address, remove
-  address. All landed correctly in the database.
-- Cover sheet: all four sections populate, publication chips scope the export,
-  "Mark as printed" stamps only the selected publications and leaves the others
-  pending — verified with a Voice-only run against pending Shopper events.
-- Booklet PDF: real multi-page PDFs, correct per-publication scoping, standing
-  footer, page numbers. Text extracted and asserted, not just byte-counted.
-- Weekly import: loose header aliases, fuzzy matching, auto zone inference,
-  needs-a-choice and blocked rows, row exclusion, apply, and re-upload
-  correctly reporting already-applied rows. CSV and xlsx both. Also found and
-  fixed the 1 MB Server Action body cap (see below) — a 2 MB spreadsheet used
-  to fail with a 500 and *nothing shown on screen*.
+- **Publication letters, not names.** The drivers' own single letters — `V`, `B`,
+  `S`, `M` — at 13.5pt bold. Ten are confirmed from the sample zone files; five
+  (`D` Dee Voch, `W` Wellsprings, `K` Kindline, `T` Shtenderel, `U` Hundred) are
+  collision-free guesses **still needing Amrom's confirmation**. Note Bina is
+  `N`, not `B` — BP owns `B`.
+- **No recipient names anywhere in the booklet.** Floor/side distinguishes two
+  households at one house number. Names stay on the in-app screens.
+- **Spaced rows and zebra shading**, `#ededed` on stops and `#d8d8d8` on
+  directions. Costs pages; Ari accepted that explicitly.
+- Every floor label already in the data prints; none is ever invented; two
+  identical addresses print twice.
 
-One thing worth knowing before the first real import: the review table renders
-every row of the file. A 2 MB / ~20,000-row spreadsheet plans correctly but the
-page becomes very heavy (a full-page screenshot of it times out). The real
-weekly file is expected to be a few hundred rows of changes, not the whole
-list, so this is not urgent — but if the office ever uploads a full master list,
-the table needs virtualising or paging.
-- Access boundary: the Voice-only user sees only Voice everywhere, cannot reach
-  `/users`, and is refused by RLS on every forged write attempted with their own
-  access token — except the two cases now recorded in `docs/domain-notes.md`.
+Unmerged on the branch, and the one judgement call waiting: `collapseSkippedStretches`
+in `src/lib/booklet.ts`. A publication-scoped booklet inherits the whole route's
+directions, so filtering to one publication leaves long runs with nothing under
+them — 21 of zone 1's 32 directions, 46 of zone 2's 65, with unbroken runs of 17
+and 14. **The shipped code deleted those runs, which silently removed real
+turns.** The replacement collapses them into one quiet line and keeps every word.
+It changes output for every publication, so Ari has not yet said to merge it.
 
-- Manage Users, once Ari supplied the branch's service_role key: the page
-  renders, invite creates a confirmed account with the right publication scope,
-  edit changes email and name, delete removes the account, and the scoped user
-  is still redirected away from `/users`. The self-delete guard was tested
-  adversarially — rewriting the delete form's hidden `userId` to the signed-in
-  user's own id is refused by the server, not just hidden in the UI.
-- The **password-reset flow end to end**, which had also never run: generated a
-  link from Manage Users, opened it in a clean browser, set a password at
-  `/reset-password`, then signed in as that new staffer and confirmed they saw
-  only their own publication's addresses. `/auth/confirm` works, and the link
-  points at our own domain rather than Supabase's `/verify`.
+### Verified 2026-08-24 against the real zone 1 route — one defect found
 
-Note for whoever tests this next: `SUPABASE_SERVICE_ROLE_KEY` is required for
-`/users` to render at all, and the Supabase MCP cannot supply it (it only
-exposes publishable keys). Get it from the *branch's* dashboard — the branch is
-not in the projects list, since it is a preview branch of `lakewood-courier`;
-go to `https://supabase.com/dashboard/project/txfulvngxgjwdoicurdv` directly, or
-use the branch dropdown. Never point a dev server at production to test this.
+Verification method, because it is reusable: zone 1 of the **production** route
+was dumped verbatim (457 entries — 32 directions, 425 stops, matching
+production's own counts) and fed through the *real* `getBooklet` and the *real*
+`BookletDocument` with a stub PostgREST client, then rasterised and read page by
+page. The dump and harness are throwaway; the shape was
+`D|seq|text` / `S|seq|house|street|floor|instr|instr2|active|courier_letters`.
 
-Do not browser-test against production; the branch exists for this.
+**The central claim holds.** Directions lost, out of zone 1's 31 (excluding the
+trailing `DONE`), measured over all 16 publication filters:
 
-## Deployed — 2026-08-20
+| Filter | Stops | `main` loses | This change loses |
+| --- | --- | --- | --- |
+| All publications | 380 | 7 | **0** |
+| The Voice | 203 | 17 | **0** |
+| Mishpacha | 30 | 20 | **0** |
+| Lakewood Courier | 236 | 7 | **0** |
 
-**The app is live at `https://lakewooddeliveries.com`.** PR #1 was merged, so
-`main` (and therefore production) has the browser-testing work and the 1 MB
-import fix. Full detail, including the exact DNS records and Vercel ids, is the
-deployment section of `SETUP.md`.
+Every direction the change still drops is strictly *after the last delivery* for
+that publication — checked programmatically, not by eye. In production the only
+such rows are `DONE`, `DONE!` and `END OF ROUTE`.
 
-The short version of what was done: the Vercel repo link already existed, so
-this was mostly configuration — re-scoping env vars, attaching the apex and
-`www`, and creating three grey-cloud records in an empty Cloudflare zone.
+**The defect: the collapse groups on adjacency in the already-filtered list**, so
+it cannot tell "these directions had their stops filtered out" from "these
+directions simply sit next to each other in the route". Consecutive direction
+rows are normal in the source — a door code follows the drive to the building,
+`WALKING ROUTE` follows the park instruction. So the collapse fires on booklets
+where **nothing was skipped at all**, including the all-publications booklet that
+is printed today.
 
-Two things worth knowing:
+Zone 1 sequences 158–160 are three consecutive direction rows with live
+deliveries right after them, so the all-publications booklet prints:
 
-- **All three Supabase env vars had been scoped to `preview` *and*
-  `production`** — including `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS.
-  Every preview build of every branch was a live editor for the real subscriber
-  list. Fixed: production vars are Production-only, and Preview now points at the
-  `browser-testing` branch project. Preview deliberately has no service-role key,
-  so `/users` will not render on a preview deployment.
-- **The post-deploy checks in `SETUP.md` were not run by the deploying session.**
-  Every one of them needs a signed-in session and that session had no production
-  password. Since then: the reset-link one was settled by real use (see the
-  incident below), the booklet PDF by measurement, and signing in by three real
-  accounts — leaving only the >1 MB import. What *was* verified from outside:
-  valid TLS, `/login` renders, and the unauthenticated redirect boundary holds
-  on the real domain.
+> *Nothing for this booklet along here — BACK TO CAR, DRIVE TO 419 CEDAR BRIDGE
+> (RIGHT BLDG)  >  DOOR CODE: 1,3 THEN 5 TAKE THE ELEVATOR…*
 
-## PR #2 merged and deployed — 2026-08-20
+at 8pt grey italic, directly above 24 deliveries in that building. The identical
+door code for 417 prints full-weight bold, because its run is only two long and
+`SKIP_RUN_MIN` is 3. Nothing is deleted — the never-delete rule holds — but the
+code the driver needs to get in the door becomes the quietest thing on the page,
+under a label that is false.
 
-Merged as `ab6ddac`; production deployed from it and was verified from outside:
+All four other runs of ≥3 consecutive directions in the real routes are followed
+by an active stop, so all four mislabel the same way on an all-publications
+booklet:
 
-- A scanner-style GET of `/auth/confirm?token_hash=…` now returns 200 with the
-  "Set your password" form instead of redirecting to the expired page. The token
-  is only spent on the explicit POST, so preview fetches are harmless.
-- The expired page names the likely cause.
-- The Remove button works again — the code matching the new trigger is live.
+| Route | Sequences | What gets muted | Next stop |
+| --- | --- | --- | --- |
+| 1 | 158–160 | the 419 Cedar Bridge door code | 419 Cedar Bridge apt 415 (`L`) |
+| 2 | 357–359 | `CROSS THE STREET TO YOUR BAG AT 1 FOREST PARK CIR` | 12 Forest Park Cir (`BLSV`) |
+| 2 | 617–619 | the two corrupted `545 HOWARD DR` rows | 126 Neal Ct (`BCLSV`) |
+| 3 | 410–412 | `TURN BACK TO SPRUCE, TURN RIGHT` + the Washington/Pine/Raven chain | 1 Raven Ln (`BLSV`) |
+| 4 | 234–237 | `PARK ON CORNER OF JENNA CT & HEARTSTONE`, `WALKING ROUTE` | 148 Clairmont Ct (`BLSV`) |
 
-Also done in that pass:
+**The fix, verified but not yet applied:** decide deadness from the *unfiltered*
+route. A run of consecutive direction rows is one navigation unit, and it is dead
+only when every stop it leads to was filtered out or retired. On zone 1 the whole
+diff against this change is a single hunk — 419's drive and door code return to
+full weight — and the Voice, Mishpacha and Voice+Shopper booklets come out
+byte-identical. Over all 16 filters: nothing mislabelled, no words lost, same page
+count. The "keep the last direction of a run loud" rule becomes unnecessary once
+deadness is computed properly, because a dead run is always followed either by a
+live direction (already loud) or by the end of the route (already dropped).
 
-- **The three stray sessions were revoked** (two on Amrom, one on Donath),
-  created by whatever spent their links. Ari's own session was left alone, the
-  refresh tokens cascaded, and Amrom's *pending* link was checked to still be
-  intact first — revoking sessions does not touch `auth.one_time_tokens`.
-- **The booklet PDF was measured rather than guessed.** See `SETUP.md`: a
-  synthetic 735-entry route renders in 3.6–3.9s / 14 pages on a production
-  build, so the feared timeout is not close. `maxDuration = 60` is set on the
-  route regardless, for cold-start headroom.
+One thing the render also shows, for Ari to judge rather than for the code: a
+genuinely dead run of 16 directions — the Cedar Bridge stretch on the Mishpacha
+booklet — becomes one dense 8pt paragraph joined by `>`. Every word is there and
+the next real turn is loud, but the useful navigation out of the complex sits
+among in-building instructions the driver does not need.
 
-## PR #3 merged and deployed — 2026-08-20
+## What is open
 
-Merged as `2402f27`, production deployed from it.
+- **The >1 MB import post-deploy check.** Upload and review only, do not apply.
+  Needs a signed-in production session. Last item from `SETUP.md`.
+- **Donath (`rdonath@circmag.com`) has never set a password.** Her `updated_at`
+  is 2ms after her `last_sign_in_at` — the same transaction. She needs a fresh
+  reset link, generated from Manage Users and opened by her.
+- **Five unconfirmed courier letters** (above), before the first real print run.
+- **Whose list wins.** When our list says an address takes a publication and the
+  publication's file does not, nobody has decided who is right. Do not build the
+  apply step for master-list import until Ari answers. Measured against
+  Mishpacha issue 1125: 160 of 167 matched, 11 added, 4 removed, 3 unresolved.
+- **A near-miss list has nowhere to go.** Unresolved addresses are correctly
+  withheld from the courier, but nothing tells the office they exist, so they
+  would be withheld silently forever. Needs a fourth cover section or an
+  office-only sheet.
+- **Two corrupted rows in zone 2's production route.** `I STEIN BOYS V S 545
+  HOWARD DR` and `I V 545 HOWARD DR` are stored as `direction` rows but are
+  clearly address rows. They print as loud driving instructions, and because
+  545 Howard Dr is not a stop record it is invisible to every publication filter.
 
-- **A top navigation trail**, requested by Ari: `Home / Zone 2 / Cover sheet &
-  print` under the header, every ancestor a link, the current page plain text.
-  Rationale and the two details worth keeping are in `docs/ux-notes.md`. Zone
-  labels come from the database, so naming a route changes the trail.
-- **`maxDuration = 60` on the booklet route**, as cold-start headroom. Not a fix
-  for an observed timeout — the measurement is 3.6–3.9s for a route larger than
-  any real one.
+## Subagents — use them, especially on anything that reaches a courier
 
-Verified in Chromium against the test branch (14 checks) before merging; the
-trail itself is behind auth, so it was not re-checked on the production domain.
-What was confirmed on the real domain after deploy: `/login` renders and the
-unauthenticated redirect boundary still holds on every screen.
+`.claude/agents/` holds five. They load at session start, so a newly added one is
+not callable until the next session. Two of the five exist because a human caught
+something this project's own testing did not, so treat them as load-bearing
+rather than optional.
 
-## Auth state as of 2026-08-20 evening
+| Agent | Reach for it when |
+| --- | --- |
+| **lakewood-courier-advisor** | Architecture, data model, scope. Before deciding, not after. |
+| **lakewood-courier-reviewer** | A plan or diff exists and needs checking against the requirements record. |
+| **lakewood-courier-ux** | Screens, forms, export layout, wording staff will read. |
+| **lakewood-courier-routing** | Route order, driving directions, where a new address goes, which zone owns a street. |
+| **lakewood-courier-reconciliation** | Parsing a publication's weekly file, matching addresses, deciding additions and deletions. |
 
-The reset-link fix works, and the auth tables prove it rather than anyone's
-recollection:
+### The mapping / routing agent
 
-- **Amrom is in.** He signed in at `20:31:34` and his `updated_at` is `20:33:50`
-  — later than the sign-in, which is what proves a password change actually
-  saved. Compare the failed attempt earlier that day, where `updated_at` never
-  moved. His current session is legitimately his; do not revoke it.
-- **Donath is still locked out.** Her `updated_at` is 2ms after her
-  `last_sign_in_at`, i.e. the same transaction — so she has never chosen a
-  password, only the one her account was created with. She has no pending link
-  and no session. She needs a fresh reset link, which will now survive being
-  previewed. That is the one outstanding action and it needs the office's hands,
-  since generating a link requires `/users`.
+`lakewood-courier-routing` is the one to call for anything physical about the
+round. Added after a courier looked at a booklet and said the directions did not
+make sense — and he was right.
 
-## The immediate next task
+**Call it when** a change touches route sequencing or `route_entries`; when a new
+address needs a position; when deciding which zone a street belongs to; when
+street names are being matched; and — always — **before any booklet goes to a
+real driver.**
 
-**One post-deploy check is left** (see `SETUP.md` for all four): **import a
-spreadsheet over 1 MB — upload and review only, do not click apply.** That
-exercises the Server Action body-size cap without writing a row to the real
-list. It needs a signed-in production session, which is the only reason it is
-still open.
+**What it knows, which is not obvious from the code:**
 
-The other three are settled: signing in is proven by three real accounts, the
-reset-link host by a link that a recipient actually used, and the booklet PDF by
-measurement (3.6–3.9s for a 735-entry route). One standing caveat from the
-reset-link one: generated links carry whatever host the office had open, so keep
-staff on `lakewooddeliveries.com` rather than the `*.vercel.app` alias.
+- A stretch with no deliveries still carries the turns *between* the places that
+  do have them. Zone 2's dead run holds `TURN LEFT ON MARC DR`, `TURN RIGHT ONTO
+  SPRUCE`, `TURN RIGHT ON HOWARD DR`. Directions may be collapsed or quietened;
+  they may never be dropped.
+- Interpolating a new address by house number is only safe when the street is one
+  contiguous block of the route and the number is inside the covered range. Oak
+  St is reached at five separate points in zone 3, Pine St at four in zone 2.
+  Otherwise it asks — and an unplaced address stays off the route pages entirely.
+- The sequence is a walking pattern, not geometry. `761 → 658 → 707 CYPRESS AVE`
+  is correct. Never "fix" an order that looks unsorted, and never reach for a map
+  to place a stop: the existing sequence encodes knowledge no map has.
+- Auditing method: align directions **sequentially**, never by count —
+  `CROSS OVER TO ODD SIDE` appears four times in one zone and a count would hide
+  a drop. Watch substring traps: `2 BRIDGEWOOD AVE` sits inside
+  `12 BRIDGEWOOD AVE`, and direction text can begin with a house number.
 
-## Whole-address removal — answered and built 2026-08-20
+**Give it**: the PDFs, the route's direction rows and stops with their sequence
+numbers, and what you believe you changed. **Ask it to certify** that no turn was
+lost and that a driver can still get from each delivery to the next. It is told
+to say "a human must confirm" rather than guess, so a hedged answer is the
+correct answer, not a failure.
 
-The two open questions about whole-address removal have been answered by Ari and
-implemented; the decisions are recorded in `docs/domain-notes.md`. Removal is now
-per-publication: a scoped staffer takes off only their own publications, the
-courier office takes off all of them and each gets its own Deletion row, and
-churn that cancels inside one cover-sheet cycle prints nothing.
+### The reconciliation agent
 
-**Both the migration and the code are live** (the code as of PR #2).
-`supabase/migrations/20260820160000_whole_address_removal.sql` was applied to
-**both** the production project and the `browser-testing` branch on 2026-08-20,
-deliberately ahead of the code, because it is additive — deploying the code
-first would make every removal fail with "function does not exist". It is also
-replayed into a throwaway Postgres by `supabase/tests/rls.sh` (28 passing, 8 of
-them new).
+`lakewood-courier-reconciliation` owns the weekly file. Call it before any diff
+that could add or remove a subscriber.
 
-**Consequence while PR #2 is open:** production still runs `main` @ `7622734`,
-whose Remove button does the bare `update stops set active = false` that the new
-trigger now refuses. So removing an address in production currently fails with a
-visible error instead of silently ending another publication's delivery. That is
-fail-closed and better than the bug it replaces, but it is live breakage —
-merging PR #2 is what fixes it. Nothing else on `main` writes `stops.active`,
-so nothing else is affected.
+Its governing rule is the asymmetry: a wrong addition wastes a paper, a wrong
+deletion stops a paying subscriber and nobody finds out, because they complain to
+the publication rather than the courier. Five real households were nearly cut in
+two separate passes — `6 SHENANDOAH`, `22 EAGLE LA`, `781 CYPRESS ST`,
+`2 BRIDGE WOOD`, `22 NEWWOOD HILL AVE` — each an exact-match rule meeting a file
+that spells streets loosely. Both times a human caught it, not a test.
 
-The migration also backfills addresses left in the split-brain state by the old
-code path — inactive, but still carrying `stop_publications` rows and no
-`removed` event — by writing the missing events, backdated to the stop's
-`updated_at`. Checked against both databases before writing it:
-
-- **Production: a no-op.** All 196 inactive addresses there already carry zero
-  publication links, so the invariant already holds and the backfill writes
-  nothing. Production's event log is empty entirely (0 rows) — the ~8,000
-  publication links were loaded straight into `stop_publications` as
-  service_role — so there are no catch-up Deletions and the next cover sheet is
-  unaffected.
-- **Test branch: writes 2 events for 1 address**, the one retired through the
-  old Remove button during browser testing. That is the case this backfill
-  exists for, and a good place to see it work.
-
-## Home-screen address search — built 2026-08-20
-
-Ari: CSRs often don't know which route a customer is on until they search the
-address, so the home screen now leads with a search across all five routes
-instead of a list of routes to guess between. Requirement and behaviour are
-recorded in `docs/domain-notes.md`; results badge their route and deep-link
-into it via `/zones/N?stop=<id>`, and an address can be added from home with the
-route pre-selected from the street.
-
-Driven in real Chromium against the test branch as both fixture users — 25
-checks over two scripts, all passing, with the writes verified in the database
-and the two test addresses deleted afterwards (fixture back to 236 stops, zone 1
-back to 11). Worth knowing:
-
-- The zone suggestion is computed from a **street-only** query, deliberately not
-  from the search results. Deriving it from the results was the first attempt and
-  was wrong in the one case that matters: a new house number on a known street
-  matches nothing, so there were no results to derive it from and the route
-  select came up blank. Browser testing is what caught it.
-- `/zones/N?stop=<id>` only opens the address if it is among the first
-  `ROW_CAP` (1000) route entries. The largest real route is 735 entries, so this
-  does not bite today; if a route ever passes 1000 the page now says the address
-  is on the route but not shown, rather than silently opening nothing. Real fix
-  is still pagination.
-- Search is a plain GET form, so a result survives a reload and the back button
-  — a CSR is usually on the phone while using it.
-
-Nothing else is known-broken.
+Useful control it will apply: diff two consecutive issues of the same
+publication. Real weekly churn on these routes is a handful of addresses, so a
+large file-to-database diff next to a tiny file-to-file diff means divergence or
+a matching fault — never "this week's changes".
 
 ## Supabase projects
 
