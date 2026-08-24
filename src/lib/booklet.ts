@@ -41,8 +41,62 @@ export type BookletStop = {
 };
 
 export type BookletLine =
-  | { kind: "direction"; text: string }
+  /**
+   * `skipped` marks a stretch of the route where this booklet's publications
+   * have no deliveries. The text is never dropped -- see
+   * collapseSkippedStretches for why -- only quietened.
+   */
+  | { kind: "direction"; text: string; skipped?: boolean }
   | { kind: "stop"; stop: BookletStop };
+
+/** Runs shorter than this keep every direction at full weight. */
+const SKIP_RUN_MIN = 3;
+
+/**
+ * Collapses stretches of the route that this booklet has no deliveries on.
+ *
+ * A publication-scoped booklet inherits the whole route's driving directions,
+ * so filtering to one publication leaves long runs of instructions with nothing
+ * under them. Measured on the real routes for Mishpacha alone: 21 of zone 1's 32
+ * directions, 46 of zone 2's 65, 24 of zone 3's 51, with unbroken runs of 17, 14
+ * and 8. Printed as-is it reads as a fault, and Ari's courier said so.
+ *
+ * Deleting them is NOT safe, and this is the important part. Those runs contain
+ * real turns: zone 2's run of 14 holds "TURN LEFT ON MARC DR", "TURN RIGHT ONTO
+ * SPRUCE" and "TURN RIGHT ON HOWARD DR" -- drop it and the courier cannot get
+ * from Ned Dr to Howard Dr. Zone 1's holds the whole drive out of the Cedar
+ * Bridge complex. So every word is kept; a run is merged into one quiet block.
+ *
+ * The last direction of a run is always left at full weight, because that is the
+ * one that leads to the next actual delivery.
+ */
+export function collapseSkippedStretches(lines: BookletLine[]): BookletLine[] {
+  const out: BookletLine[] = [];
+  let run: string[] = [];
+
+  const flush = () => {
+    if (!run.length) return;
+    if (run.length < SKIP_RUN_MIN) {
+      for (const text of run) out.push({ kind: "direction", text });
+    } else {
+      // Everything except the final turn becomes one muted block.
+      out.push({ kind: "direction", text: run.slice(0, -1).join("   >   "), skipped: true });
+      out.push({ kind: "direction", text: run[run.length - 1] });
+    }
+    run = [];
+  };
+
+  for (const line of lines) {
+    if (line.kind === "direction") {
+      run.push(line.text);
+      continue;
+    }
+    flush();
+    out.push(line);
+  }
+  flush();
+  return out;
+}
 
 export type Booklet = {
   zoneNumber: number;
@@ -235,21 +289,21 @@ export async function getBooklet(
     });
   }
 
-  // A direction row with no stops under it in this booklet is navigation to
-  // somewhere the courier isn't going -- drop trailing/orphaned ones.
-  const pruned: BookletLine[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.kind === "direction") {
-      const next = lines.slice(i + 1).find((candidate) => candidate.kind === "stop");
-      const nextDirection = lines.slice(i + 1).findIndex((c) => c.kind === "direction");
-      const stopBefore = lines
-        .slice(i + 1, nextDirection === -1 ? undefined : i + 1 + nextDirection)
-        .some((c) => c.kind === "stop");
-      if (!next || !stopBefore) continue;
-    }
-    pruned.push(line);
-  }
+  // This used to DROP any direction with no stop under it, on the reasoning that
+  // it was navigation to somewhere the courier isn't going. That is wrong and it
+  // was shipped: those runs carry the turns between the places he IS going.
+  // Zone 2's dead stretch contains "TURN LEFT ON MARC DR", "TURN RIGHT ONTO
+  // SPRUCE" and "TURN RIGHT ON HOWARD DR" -- dropping it strands him between Ned
+  // Dr and Howard Dr. Ari, 2026-08-21: "If you remove a street without any
+  // deliveries, the courier may be missing an important turn in order to get to
+  // the next street." Nothing is removed now; dead stretches are only quietened.
+  //
+  // Trailing directions after the last stop are still dropped -- there is no
+  // delivery left to navigate to.
+  const lastStop = lines.map((l) => l.kind).lastIndexOf("stop");
+  const pruned = collapseSkippedStretches(
+    lastStop === -1 ? [] : lines.slice(0, lastStop + 1),
+  );
 
   return {
     zoneNumber: zone.number,
