@@ -133,9 +133,15 @@ this booklet along here", keeping every word, and always leaves the **last**
 direction of the run at full weight because that is the one leading to the next
 delivery. Runs of one or two are left alone entirely.
 
-Zone 2 goes from 99 rows to 66 with all 65 directions still on the page. The
-property is unit-tested against all three real routes: every direction survives,
-no stop is lost, order is preserved.
+Zone 2 goes from 99 rows to 66 with all 65 directions still on the page.
+
+**There is no unit test for this.** An earlier version of this paragraph claimed
+the property was "unit-tested against all three real routes"; it is not — the
+repo has no test file, no test runner and no `test` script. What has been done
+instead, 2026-08-24: zone 1 of the production route was rendered through the real
+`getBooklet` and the real `BookletDocument` and read page by page, over all 16
+publication filters. That found a defect no such test would have caught. See
+`docs/handoff.md`.
 
 Note the separator is `>` and not an arrow — Helvetica in react-pdf has no arrow
 glyph and renders it as an apostrophe.

@@ -92,14 +92,25 @@ trailing `DONE`), measured over all 16 publication filters:
 
 | Filter | Stops | `main` loses | This change loses |
 | --- | --- | --- | --- |
-| All publications | 380 | 7 | **0** |
+| All publications | 380 | 8 | **0** |
+| BP | 225 | 10 | **0** |
 | The Voice | 203 | 17 | **0** |
+| Shopper | 286 | 9 | **0** |
 | Mishpacha | 30 | 20 | **0** |
-| Lakewood Courier | 236 | 7 | **0** |
+| Lakewood Courier | 236 | 10 | **0** |
+
+Count these as a **multiset, not as distinct texts.** A first pass here counted
+distinct texts and understated `main`'s loss in half the rows, because
+`CONTINUE TO STAIRS, GO DOWN TO THIRD FLOOR` appears four times in zone 1 and
+`main` dropping one copy is invisible if another survives. This is the duplicate-text
+trap `.claude/agents/lakewood-courier-routing.md` warns about, and it caught the
+person writing that agent's brief.
 
 Every direction the change still drops is strictly *after the last delivery* for
-that publication — checked programmatically, not by eye. In production the only
-such rows are `DONE`, `DONE!` and `END OF ROUTE`.
+that publication — checked programmatically, not by eye. For zone 1 the only such
+row is `DONE`. Whether that holds for zones 2–5 has **not** been verified against
+their route data; a query showed their trailing rows are `DONE!` and
+`END OF ROUTE`, but the per-publication tails were not checked.
 
 **The defect: the collapse groups on adjacency in the already-filtered list**, so
 it cannot tell "these directions had their stops filtered out" from "these
@@ -115,7 +126,8 @@ deliveries right after them, so the all-publications booklet prints:
 > *Nothing for this booklet along here — BACK TO CAR, DRIVE TO 419 CEDAR BRIDGE
 > (RIGHT BLDG)  >  DOOR CODE: 1,3 THEN 5 TAKE THE ELEVATOR…*
 
-at 8pt grey italic, directly above 24 deliveries in that building. The identical
+at 8pt grey italic, directly above **23** deliveries in that building (seq 161–189;
+162 and 163 are retired). The identical
 door code for 417 prints full-weight bold, because its run is only two long and
 `SKIP_RUN_MIN` is 3. Nothing is deleted — the never-delete rule holds — but the
 code the driver needs to get in the door becomes the quietest thing on the page,
@@ -143,11 +155,71 @@ count. The "keep the last direction of a run loud" rule becomes unnecessary once
 deadness is computed properly, because a dead run is always followed either by a
 live direction (already loud) or by the end of the route (already dropped).
 
-One thing the render also shows, for Ari to judge rather than for the code: a
-genuinely dead run of 16 directions — the Cedar Bridge stretch on the Mishpacha
-booklet — becomes one dense 8pt paragraph joined by `>`. Every word is there and
-the next real turn is loud, but the useful navigation out of the complex sits
-among in-building instructions the driver does not need.
+### Two things the fix above does NOT solve
+
+Found by auditing the rendered booklets, and they are Ari's calls, not the code's.
+
+**Muted text is sometimes load-bearing, even when the run is genuinely dead.** On
+a sparse-publication booklet the whole opening of the route is legitimately dead,
+so `START AT DUNE CT` lands inside the grey block. Verified on zone 1:
+
+| Booklet | Stops | First full-weight direction |
+| --- | --- | --- |
+| Bina only | 5 | `RIGHT ON CEDARBRIDGE, LEFT ON NEW HAMPSHIRE…` |
+| Hamodia only | 3 | `BACK TO CEDARBRIDGE, TURN RIGHT…` |
+| BP only | 225 | `START AT DUNE CT` ✅ |
+
+Both of those loud lines are *relative* — "back to" and "right on" presuppose a
+position the muted text established. A driver who trusts the label has no start
+point. Also affected: `BACK TO CAR, TURN RIGHT ON CEDARBRIDGE AVE (OUT OF
+COMPLEX)` is muted on every booklet that collapses, including all-publications.
+
+The same shape produces something sharper in zone 2. Sequences 357–359 are
+`CROSS THE STREET TO YOUR BAG AT 1 FOREST PARK CIR` / `CONTINUE ODD NUMBERS` /
+`CROSS THE STREET AND DELIVER EVEN NUMBERS`, and 356 and 360 are both active
+stops — so on an all-publications booklet the first two are muted and only
+*deliver even numbers* stays loud. Where the driver's bag of papers is becomes the
+quietest line on the page. (Correcting deadness per the fix above removes this
+one, since the run is not dead. It remains for any publication that genuinely
+skips that stretch.)
+
+**A dead run renders as a paragraph, not a list.** The Cedar Bridge stretch on the
+Mishpacha booklet is 16 instructions joined by `>` into one 8pt italic paragraph
+that wraps over 9 lines, breaking mid-phrase (`…WASHINGTON / SQUARE`). Bina's is
+23 instructions. At 8pt the `>` carries no more weight than the commas inside an
+instruction, so the block has no readable unit boundaries. Fine as an archival
+"here is what you are skipping"; not something to navigate from — which the
+paragraph above shows a driver sometimes must.
+
+Suggested shape if the collapse is kept: render a muted run as **one small line
+per direction** rather than a joined paragraph, and keep door codes, `PARK…` and
+`WALKING ROUTE` at full weight regardless of deadness.
+
+**Also worth a line of UI:** a booklet for a publication with no stops in the zone
+renders as a bare `Zone 1 — route / In delivery order.` header and nothing else —
+four of fifteen publications in zone 1 (Dee Voch, Hundred, Kindline, Shtenderel).
+Not a regression, `main` does the same, but it reads as a print failure. It should
+say so explicitly.
+
+### What this verification does NOT cover
+
+- **Only zone 1's route data was used.** Findings about zones 2–5 are inference
+  from their direction texts and run lengths, plus spot queries confirming an
+  active stop follows each run. Their stop data was never dumped.
+- **The cover sheet is completely unexercised.** The harness passes empty event
+  tables, so Additions / Deletions / Changes / Complaints and `netPendingEvent`
+  got zero coverage.
+- **RLS is bypassed.** This is the courier-office view. For a publication-scoped
+  staffer PostgREST returns fewer `stop_publications` rows before the filter runs,
+  which can change which runs are dead — exactly what `CLAUDE.md` says a stub
+  cannot prove.
+- The stub ignores `.order("sequence")`, so it cannot catch an ordering bug.
+  (`zone1.route` was checked to be contiguous 1..457, ascending, no duplicates.)
+- `lakewood-courier-routing` was **not** the agent that audited this. Its file
+  only entered the tree that day and agents load at session start, so a
+  general-purpose agent ran with its instructions loaded verbatim. It is
+  registered now; re-running it against a rendered booklet is cheap and worth
+  doing before the first real print run.
 
 ## What is open
 
