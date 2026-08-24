@@ -419,6 +419,37 @@ interchangeable. Today no Mishpacha address is held twice, so the case does not
 yet arise. The 907 file does list three of our addresses twice (17 NEWBERRY,
 5 CEDAR, 55 CANARY), so it will.
 
+### Street-suffix rules, learned the hard way (2026-08-21)
+
+A worker spotted that the first sample booklets looked wrong. He was right, and
+the cause was street-suffix handling. Both naive approaches fail, in opposite
+directions:
+
+- **Ignoring suffixes** merges genuinely different streets. Lakewood has OAK ST,
+  OAK LN *and* OAK DR; READ ST and READ PL; CEDAR ST, CEDAR CT and CEDAR DR;
+  PINE ST and PINE BLVD. Dropping the suffix silently merged them and invented
+  additions that did not exist.
+- **Requiring exact suffixes** invents deletions. The publication writes
+  `6 SHENANDOAH` with no suffix at all, `22 EAGLE LA` for Eagle Ln, and
+  `781 CYPRESS ST` for what our route calls Cypress Ave.
+
+The rule that works:
+
+1. **Canonical match including the suffix.** Expand abbreviations first — `LA`,
+   `CRT`, `DRV`, `PLC`, `WY` and friends all normalise. This is the only
+   automatic match.
+2. **A missing suffix may match**, but only when exactly one of our streets has
+   that base name. `6 SHENANDOAH` → SHENANDOAH DR is safe because we carry no
+   other Shenandoah.
+3. **A different suffix is a different street.** Never auto-match. `781 CYPRESS
+   ST` against our CYPRESS AVE is *probably* the same street — the house numbers
+   sit in the same run as 658/707/761 — but "probably" must go to a human, not
+   into a deletion. These belong in a near-miss list.
+
+With those rules, issue 1125 against our list: **156 of 167 matched, 11 added,
+11 removed.** Under exact-suffix-only it looked like 154/13/11, and three of
+those "removals" were real subscribers.
+
 ### What this does NOT change: the printed floor label (Ari, 2026-08-21)
 
 Asked whether the upstairs/basement label should stop printing, since the driver
