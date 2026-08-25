@@ -574,6 +574,43 @@ addition before being handled:
 Handling these moved matched from 101 to 107 out of 167. The remainder is real
 divergence, not spelling.
 
+### Which streets you may not interpolate on — measured, zone 2 (2026-08-25)
+
+"Reached at N separate points" and "has N blocks of deliveries" are different
+numbers, and the second is the one the interpolation rule needs. Zone 2's route
+*touches* Pine St at four points, but only two of them have deliveries: seq 47-50
+(150, 150, 150-retired, 152) and seq 422-439 (198-270). The other two touches are
+direction text only (`EXIT PINE RIVER, TURN RIGHT ON PINE ST`, `GO BACK TO PINE
+ST, TURN LEFT ON PINE ST AND LEFT ON MARK DR`). So a new Pine St number outside
+150-152 and outside 198-270 has **no safe position** in zone 2.
+
+Zone 2's multi-block delivery streets, measured from the route dump — do not
+interpolate on any of these without asking:
+
+| Street | Delivery blocks in zone 2 |
+| --- | --- |
+| Ponderosa Dr | 4 |
+| Spruce St | 3 |
+| Pine St | 2 |
+| Juniper Ln | 2 |
+| Marc Dr | 2 |
+| Daniel Dr | 2 |
+| Howard Dr | 2 |
+
+Zones 1 and 3-5 have not been measured this way.
+
+### The publication-letters column has a hard width limit (2026-08-25)
+
+`stopPubs` is 20% of the 544pt content width — 108.8pt — at 13.5pt bold with
+`letterSpacing: 1`. **Eight letters is the limit, and only without a wide glyph:**
+every 8-letter set containing `M`, `W` or `K` overflows onto a second line, and
+sets without one fit with under 3pt to spare. Ten of the fifteen stops on the five
+real routes that carry 8+ publications overflow today (see `docs/handoff.md`).
+
+Consequence for this record: **confirming one of the five guessed courier letters,
+or adding a publication to a stop that already has seven, can push a row over.**
+Check the render, not just the data.
+
 ## Items to confirm with Amrom (neither is blocking)
 
 Both only matter once export / the cover sheet exist, and both have a
