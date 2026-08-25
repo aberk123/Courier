@@ -40,3 +40,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Throwaway booklet-verification harnesses. Rendering a real booklet means
+# running the app's own getBooklet and BookletDocument against a route dumped
+# from production, and that only resolves node_modules from the repo root -- so
+# the harness has to live here rather than in a scratch directory. It is
+# deliberately not committed: each verification builds its own, and a stale one
+# checked in would be trusted without being re-run. See docs/handoff.md.
+/.booklet-*.ts
+/.booklet-*.tsx
+/.mainver*/
+/.prefix/
+/.fixver/
+/.verify/
