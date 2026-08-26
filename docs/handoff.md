@@ -404,7 +404,16 @@ Both are worth knowing because they made that pass weaker than it looked.
 - **A near-miss list has nowhere to go.** Unresolved addresses are correctly
   withheld from the courier, but nothing tells the office they exist, so they
   would be withheld silently forever. Needs a fourth cover section or an
-  office-only sheet.
+  office-only sheet. As of 2026-08-26 this has **49 concrete rows** attached to it
+  from the real Voice roster — see `docs/domain-notes.md`. `grep -rn "unplaced" src/`
+  is still empty, so there is no implementation to put them in.
+- **The importer cannot read the real Voice roster.** `.xlsm` is not in the file
+  picker's `accept` list (though `exceljs` reads it); the header names match no
+  alias; there is no house-number column, no action column and no publication
+  column. See `docs/domain-notes.md` for the file's measured shape, and for two
+  defects the file exposes in shipped code — `extended_addr2` holding most of the
+  basement labels, and `normalizeFloorSide` inventing floor labels from placement
+  text.
 - **The publication-letters cell overflows on 10 real addresses** across zones
   2–5 (above). Needs Ari's decision on the layout before the first real print run.
 - **Two corrupted rows in zone 2's production route.** `I STEIN BOYS V S 545
