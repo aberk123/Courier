@@ -140,7 +140,7 @@ export function ImportWorkspace({
         <input
           type="file"
           name="file"
-          accept=".csv,.txt,.xlsx"
+          accept=".csv,.txt,.xlsx,.xlsm"
           required
           onChange={(event) => {
             const file = event.currentTarget.files?.[0];
@@ -158,6 +158,26 @@ export function ImportWorkspace({
           // rather than filled, so "Review file" stays the primary action.
           className="text-sm text-black/60 file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-black/20 file:bg-black/[.04] file:px-4 file:py-2 file:text-sm file:font-medium file:text-black hover:file:bg-black/[.08] dark:text-white/60 dark:file:border-white/25 dark:file:bg-white/10 dark:file:text-white dark:hover:file:bg-white/20"
         />
+        {/*
+          A publication's own export is a plain roster: no action column and no
+          publication column, so neither can be read off the row. Picking one
+          here turns the whole file into "these addresses should be getting this
+          publication". Left blank, the file must carry its own columns.
+        */}
+        <label className="flex items-center gap-2 text-sm text-black/70 dark:text-white/70">
+          <span className="whitespace-nowrap">Whole file is a list for</span>
+          <select
+            name="rosterPublication"
+            className="rounded-lg border border-black/20 bg-transparent px-2 py-1.5 text-sm dark:border-white/25"
+          >
+            <option value="">— the file says which —</option>
+            {publications.map((pub) => (
+              <option key={pub.id} value={pub.id}>
+                {pub.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="submit"
           disabled={planPending || Boolean(fileError)}
@@ -171,8 +191,11 @@ export function ImportWorkspace({
           </p>
         ) : null}
         <p className="w-full text-xs text-black/60 dark:text-white/60">
-          CSV or .xlsx, up to 5 MB. Columns: action, name, house number, street, publication,
-          floor/side, instructions — header names are matched loosely.
+          CSV, .xlsx or .xlsm, up to 5 MB. Columns: action, name, house number, street,
+          publication, floor/side, instructions — header names are matched loosely, and a
+          whole address in one cell is split for you. For a publication&rsquo;s own list, which
+          has none of those columns, pick the publication above instead. Nothing is removed
+          from a list on the strength of an address being missing from it.
         </p>
       </form>
 

@@ -8,20 +8,48 @@ export type ParsedRow = {
   street: string;
   publication: string | null;
   floorSide: string | null;
+  /**
+   * A second floor/side column. The Voice's export splits them: most "Upstairs"
+   * values land in `extended_addr` and most "Basement" values in
+   * `extended_addr2` -- 1,534 basements live only in the second column, so
+   * reading one of them merges every basement household into the upstairs one
+   * at the same door. See docs/domain-notes.md.
+   */
+  floorSideAlt: string | null;
   instructions: string | null;
   problem?: string;
 };
 
 // Header aliases, so the office does not have to match our column names
 // exactly. Everything is compared lowercased with non-letters stripped.
-const FIELD_ALIASES: Record<keyof Omit<ParsedRow, "rowNumber" | "action" | "problem">, string[]> = {
-  name: ["name", "recipient", "recipientname", "subscriber", "lastname"],
+const FIELD_ALIASES: Record<
+  keyof Omit<ParsedRow, "rowNumber" | "action" | "problem" | "floorSideAlt">,
+  string[]
+> = {
+  name: [
+    "name", "recipient", "recipientname", "subscriber", "lastname", "surname",
+    // A publication's CRM export, e.g. The Voice's `customers.last_name`.
+    "customerslastname", "customerlastname",
+  ],
   houseNumber: ["housenumber", "house", "housenum", "number", "no", "streetnumber", "addressnumber"],
-  street: ["street", "streetname", "road", "address"],
+  // `address` and `addressesaddr` can be the whole address in one cell; the
+  // house number is split off below when there is no separate column for it.
+  street: ["street", "streetname", "road", "address", "addressesaddr", "addressaddr", "addressline1"],
   publication: ["publication", "magazine", "pub", "title"],
-  floorSide: ["floorside", "floor", "side", "unit", "apt", "apartment"],
+  floorSide: [
+    "floorside", "floor", "side", "unit", "apt", "apartment",
+    "addressesextendedaddr", "extendedaddr", "addressextendedaddr",
+  ],
   instructions: ["instructions", "instruction", "specialinstructions", "notes", "note", "comment"],
 };
+
+/** Only ever a second floor/side column; kept separate so it can be unioned. */
+const FLOOR_SIDE_ALT = [
+  "addressesextendedaddr2", "extendedaddr2", "addressextendedaddr2", "floorside2", "unit2",
+];
+
+/** A first-name column, joined to the surname when both are present. */
+const FIRST_NAME = ["firstname", "customersfirstname", "customerfirstname", "givenname"];
 
 const ACTION_ALIASES: Record<ParsedRow["action"], string[]> = {
   add: ["add", "added", "addition", "new", "a", "+"],
@@ -45,7 +73,21 @@ function buildHeaderMap(headers: string[]) {
   const actionIndex = headers.findIndex((header) =>
     ["action", "type", "changetype", "addremove", "status"].includes(norm(header)),
   );
-  return { map, actionIndex };
+  const altFloorIndex = headers.findIndex((header) => FLOOR_SIDE_ALT.includes(norm(header)));
+  const firstNameIndex = headers.findIndex((header) => FIRST_NAME.includes(norm(header)));
+  return { map, actionIndex, altFloorIndex, firstNameIndex };
+}
+
+/**
+ * Splits "999 Morris Ave" into its house number and street. Used only when the
+ * upload has no separate house-number column, which is how a publication's own
+ * export arrives. 19,608 of the 19,621 rows in the real Voice roster split on
+ * this; the 13 that do not are reversed ("Meadowood Road 429") or glued
+ * ("1OMNI CT"), and become blocked rows rather than guesses.
+ */
+export function splitAddress(value: string): { houseNumber: string; street: string } | null {
+  const m = value.trim().match(/^([0-9]+[A-Za-z]?)\s+(.+)$/);
+  return m ? { houseNumber: m[1], street: m[2].trim() } : null;
 }
 
 function resolveAction(value: string): ParsedRow["action"] {
@@ -102,32 +144,61 @@ export function parseCsv(text: string): string[][] {
 }
 
 /** Turns a grid (from CSV or a worksheet) into typed rows. */
-export function rowsFromGrid(grid: string[][]): ParsedRow[] {
+export type GridOptions = {
+  /**
+   * What a row means when the upload has no action column. A publication's own
+   * roster is a list of who should be receiving it, so every row is an "add";
+   * leaving it "unknown" would block the whole file.
+   */
+  defaultAction?: ParsedRow["action"];
+};
+
+export function rowsFromGrid(grid: string[][], options: GridOptions = {}): ParsedRow[] {
   if (!grid.length) return [];
   const [headers, ...body] = grid;
-  const { map, actionIndex } = buildHeaderMap(headers);
+  const { map, actionIndex, altFloorIndex, firstNameIndex } = buildHeaderMap(headers);
 
   const cell = (row: string[], index: number | undefined) =>
-    index === undefined ? "" : (row[index] ?? "").trim();
+    index === undefined || index < 0 ? "" : (row[index] ?? "").trim();
 
   return body.map((row, index) => {
-    const houseNumber = cell(row, map.houseNumber);
-    const street = cell(row, map.street);
-    const action = actionIndex >= 0 ? resolveAction(cell(row, actionIndex)) : "unknown";
+    let houseNumber = cell(row, map.houseNumber);
+    let street = cell(row, map.street);
+
+    // No house-number column: the address is one cell, so split it.
+    let unsplittable = false;
+    if (!houseNumber && street) {
+      const parts = splitAddress(street);
+      if (parts) {
+        houseNumber = parts.houseNumber;
+        street = parts.street;
+      } else {
+        unsplittable = true;
+      }
+    }
+
+    const action =
+      actionIndex >= 0 ? resolveAction(cell(row, actionIndex)) : (options.defaultAction ?? "unknown");
+
+    const surname = cell(row, map.name);
+    const given = cell(row, firstNameIndex);
+    const name = [given, surname].filter(Boolean).join(" ") || null;
 
     const problems: string[] = [];
     if (action === "unknown") problems.push("unrecognised action");
-    if (!houseNumber) problems.push("missing house number");
+    if (unsplittable) problems.push(`could not read a house number out of "${street}"`);
+    else if (!houseNumber) problems.push("missing house number");
     if (!street) problems.push("missing street");
 
     return {
       rowNumber: index + 2, // +2: 1-indexed, and row 1 is the header
       action,
-      name: cell(row, map.name) || null,
+      name,
       houseNumber,
       street,
       publication: cell(row, map.publication) || null,
       floorSide: cell(row, map.floorSide) || null,
+      floorSideAlt: cell(row, altFloorIndex) || null,
       instructions: cell(row, map.instructions) || null,
       problem: problems.length ? problems.join(", ") : undefined,
     };

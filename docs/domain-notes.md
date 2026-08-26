@@ -690,6 +690,26 @@ streets, 12 auto-matched, and 49 rows needing a human across 14 decisions.** Onl
 `VINE ST` has to be split row by row: the file uses that one name both for a road in
 the 100s that we do not serve and for 580–736, which is our Vine Ave.
 
+**This is implemented, not just recorded.** `ruleStreetVariants` in
+`src/lib/import/match.ts` does it, over the whole upload at once — the evidence is
+whether the file *also* uses our spelling and for which numbers, which no single row
+can see. `planRow` then auto-applies a variant street only where the ruling says
+`same`; `unresolved` becomes a choice for the office and `different` is reported as
+out of area. Checked both ways: the 14 tests in `src/lib/import/import.test.ts`
+(`npm test`) pin the shapes, and run against the real 19,621-row roster the ruling
+reproduces the hand analysis on **24 of 24** street spellings, with **0** rows on a
+`different` or `unresolved` street reaching `ready`.
+
+Two things the same pass fixed, both measured against the real file:
+`normalizeFloorSide` now reads all 970 distinct floor cells with 0 missed basements
+and 0 invented labels (it had six and eight); and reading both extension columns
+takes basement labels from 953 to **2,487**.
+
+One consequence worth knowing: the ruling needs the *complete* stop list to be
+right. Run against zones 1–2 only, `VINE ST` comes out `different` rather than
+`unresolved`, because our Vine Ave then looks like 550–580 instead of 550–736. The
+app always passes every stop, so this only bites a partial harness.
+
 ### Things about this file that must be settled before anything is applied
 
 - **71 rows at the tail (19552–19622) are not from the subscription system.** Their

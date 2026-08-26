@@ -4,7 +4,15 @@ import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { parseCsv, rowsFromGrid, type ParsedRow } from "@/lib/import/parse";
-import { buildStreetZoneMap, planRow, type ExistingStop, type PlanRow } from "@/lib/import/match";
+import {
+  buildStreetZoneMap,
+  normalizeHouseNumber,
+  normalizeStreet,
+  planRow,
+  ruleStreetVariants,
+  type ExistingStop,
+  type PlanRow,
+} from "@/lib/import/match";
 
 export type PlanState = { error: string | null; rows: PlanRow[] | null; fileName: string | null };
 export type ApplyState = { error: string | null; applied: number | null; skipped: number | null };
@@ -79,9 +87,16 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
     return { error: "That file is larger than 5 MB.", rows: null, fileName: null };
   }
 
+  // A file with no action column is a publication's own roster -- a list of who
+  // should be receiving it -- so each row is an "add". Removals are deliberately
+  // NOT inferred from absence: see "Whose list wins" in docs/domain-notes.md.
+  const rosterPublication = String(formData.get("rosterPublication") ?? "").trim();
+
   let parsed: ParsedRow[];
   try {
-    parsed = rowsFromGrid(await gridFromFile(file));
+    parsed = rowsFromGrid(await gridFromFile(file), {
+      defaultAction: rosterPublication ? "add" : undefined,
+    });
   } catch (error) {
     return {
       error: `Could not read that file: ${(error as Error).message}`,
@@ -95,8 +110,39 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   }
 
   const { existing, publications } = await loadContext();
+
+  // A roster names no publication per row, so the uploader picks one and it is
+  // stamped on every row.
+  if (rosterPublication) {
+    const chosen = publications.find((pub) => pub.id === rosterPublication);
+    if (!chosen) {
+      return { error: "Pick which publication that list is for.", rows: null, fileName: file.name };
+    }
+    for (const row of parsed) row.publication = chosen.code;
+  }
+
   const streetZones = buildStreetZoneMap(existing);
-  const rows = parsed.map((row) => planRow(row, existing, publications, streetZones));
+
+  // Which street spellings in THIS upload are our streets written differently is
+  // a fact about the whole file, not about one row -- the evidence is whether
+  // the file also uses our spelling, and for which house numbers. So it is
+  // settled once, before any row is planned. See ruleStreetVariants.
+  const fileStreets = new Map<string, Set<string>>();
+  for (const row of parsed) {
+    if (!row.street || !row.houseNumber) continue;
+    const key = normalizeStreet(row.street);
+    if (!fileStreets.has(key)) fileStreets.set(key, new Set());
+    fileStreets.get(key)!.add(normalizeHouseNumber(row.houseNumber));
+  }
+  const ourStreets = new Map<string, Set<string>>();
+  for (const stop of existing) {
+    const key = normalizeStreet(stop.street);
+    if (!ourStreets.has(key)) ourStreets.set(key, new Set());
+    ourStreets.get(key)!.add(normalizeHouseNumber(stop.houseNumber));
+  }
+  const streetRuling = ruleStreetVariants(fileStreets, ourStreets);
+
+  const rows = parsed.map((row) => planRow(row, existing, publications, streetZones, streetRuling));
 
   return { error: null, rows, fileName: file.name };
 }

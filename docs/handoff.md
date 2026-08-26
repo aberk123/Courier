@@ -47,6 +47,11 @@ Shipped and working:
 - Manage Users: invite, edit, delete, publication scoping, reset links
 - Breadcrumb navigation
 - RLS throughout, with a regression suite (`supabase/tests/rls.sh`, 34 passing)
+- Weekly import reads a publication's own roster: `.xlsm`, a whole address in
+  one cell, two floor/side columns, no action or publication column
+- `npm test` — 14 import-matcher tests, on Node's built-in runner, no new
+  dependency. Every case is a shape the real Voice roster contained and the code
+  got wrong before
 
 Deliberately deferred by Ari — do not build without being asked: master-list
 reconciliation across all routes beyond the five-route MVP, the courier check-off
@@ -407,13 +412,11 @@ Both are worth knowing because they made that pass weaker than it looked.
   office-only sheet. As of 2026-08-26 this has **49 concrete rows** attached to it
   from the real Voice roster — see `docs/domain-notes.md`. `grep -rn "unplaced" src/`
   is still empty, so there is no implementation to put them in.
-- **The importer cannot read the real Voice roster.** `.xlsm` is not in the file
-  picker's `accept` list (though `exceljs` reads it); the header names match no
-  alias; there is no house-number column, no action column and no publication
-  column. See `docs/domain-notes.md` for the file's measured shape, and for two
-  defects the file exposes in shipped code — `extended_addr2` holding most of the
-  basement labels, and `normalizeFloorSide` inventing floor labels from placement
-  text.
+- **Removals from a roster import are deliberately not built.** Everything else
+  is: the importer reads the real Voice roster and plans it. What it will not do
+  is infer a cancellation from an address being missing, because "whose list
+  wins" is only half answered — see `docs/domain-notes.md`. Enabling that is the
+  next decision, not the next piece of code.
 - **The publication-letters cell overflows on 10 real addresses** across zones
   2–5 (above). Needs Ari's decision on the layout before the first real print run.
 - **Two corrupted rows in zone 2's production route.** `I STEIN BOYS V S 545

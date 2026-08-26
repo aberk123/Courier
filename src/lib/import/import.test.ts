@@ -1,0 +1,188 @@
+/**
+ * Regression tests for the import matcher.
+ *
+ * Every case here is a shape that a real publication roster actually contained
+ * and that the code got wrong before -- see "The Voice's real roster" in
+ * docs/domain-notes.md. The fixture is synthetic on purpose: the real file is
+ * ~19,600 subscribers' names and addresses and does not belong in the repo.
+ *
+ * Run with `npm test`.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  mergeFloorSides,
+  normalizeFloorSide,
+  ruleStreetVariants,
+  normalizeStreet,
+  normalizeHouseNumber,
+} from "./match.ts";
+import { rowsFromGrid, splitAddress } from "./parse.ts";
+
+const streets = (spec: Record<string, string[]>) =>
+  new Map(
+    Object.entries(spec).map(([street, nums]) => [
+      normalizeStreet(street),
+      new Set(nums.map(normalizeHouseNumber)),
+    ]),
+  );
+
+test("floor/side: misspellings that occur in a real roster", () => {
+  // Each of these returned null before: `basment` contains none of the
+  // substrings the old pattern looked for.
+  for (const v of ["Basment", "bmsnt", "bmnst", "Lower level", "bsmt", "Basement"]) {
+    assert.equal(normalizeFloorSide(v), "basement", v);
+  }
+  for (const v of ["Upstairs", "usptairs", "Uptairs", "Upstaire", "up"]) {
+    assert.equal(normalizeFloorSide(v), "upstairs", v);
+  }
+});
+
+test("floor/side: never invented out of placement text", () => {
+  // The old pattern matched `up` inside "couple", `top` in "top of mailbox",
+  // `down` in "down the driveway" and `second` in "second driveway", each of
+  // which put a household on the wrong floor.
+  for (const v of [
+    "plz put on steps WITH the railing, older couple",
+    "plz put on top of mailbox",
+    "down the driveway",
+    "entrance is on the left side of the house by the second driveway",
+    "Second Entrance to the house",
+    "Update",
+    "House",
+    "Main floor",
+  ]) {
+    assert.equal(normalizeFloorSide(v), null, v);
+  }
+});
+
+test("floor/side: a cell naming both floors resolves to neither", () => {
+  // "upstairs (no one lives in basement)" used to return basement, because the
+  // basement branch ran first and the word appears in a note denying it.
+  assert.equal(normalizeFloorSide("upstairs (no one lives in basement)"), null);
+  assert.equal(normalizeFloorSide("Upstairs and downstairs"), null);
+});
+
+test("floor/side: the two extension columns are unioned", () => {
+  // The roster puts most "Upstairs" in one column and most "Basement" in the
+  // other; 1,534 basements existed only in the second. Reading one column
+  // merged every basement household into the upstairs one at the same door.
+  assert.equal(mergeFloorSides(null, "Basement"), "basement");
+  assert.equal(mergeFloorSides("Upstairs", null), "upstairs");
+  assert.equal(mergeFloorSides("Basement", "Basement"), "basement");
+  // Disagreement is not resolved by preferring a column.
+  assert.equal(mergeFloorSides("Upstairs", "bsmnt"), null);
+});
+
+test("a whole address in one cell is split, and a reversed one is not guessed at", () => {
+  assert.deepEqual(splitAddress("999 Morris Ave"), { houseNumber: "999", street: "Morris Ave" });
+  assert.deepEqual(splitAddress("28A Henry St"), { houseNumber: "28A", street: "Henry St" });
+  assert.equal(splitAddress("Meadowood Road 429"), null);
+  assert.equal(splitAddress("1OMNI CT"), null);
+});
+
+test("a publication's own export is parsed: no action column, address in one cell", () => {
+  const rows = rowsFromGrid(
+    [
+      [
+        "customers.id",
+        "customers.first_name",
+        "customers.last_name",
+        "addresses.addr",
+        "addresses.extended_addr",
+        "addresses.extended_addr2",
+      ],
+      ["abc123", "Family", "Aronowitz", "12 Juniper Ln", "", "Basement"],
+      ["abc124", "Devorah", "Bergman", "3 Dune Ct", "Upstairs", ""],
+    ],
+    { defaultAction: "add" },
+  );
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].houseNumber, "12");
+  assert.equal(rows[0].street, "Juniper Ln");
+  assert.equal(rows[0].action, "add");
+  assert.equal(rows[0].name, "Family Aronowitz");
+  // The basement label lives in the SECOND extension column.
+  assert.equal(mergeFloorSides(rows[0].floorSide, rows[0].floorSideAlt), "basement");
+  assert.equal(mergeFloorSides(rows[1].floorSide, rows[1].floorSideAlt), "upstairs");
+  assert.equal(rows[0].problem, undefined);
+});
+
+test("without a chosen publication, a roster row is blocked rather than guessed", () => {
+  const rows = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Aronowitz", "12 Juniper Ln"]]);
+  assert.match(rows[0].problem ?? "", /unrecognised action/);
+});
+
+test("street ruling: a bare base word is our street", () => {
+  // "PONDEROSA" with no street type cannot be a *different* street.
+  const ruling = ruleStreetVariants(
+    streets({ "PONDEROSA": ["6", "8"], "PONDEROSA DR": ["1"] }),
+    streets({ "PONDEROSA DR": ["1", "6", "8"] }),
+  );
+  assert.equal(ruling.get(normalizeStreet("PONDEROSA"))?.ruling, "same");
+});
+
+test("street ruling: one street written two ways", () => {
+  // HAZELWOOD CT and the file's own HAZELWOOD LN never share a house number,
+  // and together they fill the range we deliver to. That is one street.
+  const ruling = ruleStreetVariants(
+    streets({ "HAZELWOOD CT": ["4", "6", "11", "14"], "HAZELWOOD LN": ["1", "3", "8", "9"] }),
+    streets({ "HAZELWOOD LN": ["1", "3", "4", "6", "8", "9", "11", "14", "17"] }),
+  );
+  assert.equal(ruling.get(normalizeStreet("HAZELWOOD CT"))?.ruling, "same");
+});
+
+test("street ruling: a different road that merely rhymes with ours", () => {
+  // CHELSEA RD runs past 60 with odd numbers; our CHELSEA CT is 2-20 even, and
+  // the file lists CHELSEA CT separately with our numbers. Two roads.
+  // Matching on the name would have added deliveries that do not exist -- and,
+  // once removals are enabled, cancelled ones that do.
+  const ruling = ruleStreetVariants(
+    streets({
+      "CHELSEA RD": ["3", "12", "15", "16", "37", "49", "55", "61", "65"],
+      "CHELSEA CT": ["2", "8", "14", "16", "18"],
+    }),
+    streets({ "CHELSEA CT": ["2", "4", "6", "8", "10", "12", "14", "16", "18", "20"] }),
+  );
+  assert.equal(ruling.get(normalizeStreet("CHELSEA RD"))?.ruling, "different");
+});
+
+test("street ruling: sharing no house number with us is a different street", () => {
+  // READ PL is in the 1300s-1400s; our READ ST is 241-280.
+  const ruling = ruleStreetVariants(
+    streets({ "READ PL": ["1341", "1400", "1427"], "READ ST": ["241", "249"] }),
+    streets({ "READ ST": ["241", "249", "256", "280"] }),
+  );
+  assert.equal(ruling.get(normalizeStreet("READ PL"))?.ruling, "different");
+});
+
+test("street ruling: one name used for two roads goes to a person", () => {
+  // The roster uses VINE ST both for a stretch in the 100s it does not share
+  // with us and for 580-736, which IS our VINE AVE. Ruling the whole spelling
+  // "different" would drop the real ones; ruling it "same" would invent the
+  // others. Neither is safe, so it is unresolved.
+  const ruling = ruleStreetVariants(
+    streets({
+      "VINE ST": ["106", "114", "186", "580", "648", "696", "728", "736", "792", "1111"],
+      "VINE AVE": ["102", "104", "110"],
+    }),
+    streets({ "VINE AVE": ["550", "580", "648", "664", "696", "728", "736"] }),
+  );
+  assert.equal(ruling.get(normalizeStreet("VINE ST"))?.ruling, "unresolved");
+});
+
+test("street ruling: both spellings used for the same numbers is unresolved", () => {
+  const ruling = ruleStreetVariants(
+    streets({ "LONDON DR": ["2", "6", "11", "18", "22"], "LONDON AVE": ["6", "18", "22", "24"] }),
+    streets({ "LONDON AVE": ["2", "4", "6", "8", "18", "20", "22", "24", "26"] }),
+  );
+  assert.equal(ruling.get(normalizeStreet("LONDON DR"))?.ruling, "unresolved");
+});
+
+test("street ruling: an exact match is never ruled on", () => {
+  const ruling = ruleStreetVariants(
+    streets({ "DUNE CT": ["1", "3"] }),
+    streets({ "DUNE CT": ["1", "3", "5"] }),
+  );
+  assert.equal(ruling.size, 0);
+});
