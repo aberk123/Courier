@@ -747,6 +747,33 @@ with."* So the publication's file is authoritative where the two disagree.
   week's file against this one is the first true week-over-week diff, and is also
   the control the reconciliation agent could not run this time.
 
+### The weekly roster cycle (Ari, 2026-08-27)
+
+The settled shape of the job, and it answers "whose list wins": **the publication's
+new list wins.** Each week The Voice sends its full Lakewood roster; we reconcile it
+against the database, apply the result, and the database becomes the list we work
+from. Next week's file is compared against *that*, and so on.
+
+Two consequences worth holding on to:
+
+- **The first run is the risky one.** It is a one-time reconciliation between the
+  publication's billing view and Amrom's hand-maintained route sheets, which have
+  never been reconciled — 111 additions and 16 removals on the 27 Aug file. Every
+  run after it is a week of real churn, which `docs/handoff.md` records as a
+  handful of addresses.
+- **From week two the file-to-file control comes for free.** The reconciliation
+  agent's strongest check — diff two consecutive issues, because real churn is tiny
+  and a large diff means divergence or a matching fault — was impossible with one
+  file. Once the database mirrors last week's roster, every weekly run *is* that
+  diff. `removalsLookWrong` is the guard that acts on it; its threshold (5% of the
+  publication's addresses, floor of 25) is set for the first run and should be
+  tightened once a few normal weeks have been seen.
+
+Removals are derived, never stated: a roster cannot say "cancel this one", only
+stop listing it. `planRosterRemovals` does that derivation, and its three rules —
+covered streets only, loose presence test, address level never unit level — are
+what stop a matching weakness turning into cancelled subscribers.
+
 ### Zone membership is decided by street (Ari, 2026-08-27)
 
 The publication's list covers all of Lakewood — about 30 zones. We hold five. The

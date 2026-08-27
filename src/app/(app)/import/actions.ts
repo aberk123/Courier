@@ -8,7 +8,9 @@ import {
   buildStreetZoneMap,
   normalizeHouseNumber,
   normalizeStreet,
+  planRosterRemovals,
   planRow,
+  removalsLookWrong,
   ruleStreetVariants,
   type ExistingStop,
   type PlanRow,
@@ -143,6 +145,38 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   const streetRuling = ruleStreetVariants(fileStreets, ourStreets);
 
   const rows = parsed.map((row) => planRow(row, existing, publications, streetZones, streetRuling));
+
+  // A roster is the whole truth for its publication, so an address it no longer
+  // carries is a cancellation. Nothing in the file says so -- it has to be
+  // derived from our side. See planRosterRemovals for the three rules that keep
+  // that from cancelling real subscribers.
+  if (rosterPublication) {
+    const chosen = publications.find((pub) => pub.id === rosterPublication)!;
+    const removals = planRosterRemovals(
+      existing,
+      chosen,
+      fileStreets,
+      parsed.length + 2,
+    );
+    const addresses = new Set(
+      existing
+        .filter((stop) => stop.publicationIds.includes(chosen.id))
+        .map((stop) => `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`),
+    ).size;
+    const check = removalsLookWrong(removals.length, addresses);
+    if (check.tripped) {
+      return {
+        error:
+          `That list would stop ${removals.length} of ${addresses} ${chosen.name} addresses, ` +
+          `well past the ${check.limit} a normal week reaches. That is usually a partial file or ` +
+          `a column that did not line up, not ${removals.length} cancellations. Nothing has been changed — ` +
+          `check the file covers all of Lakewood and re-upload.`,
+        rows: null,
+        fileName: file.name,
+      };
+    }
+    rows.push(...removals);
+  }
 
   return { error: null, rows, fileName: file.name };
 }

@@ -577,6 +577,89 @@ function newStopFrom(
   };
 }
 
+/**
+ * Turns "absent from the roster" into proposed removals.
+ *
+ * A publication's roster says who should be receiving it. It has no way to say
+ * "cancel this one" -- a cancellation shows up only as an address that is no
+ * longer there. So the removals have to be derived by walking our own list, and
+ * that is the dangerous direction: every weakness in matching becomes a
+ * subscriber who silently stops getting their paper.
+ *
+ * Three rules keep it honest:
+ *
+ *  - Only addresses on streets the roster actually covers are considered. The
+ *    roster is town-wide but we hold five zones of about thirty, so a street the
+ *    upload never mentions at all means the publication did not send us that
+ *    part of town, not that everyone on it cancelled.
+ *  - Presence is tested with listedUnderAnySpelling, which is deliberately
+ *    looser than the matcher.
+ *  - It works at address level, never unit level. If a house has two units
+ *    taking the publication and the roster lists the address once, neither is
+ *    removed. Ari's rule is a count per address; a roster cannot say which unit
+ *    stopped, so this does not guess. The cost is that a house going from two
+ *    copies to one is not detected here.
+ */
+export function planRosterRemovals(
+  stops: ExistingStop[],
+  publication: { id: string; name: string },
+  fileStreets: Map<string, Set<string>>,
+  startingRowNumber: number,
+): PlanRow[] {
+  // Streets the roster covers at all -- compared loosely, so a street that only
+  // ever appears misspelled still counts as covered.
+  const covered = (street: string) =>
+    [...fileStreets.keys()].some((candidate) => sameStreetLoosely(candidate, normalizeStreet(street)));
+
+  const seen = new Set<string>();
+  const out: PlanRow[] = [];
+  let rowNumber = startingRowNumber;
+
+  for (const stop of stops) {
+    if (!stop.publicationIds.includes(publication.id)) continue;
+    const key = `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!covered(stop.street)) continue;
+    if (listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets)) continue;
+
+    out.push({
+      rowNumber: rowNumber++,
+      action: "remove",
+      summary: `${stop.houseNumber} ${stop.street}${stop.recipientName ? ` · ${stop.recipientName}` : ""}`,
+      publicationId: publication.id,
+      publicationName: publication.name,
+      status: "ready",
+      message: `not on the new ${publication.name} list — stop delivering`,
+      candidates: [],
+      stopId: stop.id,
+      newStop: null,
+      instructions: null,
+      floorSide: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Real week-to-week churn on these routes is a handful of addresses. A run that
+ * proposes to cancel a large slice of a publication's list is a matching fault
+ * or a truncated file, not a week's changes -- and it is the one mistake nobody
+ * finds out about, because the subscriber complains to the publication.
+ *
+ * So the run stops and says so rather than applying. This is the "diff two
+ * consecutive issues" control from docs/handoff.md, in the only form available
+ * before there is a previous file to diff against: once the database mirrors
+ * last week's roster, the same check compares this week to last week for free.
+ */
+export function removalsLookWrong(
+  removals: number,
+  publicationAddresses: number,
+): { tripped: boolean; limit: number } {
+  const limit = Math.max(25, Math.round(publicationAddresses * 0.05));
+  return { tripped: removals > limit, limit };
+}
+
 /** street (normalized) -> zones that already contain it */
 export function buildStreetZoneMap(stops: ExistingStop[]) {
   const map = new Map<string, { zoneId: string; zoneNumber: number }[]>();

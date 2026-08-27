@@ -15,6 +15,8 @@ import {
   normalizeFloorSide,
   ruleStreetVariants,
   listedUnderAnySpelling,
+  planRosterRemovals,
+  removalsLookWrong,
   normalizeStreet,
   normalizeHouseNumber,
 } from "./match.ts";
@@ -211,4 +213,35 @@ test("removal suppression is generous about spelling but not about short names",
   assert.equal(listedUnderAnySpelling("CANARY DR", "66", streets({ "CANARY ST": ["66"] })), true);
   // But two edits on a five-letter name is a different street: CAROL vs CAREY.
   assert.equal(listedUnderAnySpelling("CAROL ST", "207", streets({ "CAREY ST": ["207"] })), false);
+});
+
+test("roster removals: only where the roster covers the street, and never per unit", () => {
+  const stop = (id: string, house: string, street: string, pubs: string[]) => ({
+    id, zoneId: "z", zoneNumber: 1, recipientName: null,
+    houseNumber: house, street, floorSide: null, publicationIds: pubs,
+  });
+  const voice = { id: "V", name: "The Voice" };
+  const stops = [
+    stop("a", "5", "DUNE CT", ["V"]),          // on a covered street, absent -> remove
+    stop("b", "7", "DUNE CT", ["V"]),          // listed -> keep
+    stop("c", "1", "OAK ST", ["V"]),           // roster never mentions Oak St -> not ours to judge
+    stop("d", "9", "DUNE CT", ["B"]),          // not a Voice address at all
+    stop("e", "3", "DUNE CT", ["V"]),          // two units at one address, roster lists it once...
+    stop("f", "3", "DUNE CT", ["V"]),          // ...so neither is removed
+  ];
+  const file = streets({ "DUNE CT": ["3", "7"] });
+  const out = planRosterRemovals(stops, voice, file, 2);
+  assert.deepEqual(out.map((r) => r.stopId), ["a"]);
+  assert.equal(out[0].action, "remove");
+  assert.equal(out[0].publicationId, "V");
+  assert.equal(out[0].status, "ready");
+});
+
+test("a run that would cancel a large slice of the list is held back", () => {
+  // Real churn is a handful. 16 of 1,102 passes; a matching regression does not.
+  assert.equal(removalsLookWrong(16, 1102).tripped, false);
+  assert.equal(removalsLookWrong(540, 1102).tripped, true);
+  // Small publications get a floor, so a list of 30 is not tripped by 3.
+  assert.equal(removalsLookWrong(3, 30).tripped, false);
+  assert.equal(removalsLookWrong(29, 30).tripped, true);
 });
