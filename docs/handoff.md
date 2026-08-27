@@ -49,7 +49,10 @@ Shipped and working:
 - RLS throughout, with a regression suite (`supabase/tests/rls.sh`, 34 passing)
 - Weekly import reads a publication's own roster: `.xlsm`, a whole address in
   one cell, two floor/side columns, no action or publication column
-- `npm test` — 14 import-matcher tests, on Node's built-in runner, no new
+- Roster removals: an address the new list no longer carries becomes a Deletion,
+  guarded by `removalsLookWrong` so an implausibly large run stops instead of
+  applying
+- `npm test` — 18 import-matcher tests, on Node's built-in runner, no new
   dependency. Every case is a shape the real Voice roster contained and the code
   got wrong before
 
@@ -398,31 +401,44 @@ Both are worth knowing because they made that pass weaker than it looked.
 
 - **The >1 MB import post-deploy check.** Upload and review only, do not apply.
   Needs a signed-in production session. Last item from `SETUP.md`.
-- **Donath (`rdonath@circmag.com`) has never set a password.** Her `updated_at`
-  is 2ms after her `last_sign_in_at` — the same transaction. She needs a fresh
-  reset link, generated from Manage Users and opened by her.
 - **Five unconfirmed courier letters** (above), before the first real print run.
-- **Whose list wins.** When our list says an address takes a publication and the
-  publication's file does not, nobody has decided who is right. Do not build the
-  apply step for master-list import until Ari answers. Measured against
-  Mishpacha issue 1125: 160 of 167 matched, 11 added, 4 removed, 3 unresolved.
 - **A near-miss list has nowhere to go.** Unresolved addresses are correctly
   withheld from the courier, but nothing tells the office they exist, so they
   would be withheld silently forever. Needs a fourth cover section or an
   office-only sheet. As of 2026-08-26 this has **49 concrete rows** attached to it
   from the real Voice roster — see `docs/domain-notes.md`. `grep -rn "unplaced" src/`
   is still empty, so there is no implementation to put them in.
-- **Removals from a roster import are deliberately not built.** Everything else
-  is: the importer reads the real Voice roster and plans it. What it will not do
-  is infer a cancellation from an address being missing, because "whose list
-  wins" is only half answered — see `docs/domain-notes.md`. Enabling that is the
-  next decision, not the next piece of code.
 - **The publication-letters cell overflows on 10 real addresses** across zones
   2–5 (above). Needs Ari's decision on the layout before the first real print run.
+- **The 27 Aug Voice roster has not been applied.** The run is computed and
+  verified — 111 additions, 16 removals, 68 needing a choice — but two things
+  are unresolved. Seven of the sixteen removals are the whole of River Ave
+  (203–962), and an entire street going at once is not churn; and 71 rows at the
+  tail of that file carry ids `Zone1_1`…`zone2_8` instead of customer ids, which
+  move the result by about 40 additions and 25 removals on their own. Both are
+  questions for Ari and Amrom, not for the code.
 - **Two corrupted rows in zone 2's production route.** `I STEIN BOYS V S 545
   HOWARD DR` and `I V 545 HOWARD DR` are stored as `direction` rows but are
   clearly address rows. They print as loud driving instructions, and because
   545 Howard Dr is not a stop record it is invisible to every publication filter.
+
+## Closed since this file was last rewritten
+
+- **"Whose list wins" is answered (Ari, 2026-08-27).** The publication's new list
+  wins. Each week its full Lakewood roster is reconciled against the database, the
+  result is applied, and the database becomes the list we work from; next week's
+  file is compared against that. Removals are therefore in scope and are built —
+  see `planRosterRemovals` and the weekly-cycle section of `docs/domain-notes.md`.
+- **Donath's password.** The open item said she had never set one. She had:
+  `rdonath@circmag.com` shows `last_sign_in_at` 2026-08-21 13:14 and signed in
+  again on 2026-08-27. Nothing to do. Worth knowing *why* the old reading was
+  wrong, because the same trap is easy to fall into again: `updated_at` moving
+  without `last_sign_in_at` moving does **not** mean a failed password set. A
+  refresh-token rotation logs as `action: login` with `login_method: token` and
+  bumps `updated_at` alone. Ari's own account looked broken for exactly that
+  reason on 2026-08-27 — an `updated_at` of 25 Aug that was a session refresh,
+  not a password change. Check `login_method` in the auth logs before concluding
+  anything from those two timestamps.
 
 ## Subagents — use them, especially on anything that reaches a courier
 
