@@ -273,3 +273,18 @@ test("an exact street match with an out-of-area house number is a decision, not 
   assert.equal(inside.status, "ready");
   assert.match(inside.message, /new address/);
 });
+
+test("a stop the roster does not manage is never removed by absence", () => {
+  const stop = (id: string, house: string, street: string, rosterManaged: boolean) => ({
+    id, zoneId: "z", zoneNumber: 5, recipientName: null, houseNumber: house, street,
+    floorSide: null, publicationIds: ["V"], rosterManaged,
+  });
+  // A subscriber export never lists the commercial drops on the round, so
+  // absence means nothing for them.
+  const stops = [
+    stop("shop", "203", "RIVER AVE", false),
+    stop("home", "611", "RIVER AVE", true),
+  ];
+  const out = planRosterRemovals(stops, { id: "V", name: "The Voice" }, streets({ "RIVER AVE": ["999"] }), 2);
+  assert.deepEqual(out.map((r) => r.stopId), ["home"]);
+});

@@ -26,7 +26,7 @@ async function loadContext() {
     supabase
       .from("stops")
       .select(
-        "id, zone_id, recipient_name, house_number, street, floor_side, stop_publications(publication_id), zones!inner(number)",
+        "id, zone_id, recipient_name, house_number, street, floor_side, roster_managed, stop_publications(publication_id), zones!inner(number)",
       )
       .eq("active", true),
     supabase.from("publications").select("id, code, name").eq("active", true).order("name"),
@@ -41,6 +41,7 @@ async function loadContext() {
     houseNumber: stop.house_number,
     street: stop.street,
     floorSide: stop.floor_side,
+    rosterManaged: stop.roster_managed,
     publicationIds: stop.stop_publications.map((sp) => sp.publication_id),
   }));
 
@@ -191,6 +192,31 @@ export async function applyImport(_prev: ApplyState, formData: FormData): Promis
 
   const { supabase, existing, publications, zones } = await loadContext();
 
+  // Everything this apply writes is tagged with one run id, so undo_import_run
+  // can reverse the lot as a unit. Without it an undo means finding every row
+  // written inside a one-minute window and reversing it by hand -- and
+  // stop_publications carries no timestamp at all.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: run, error: runError } = await supabase
+    .from("import_runs")
+    .insert({
+      created_by: user?.id ?? null,
+      file_name: String(formData.get("fileName") ?? "") || null,
+      publication_id: String(formData.get("rosterPublication") ?? "") || null,
+    })
+    .select("id")
+    .single();
+  if (runError || !run) {
+    return {
+      error: `Could not start the import: ${runError?.message ?? "no run created"}. Nothing has been changed.`,
+      applied: null,
+      skipped: null,
+    };
+  }
+  const runId = run.id;
+
   // The plan round-trips through the browser, so nothing in it is trusted:
   // every id is re-checked against what this user can actually see. RLS is
   // still the real boundary, this just fails loudly instead of at the insert.
@@ -235,6 +261,7 @@ export async function applyImport(_prev: ApplyState, formData: FormData): Promis
           p_floor_side: row.newStop.floorSide,
           p_special_instructions: row.newStop.instructions,
           p_publication_ids: row.publicationId ? [row.publicationId] : [],
+          p_import_run_id: runId,
         });
         if (error) throw new Error(error.message);
         applied += 1;
@@ -255,6 +282,7 @@ export async function applyImport(_prev: ApplyState, formData: FormData): Promis
           stop_id: row.stopId,
           publication_id: row.publicationId,
           event_type: row.action === "add" ? "added" : "removed",
+          import_run_id: runId,
         });
         if (error) throw new Error(error.message);
         applied += 1;
@@ -296,6 +324,45 @@ export async function applyImport(_prev: ApplyState, formData: FormData): Promis
     }
   }
 
+  // Recorded last, so the number on the undo button is what actually landed.
+  await supabase.from("import_runs").update({ applied_count: applied }).eq("id", runId);
+
   revalidatePath("/", "layout");
   return { error: null, applied, skipped };
+}
+
+export type UndoState = { error: string | null; message: string | null };
+
+/**
+ * Reverses one whole import.
+ *
+ * The work is all in undo_import_run -- publication changes are reversed by
+ * logging the opposite event so the same trigger applies them, and addresses the
+ * import created are deleted outright. This only checks the caller and reports
+ * what happened, including anything the database refused to delete because
+ * somebody had worked on it since.
+ */
+export async function undoImport(_prev: UndoState, formData: FormData): Promise<UndoState> {
+  const runId = String(formData.get("runId") ?? "");
+  if (!runId) return { error: "No import selected.", message: null };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("undo_import_run", { p_run_id: runId });
+
+  if (error) return { error: error.message, message: null };
+
+  const result = (data ?? {}) as { reversed?: number; deleted?: number; kept_because_edited?: number };
+  const parts = [
+    result.deleted ? `${result.deleted} address${result.deleted === 1 ? "" : "es"} removed again` : null,
+    result.reversed ? `${result.reversed} publication change${result.reversed === 1 ? "" : "s"} put back` : null,
+  ].filter(Boolean);
+  const kept = result.kept_because_edited
+    ? ` ${result.kept_because_edited} address${result.kept_because_edited === 1 ? " was" : "es were"} left alone because somebody edited ${result.kept_because_edited === 1 ? "it" : "them"} after the import.`
+    : "";
+
+  revalidatePath("/", "layout");
+  return {
+    error: null,
+    message: `Import undone — ${parts.length ? parts.join(", ") : "nothing to reverse"}.${kept}`,
+  };
 }

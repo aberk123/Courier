@@ -169,11 +169,45 @@ export type Database = {
           },
         ]
       }
+      import_runs: {
+        Row: {
+          applied_count: number
+          created_at: string
+          created_by: string | null
+          file_name: string | null
+          id: string
+          publication_id: string | null
+          undone_at: string | null
+          undone_by: string | null
+        }
+        Insert: {
+          applied_count?: number
+          created_at?: string
+          created_by?: string | null
+          file_name?: string | null
+          id?: string
+          publication_id?: string | null
+          undone_at?: string | null
+          undone_by?: string | null
+        }
+        Update: {
+          applied_count?: number
+          created_at?: string
+          created_by?: string | null
+          file_name?: string | null
+          id?: string
+          publication_id?: string | null
+          undone_at?: string | null
+          undone_by?: string | null
+        }
+        Relationships: []
+      }
       stop_publication_events: {
         Row: {
           created_at: string
           event_type: string
           id: string
+          import_run_id: string | null
           publication_id: string
           shown_on_cover_sheet_at: string | null
           stop_id: string
@@ -182,6 +216,7 @@ export type Database = {
           created_at?: string
           event_type: string
           id?: string
+          import_run_id?: string | null
           publication_id: string
           shown_on_cover_sheet_at?: string | null
           stop_id: string
@@ -248,6 +283,8 @@ export type Database = {
           floor_side: string | null
           house_number: string
           id: string
+          import_run_id: string | null
+          roster_managed: boolean
           recipient_name: string | null
           special_instructions: string | null
           special_instructions_2: string | null
@@ -261,6 +298,8 @@ export type Database = {
           floor_side?: string | null
           house_number: string
           id?: string
+          import_run_id?: string | null
+          roster_managed?: boolean
           recipient_name?: string | null
           special_instructions?: string | null
           special_instructions_2?: string | null
@@ -274,6 +313,8 @@ export type Database = {
           floor_side?: string | null
           house_number?: string
           id?: string
+          import_run_id?: string | null
+          roster_managed?: boolean
           recipient_name?: string | null
           special_instructions?: string | null
           special_instructions_2?: string | null
@@ -364,9 +405,11 @@ export type Database = {
           p_floor_side: string | null
           p_special_instructions: string | null
           p_publication_ids: string[]
+          p_import_run_id?: string | null
         }
         Returns: string
       }
+      undo_import_run: { Args: { p_run_id: string }; Returns: Json }
       is_courier_office: { Args: { p_user_id?: string }; Returns: boolean }
       mark_cover_sheet_printed: {
         Args: { p_zone_id: string; p_publication_ids: string[] }

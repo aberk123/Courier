@@ -9,6 +9,12 @@ export type ExistingStop = {
   street: string;
   floorSide: string | null;
   publicationIds: string[];
+  /**
+   * False for a stop a publication's subscriber export will never contain --
+   * commercial drops, institutions. Such a stop can still be added to; it just
+   * must never be removed because a roster failed to mention it.
+   */
+  rosterManaged?: boolean;
 };
 
 export type Candidate = { stopId: string; label: string; zoneNumber: number };
@@ -649,6 +655,10 @@ export function planRosterRemovals(
 
   for (const stop of stops) {
     if (!stop.publicationIds.includes(publication.id)) continue;
+    // The round includes commercial drops -- Silvino's Auto, Ocean Dental,
+    // Leisure Chateau -- that a subscriber export will never list. Without this
+    // every roster import would propose cancelling all of them, every week.
+    if (stop.rosterManaged === false) continue;
     const key = `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`;
     if (seen.has(key)) continue;
     seen.add(key);
