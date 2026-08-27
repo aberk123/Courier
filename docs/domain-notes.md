@@ -232,10 +232,16 @@ exact structure shown in the zone samples) **plus** a cover sheet.
   route order, so a staffer looking someone up also sees where they
   fall in the run.
 - Consequence for writes: any stop created in-app must be given a
-  `route_entries` row, or it is invisible in the default view. New
-  stops are placed after the last existing stop on the same street,
-  falling back to the end of the route when that street is not yet in
-  the sequence.
+  `route_entries` row, or it is invisible in the default view. **A new stop is
+  appended to the end of the route** — `max(sequence) + 1` — and the courier
+  office positions it. It is deliberately not slotted in after the last stop on
+  the same street: a street can appear in several separate blocks of one route
+  (Shenandoah Dr three times in zone 1, Ponderosa Dr four times in zone 2), so
+  that guess would often be wrong. See `create_stop_in_route`.
+
+  An earlier version of this note described the after-the-last-stop-on-the-street
+  behaviour, which the function has never done. Read the migration, not this
+  paragraph, if it matters.
 
 ## Weekly import file format (assumption, built 2026-08-20)
 

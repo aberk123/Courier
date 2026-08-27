@@ -534,6 +534,38 @@ export function planRow(
   // Brand new address: infer the zone from other stops on the same street.
   const zoneCandidates = streetZones.get(street) ?? [];
 
+  // The street name matches ours exactly, but is this the stretch we walk?
+  // A town-wide roster contains the whole of a street we only cover part of:
+  // OAK ST 1386-1491 against our 26-110, twelve HENRY ST numbers in the 200s
+  // against our 28-111, VINE AVE 102-186 against our 550-736, MARC DR 8-50
+  // against our 504-604. Fifty of the sixty-eight "new addresses" on the real
+  // Voice roster were this. Nothing flagged them, because ruleStreetVariants
+  // only looks at streets whose NAME differs -- so an exact name match with a
+  // house number from a different part of town sailed through as ready.
+  //
+  // Not blocked, because the judgement is genuinely open at the edges: 19
+  // HAZELWOOD LN just past our 1-17 is probably the next house along, and
+  // docs/domain-notes.md records 314 CEDAR BRIDGE AVE as a real addition even
+  // though our Cedar Bridge is only 417 and 419. So it becomes a decision with
+  // the range named, rather than a silent creation in the wrong part of town.
+  const numbersOnStreet = stops
+    .filter((stop) => normalizeStreet(stop.street) === street)
+    .map((stop) => parseInt(normalizeHouseNumber(stop.houseNumber), 10))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const asNumber = parseInt(house, 10);
+  if (numbersOnStreet.length && Number.isFinite(asNumber) && asNumber > 0) {
+    const lo = Math.min(...numbersOnStreet);
+    const hi = Math.max(...numbersOnStreet);
+    if (asNumber < lo || asNumber > hi) {
+      return {
+        ...base,
+        status: "needs_choice",
+        message: `${row.houseNumber} is outside the ${lo}–${hi} stretch of ${row.street.toUpperCase()} our routes cover — confirm it is on this route before adding it`,
+        newStop: newStopFrom(row, base, zoneCandidates),
+      };
+    }
+  }
+
   // A street that appears in no route at all is out of the area we deliver to.
   // A publication's roster covers a whole town -- 18,018 of the 19,621 rows in
   // the real Voice file are on 1,856 streets we have never delivered to -- so

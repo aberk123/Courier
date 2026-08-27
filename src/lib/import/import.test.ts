@@ -17,6 +17,8 @@ import {
   listedUnderAnySpelling,
   planRosterRemovals,
   removalsLookWrong,
+  planRow,
+  buildStreetZoneMap,
   normalizeStreet,
   normalizeHouseNumber,
 } from "./match.ts";
@@ -244,4 +246,30 @@ test("a run that would cancel a large slice of the list is held back", () => {
   // Small publications get a floor, so a list of 30 is not tripped by 3.
   assert.equal(removalsLookWrong(3, 30).tripped, false);
   assert.equal(removalsLookWrong(29, 30).tripped, true);
+});
+
+test("an exact street match with an out-of-area house number is a decision, not a creation", () => {
+  const stop = (house: string, street: string) => ({
+    id: `s-${house}-${street}`, zoneId: "z", zoneNumber: 3, recipientName: null,
+    houseNumber: house, street, floorSide: null, publicationIds: [] as string[],
+  });
+  // Our Oak St is 26-110. A town-wide roster also carries Oak St in the 1400s.
+  const stops = [stop("26", "OAK ST"), stop("28", "OAK ST"), stop("110", "OAK ST")];
+  const zones = buildStreetZoneMap(stops);
+  const pubs = [{ id: "V", code: "thevoice", name: "The Voice" }];
+  const row = (house: string) => ({
+    rowNumber: 2, action: "add" as const, name: "Family Ort", houseNumber: house,
+    street: "Oak St", publication: "thevoice", floorSide: null, floorSideAlt: null, instructions: null,
+  });
+
+  const far = planRow(row("1471"), stops, pubs, zones);
+  assert.equal(far.status, "needs_choice");
+  assert.match(far.message, /outside the 26–110 stretch/);
+  // The address is still carried through, so a reviewer can accept it.
+  assert.equal(far.newStop?.houseNumber, "1471");
+
+  // A gap inside the stretch we walk is still an ordinary new address.
+  const inside = planRow(row("64"), stops, pubs, zones);
+  assert.equal(inside.status, "ready");
+  assert.match(inside.message, /new address/);
 });
