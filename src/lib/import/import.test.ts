@@ -14,6 +14,7 @@ import {
   mergeFloorSides,
   normalizeFloorSide,
   ruleStreetVariants,
+  listedUnderAnySpelling,
   normalizeStreet,
   normalizeHouseNumber,
 } from "./match.ts";
@@ -185,4 +186,29 @@ test("street ruling: an exact match is never ruled on", () => {
     streets({ "DUNE CT": ["1", "3", "5"] }),
   );
   assert.equal(ruling.size, 0);
+});
+
+test("a removal is suppressed when the upload spells our street differently", () => {
+  // Our 10 SHENANDOAH DR appears in the real roster as "10 Shenendoah Dr" -- a
+  // typo in the base word, which the street ruling groups by and therefore
+  // cannot see. Reading that address as absent would have cancelled it.
+  const file = streets({ "SHENENDOAH DR": ["10", "12"], "DUNE CT": ["1"] });
+  assert.equal(listedUnderAnySpelling("SHENANDOAH DR", "10", file), true);
+  // The unit letter, in both directions.
+  assert.equal(listedUnderAnySpelling("CANARY DR", "105A", streets({ "CANARY DR": ["105"] })), true);
+  assert.equal(listedUnderAnySpelling("RENA LN", "109", streets({ "RENA LN": ["109A"] })), true);
+  // Genuinely absent stays absent -- suppression must not swallow everything.
+  assert.equal(listedUnderAnySpelling("CAROL ST", "207", file), false);
+  // A different street with the same house number does not suppress.
+  assert.equal(listedUnderAnySpelling("EAGLE LN", "34", streets({ "EAGLE RIDGE CIR": ["34"] })), false);
+});
+
+test("removal suppression is generous about spelling but not about short names", () => {
+  // Real transpositions and dropped letters on long names: the same street.
+  assert.equal(listedUnderAnySpelling("HAZELWOOD LN", "5", streets({ "HAZLEWOOD LN": ["5"] })), true);
+  assert.equal(listedUnderAnySpelling("WINDERMERE ST", "31", streets({ "WINDEMERE ST": ["31"] })), true);
+  // A different street type still stands in, since this only suppresses.
+  assert.equal(listedUnderAnySpelling("CANARY DR", "66", streets({ "CANARY ST": ["66"] })), true);
+  // But two edits on a five-letter name is a different street: CAROL vs CAREY.
+  assert.equal(listedUnderAnySpelling("CAROL ST", "207", streets({ "CAREY ST": ["207"] })), false);
 });

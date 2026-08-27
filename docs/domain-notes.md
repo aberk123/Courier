@@ -747,6 +747,39 @@ with."* So the publication's file is authoritative where the two disagree.
   week's file against this one is the first true week-over-week diff, and is also
   the control the reconciliation agent could not run this time.
 
+### Zone membership is decided by street (Ari, 2026-08-27)
+
+The publication's list covers all of Lakewood — about 30 zones. We hold five. The
+`zones` table has no boundary or street list, only `id`, `number`, `name`: the sole
+thing that defines a zone is the stops currently in it. So "is this address in one
+of our zones?" is answered as **"is it on one of the 71 streets we already have a
+subscriber on?"**
+
+Ari chose this knowingly. **The blind spot, recorded so nobody rediscovers it as a
+bug:** the first-ever subscriber on a street that lies inside one of our five zones
+but that we have never delivered to is classified as out of area and dropped. We
+cannot currently tell those streets from streets across town. Closing it needs a
+street-list-per-zone from Amrom covering streets with no current subscriber.
+
+### Removal suppression is deliberately looser than matching
+
+`listedUnderAnySpelling` decides whether one of our addresses appears in an upload
+under *any* spelling, and is used only to hold a removal back — never to create a
+match. The asymmetry is the whole point, and the thresholds were set by what the
+real file actually contains:
+
+- Street compared on its base word with the type stripped, so `CANARY ST` stands in
+  for our `CANARY DR`.
+- One edit always; two edits only on a base of eight characters or more. `HAZLEWOOD`
+  for `HAZELWOOD` and `SHENENDOAH` for `SHENANDOAH` are the same street. `CAREY ST`
+  for `CAROL ST` is not — two edits on five letters, and flat "within two edits"
+  hid a real removal behind it.
+- The unit letter in either direction: we hold `105A`, the upload writes `105`.
+
+Measured on the 27 Aug Voice roster, this took candidate removals from 65 raw to
+**16**, and every one it suppressed was checked to be a real household present in
+the file under a variant spelling.
+
 ## Items to confirm with Amrom (neither is blocking)
 
 Both only matter once export / the cover sheet exist, and both have a

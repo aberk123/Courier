@@ -138,6 +138,61 @@ export function mergeFloorSides(a: string | null, b: string | null): string | nu
 const STREET_TYPES = new Set(Object.values(SUFFIXES));
 const houseNum = (h: string) => parseInt(h, 10) || 0;
 
+/**
+ * Is one of our addresses present in the upload under ANY spelling of its street?
+ *
+ * Only ever used to *suppress* a removal, never to create a match, so it is
+ * deliberately generous where the ruling is strict. The asymmetry is the point:
+ * a wrong addition wastes one paper, a wrong removal stops a paying subscriber
+ * and they complain to the publication rather than to us, so nobody here finds
+ * out. Being too eager to suppress costs a stale address; being too strict costs
+ * a cancelled subscriber.
+ *
+ * It catches what ruleStreetVariants cannot, because the ruling groups streets
+ * by their base word and a typo changes the base word itself. On the real Voice
+ * roster our 10 SHENANDOAH DR is written "10 Shenendoah Dr", and a check that
+ * only knew about street *types* read that address as gone. Seven of nine
+ * apparent cancellations in zones 1-2 were this shape.
+ *
+ * The unit letter is treated the same way: we hold 105A CANARY DR where the
+ * upload writes 105 with "apt A" in its floor column, and vice versa.
+ *
+ * Generous is not the same as blind. Comparison is on the street's base word
+ * with its type stripped, so CANARY ST can stand in for our CANARY DR, and the
+ * tolerance scales with length: two edits are allowed only on a base of eight
+ * characters or more. Flat "within two edits" suppressed 207 CAROL ST because
+ * the upload contains 207 CAREY ST -- two edits on a five-letter name, and a
+ * different street. That is the opposite failure and just as bad: a suppressor
+ * that swallows everything makes removals useless.
+ */
+function sameStreetLoosely(a: string, b: string): boolean {
+  if (a === b) return true;
+  const baseA = stripStreetSuffix(a);
+  const baseB = stripStreetSuffix(b);
+  if (baseA === baseB) return true;
+  const distance = editDistance(baseA, baseB);
+  if (distance <= 1) return true;
+  return distance === 2 && Math.min(baseA.length, baseB.length) >= 8;
+}
+
+export function listedUnderAnySpelling(
+  ourStreet: string,
+  ourHouse: string,
+  fileStreets: Map<string, Set<string>>,
+): boolean {
+  const street = normalizeStreet(ourStreet);
+  const house = normalizeHouseNumber(ourHouse);
+  const bare = house.replace(/[a-z]$/, "");
+  for (const [candidate, houses] of fileStreets) {
+    if (!sameStreetLoosely(candidate, street)) continue;
+    for (const theirs of houses) {
+      if (theirs === house) return true;
+      if (theirs.replace(/[a-z]$/, "") === bare) return true;
+    }
+  }
+  return false;
+}
+
 export type StreetRuling = "same" | "different" | "unresolved";
 
 /**
