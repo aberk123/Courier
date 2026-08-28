@@ -23,7 +23,7 @@ type ImportRun = {
   publicationName: string | null;
 };
 
-const initialPlanState: PlanState = { error: null, rows: null, fileName: null };
+const initialPlanState: PlanState = { error: null, rows: null, fileName: null, summary: null };
 const initialApplyState: ApplyState = { error: null, applied: null, skipped: null };
 const initialUndoState: UndoState = { error: null, message: null };
 
@@ -98,9 +98,12 @@ export function ImportWorkspace({
     [rows, showSettled],
   );
   const readyCount = included.filter((row) => row.status === "ready").length;
-  const choiceCount = rows.filter((row) => row.status === "needs_choice").length;
-  const noChangeCount = rows.filter((row) => row.status === "no_change").length;
-  const blockedCount = rows.filter((row) => row.status === "blocked").length;
+  // From the server's summary: the browser is only sent actionable rows plus a
+  // small sample, so counting what is on screen would understate the file.
+  const summary = planState.summary;
+  const choiceCount = summary?.needsChoice ?? 0;
+  const noChangeCount = summary?.noChange ?? 0;
+  const blockedCount = summary?.blocked ?? 0;
 
   function patchRow(rowNumber: number, patch: (row: PlanRow) => PlanRow) {
     setRows((current) =>
@@ -327,7 +330,7 @@ export function ImportWorkspace({
           <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
             <span className="font-medium">{planState.fileName}</span>
             <span className="text-black/60 dark:text-white/60">
-              {rows.length.toLocaleString()} rows · {readyCount} to apply
+              {(summary?.total ?? rows.length).toLocaleString()} rows · {readyCount} to apply
               {choiceCount ? ` · ${choiceCount} need a choice` : ""}
               {noChangeCount ? ` · ${noChangeCount.toLocaleString()} already correct` : ""}
               {blockedCount ? ` · ${blockedCount.toLocaleString()} not on our routes` : ""}
@@ -353,13 +356,17 @@ export function ImportWorkspace({
                   </>
                 ) : null}
               </span>
-              <button
-                type="button"
-                onClick={() => setShowSettled((current) => !current)}
-                className="underline underline-offset-2"
-              >
-                {showSettled ? "Hide them" : "Show them anyway"}
-              </button>
+              {summary?.sampled ? (
+                <button
+                  type="button"
+                  onClick={() => setShowSettled((current) => !current)}
+                  className="underline underline-offset-2"
+                >
+                  {showSettled
+                    ? "Hide the examples"
+                    : `Show ${summary.sampled} examples`}
+                </button>
+              ) : null}
             </p>
           ) : null}
 

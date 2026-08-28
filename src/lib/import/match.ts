@@ -337,6 +337,37 @@ function labelFor(stop: ExistingStop) {
 }
 
 /**
+ * A lookup built once per upload, so planning a row is a map hit rather than a
+ * scan of every stop.
+ *
+ * planRow used to filter the whole stop table for each row, normalising street
+ * and house number as it went. On the real Voice roster that is 19,600 rows
+ * against 2,427 stops -- around 95 million regex-backed string operations, and
+ * about 58 seconds of it, measured. The normalising happens once here instead.
+ *
+ * `streets` matters as much as the maps: the near-miss fallback compared edit
+ * distance against every stop, where 71 distinct street names will do.
+ */
+export type StopIndex = {
+  byStreetAndHouse: Map<string, ExistingStop[]>;
+  byStreet: Map<string, ExistingStop[]>;
+  streets: string[];
+};
+
+export function buildStopIndex(stops: ExistingStop[]): StopIndex {
+  const byStreetAndHouse = new Map<string, ExistingStop[]>();
+  const byStreet = new Map<string, ExistingStop[]>();
+  for (const stop of stops) {
+    const street = normalizeStreet(stop.street);
+    const house = normalizeHouseNumber(stop.houseNumber);
+    const key = `${street}|${house}`;
+    byStreetAndHouse.set(key, [...(byStreetAndHouse.get(key) ?? []), stop]);
+    byStreet.set(street, [...(byStreet.get(street) ?? []), stop]);
+  }
+  return { byStreetAndHouse, byStreet, streets: [...byStreet.keys()] };
+}
+
+/**
  * Resolves one spreadsheet row against the existing stops.
  *
  * Auto-merges only when the match is unambiguous; anything with more than one
@@ -354,6 +385,8 @@ export function planRow(
    * different road with a similar name, and the matcher auto-merges both.
    */
   streetRuling: Map<string, { ourStreet: string; ruling: StreetRuling; why: string }> = new Map(),
+  /** Built once per upload by the caller; see buildStopIndex for why. */
+  index: StopIndex = buildStopIndex(stops),
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -394,10 +427,7 @@ export function planRow(
   const street = normalizeStreet(row.street);
   const house = normalizeHouseNumber(row.houseNumber);
 
-  let matches = stops.filter(
-    (stop) =>
-      normalizeStreet(stop.street) === street && normalizeHouseNumber(stop.houseNumber) === house,
-  );
+  let matches = index.byStreetAndHouse.get(`${street}|${house}`) ?? [];
 
   // No exact street hit. This used to accept any street within two edits that
   // shared the house number, and call the result ready -- which cannot tell
@@ -407,12 +437,7 @@ export function planRow(
   // applied. `needsPerson` carries the reason through to the review screen.
   let fuzzy = false;
   let needsPerson: string | null = null;
-  const onOur = (ourStreet: string) =>
-    stops.filter(
-      (stop) =>
-        normalizeStreet(stop.street) === ourStreet &&
-        normalizeHouseNumber(stop.houseNumber) === house,
-    );
+  const onOur = (ourStreet: string) => index.byStreetAndHouse.get(`${ourStreet}|${house}`) ?? [];
 
   if (!matches.length) {
     const ruled = streetRuling.get(street);
@@ -432,11 +457,10 @@ export function planRow(
     } else {
       // No ruling at all: the base word itself differs, so this is a typo
       // ("SHENENDOAH DR"). Still worth surfacing, never worth auto-applying.
-      matches = stops.filter(
-        (stop) =>
-          normalizeHouseNumber(stop.houseNumber) === house &&
-          editDistance(normalizeStreet(stop.street), street) <= 2,
-      );
+      // Compared against the 71 distinct street names, not every stop.
+      matches = index.streets
+        .filter((candidate) => editDistance(candidate, street) <= 2)
+        .flatMap((candidate) => index.byStreetAndHouse.get(`${candidate}|${house}`) ?? []);
       if (matches.length) needsPerson = `the street is spelled differently from ours`;
     }
   }
@@ -448,8 +472,7 @@ export function planRow(
   // address looks absent and a roster import reads absent as gone.
   if (!matches.length) {
     const bare = house.replace(/[a-z]$/, "");
-    const letterKin = stops.filter((stop) => {
-      if (normalizeStreet(stop.street) !== street) return false;
+    const letterKin = (index.byStreet.get(street) ?? []).filter((stop) => {
       const theirs = normalizeHouseNumber(stop.houseNumber);
       return theirs !== house && theirs.replace(/[a-z]$/, "") === bare;
     });
@@ -566,8 +589,7 @@ export function planRow(
   // docs/domain-notes.md records 314 CEDAR BRIDGE AVE as a real addition even
   // though our Cedar Bridge is only 417 and 419. So it becomes a decision with
   // the range named, rather than a silent creation in the wrong part of town.
-  const numbersOnStreet = stops
-    .filter((stop) => normalizeStreet(stop.street) === street)
+  const numbersOnStreet = (index.byStreet.get(street) ?? [])
     .map((stop) => parseInt(normalizeHouseNumber(stop.houseNumber), 10))
     .filter((value) => Number.isFinite(value) && value > 0);
   const asNumber = parseInt(house, 10);
