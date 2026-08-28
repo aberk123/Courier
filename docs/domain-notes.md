@@ -813,6 +813,24 @@ Measured on the 27 Aug Voice roster, this took candidate removals from 65 raw to
 **16**, and every one it suppressed was checked to be a real household present in
 the file under a variant spelling.
 
+### Three runs a week, each with a different mix (Ari, 2026-08-28)
+
+**The drivers almost never deliver every magazine at once.** They do about three
+runs during the week, each carrying a different combination — which is exactly why
+export takes an arbitrary subset of publications rather than a single/all toggle.
+This is the reason that requirement exists, recorded here because it was not
+obvious from the call notes.
+
+Consequence, and it retires a finding: **an all-publications booklet is not what
+gets printed.** Earlier notes in `docs/handoff.md` describe it as "the booklet
+printed today" and treat defects visible only on it as live. They are not.
+
+The publication-letters column overflowing on ten addresses across zones 2–5 is
+one of those. It needs **8 or more selected letters on a single stop**, and a real
+run selects a handful of publications, not fifteen. Ari, 2026-08-28: *"You don't
+have to be concerned about the ones that don't fit on the line."* Left in the code
+as-is; do not spend effort widening the column.
+
 ## Items to confirm with Amrom (neither is blocking)
 
 Both only matter once export / the cover sheet exist, and both have a
