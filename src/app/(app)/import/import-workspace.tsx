@@ -3,13 +3,29 @@
 import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import type { PlanRow } from "@/lib/import/match";
-import { applyImport, planImport, type ApplyState, type PlanState } from "./actions";
+import {
+  applyImport,
+  planImport,
+  undoImport,
+  type ApplyState,
+  type PlanState,
+  type UndoState,
+} from "./actions";
 
 type Zone = { id: string; number: number; label: string };
 type Publication = { id: string; code: string; name: string };
+type ImportRun = {
+  id: string;
+  createdAt: string;
+  fileName: string | null;
+  appliedCount: number;
+  undoneAt: string | null;
+  publicationName: string | null;
+};
 
 const initialPlanState: PlanState = { error: null, rows: null, fileName: null };
 const initialApplyState: ApplyState = { error: null, applied: null, skipped: null };
+const initialUndoState: UndoState = { error: null, message: null };
 
 const ACTION_LABEL: Record<PlanRow["action"], string> = {
   add: "Add",
@@ -27,14 +43,20 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export function ImportWorkspace({
   zones,
   publications,
+  runs,
 }: {
   zones: Zone[];
   publications: Publication[];
+  runs: ImportRun[];
 }) {
   const [planState, planAction, planPending] = useActionState(planImport, initialPlanState);
   const [applyState, applyAction, applyPending] = useActionState(applyImport, initialApplyState);
+  const [undoState, undoAction, undoPending] = useActionState(undoImport, initialUndoState);
 
   const [rows, setRows] = useState<PlanRow[]>([]);
+  // Remembered from the upload form so the apply can record which publication
+  // the run was for.
+  const [rosterPublicationId, setRosterPublicationId] = useState("");
   const [excluded, setExcluded] = useState<number[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -133,6 +155,70 @@ export function ImportWorkspace({
         </Link>
       </div>
 
+      {/* Every applied import can be taken back. Shown before the upload form
+          rather than after the results, because the moment you need it is when
+          you have just realised the last run was wrong. */}
+      {runs.length ? (
+        <section className="mt-5 rounded-xl border border-black/10 p-4 dark:border-white/10">
+          <h2 className="text-sm font-medium">Recent imports</h2>
+          <ul className="mt-3 flex flex-col gap-2">
+            {runs.map((run) => (
+              <li
+                key={run.id}
+                className="flex flex-wrap items-center justify-between gap-3 border-b border-black/5 pb-2 text-sm last:border-b-0 last:pb-0 dark:border-white/10"
+              >
+                <span>
+                  <span className="font-medium">{run.fileName ?? "Untitled file"}</span>
+                  {run.publicationName ? (
+                    <span className="text-black/60 dark:text-white/60"> · {run.publicationName}</span>
+                  ) : null}
+                  <span className="text-black/60 dark:text-white/60">
+                    {" · "}
+                    {run.appliedCount} change{run.appliedCount === 1 ? "" : "s"}
+                    {" · "}
+                    {new Date(run.createdAt).toLocaleString("en-US", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                      timeZone: "America/New_York",
+                    })}
+                  </span>
+                </span>
+                {run.undoneAt ? (
+                  <span className="text-xs text-black/50 dark:text-white/50">
+                    Undone{" "}
+                    {new Date(run.undoneAt).toLocaleDateString("en-US", {
+                      dateStyle: "medium",
+                      timeZone: "America/New_York",
+                    } as Intl.DateTimeFormatOptions)}
+                  </span>
+                ) : (
+                  <form action={undoAction}>
+                    <input type="hidden" name="runId" value={run.id} />
+                    <button
+                      type="submit"
+                      disabled={undoPending}
+                      className="rounded-lg border border-black/20 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:border-white/25"
+                    >
+                      {undoPending ? "Undoing…" : "Undo this import"}
+                    </button>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+          {undoState.error ? (
+            <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+              {undoState.error}
+            </p>
+          ) : null}
+          {undoState.message ? (
+            <p className="mt-3 rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/15">
+              {undoState.message}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       <form
         action={planAction}
         className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-black/10 p-4 dark:border-white/10"
@@ -140,7 +226,7 @@ export function ImportWorkspace({
         <input
           type="file"
           name="file"
-          accept=".csv,.txt,.xlsx"
+          accept=".csv,.txt,.xlsx,.xlsm"
           required
           onChange={(event) => {
             const file = event.currentTarget.files?.[0];
@@ -158,6 +244,28 @@ export function ImportWorkspace({
           // rather than filled, so "Review file" stays the primary action.
           className="text-sm text-black/60 file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-black/20 file:bg-black/[.04] file:px-4 file:py-2 file:text-sm file:font-medium file:text-black hover:file:bg-black/[.08] dark:text-white/60 dark:file:border-white/25 dark:file:bg-white/10 dark:file:text-white dark:hover:file:bg-white/20"
         />
+        {/*
+          A publication's own export is a plain roster: no action column and no
+          publication column, so neither can be read off the row. Picking one
+          here turns the whole file into "these addresses should be getting this
+          publication". Left blank, the file must carry its own columns.
+        */}
+        <label className="flex items-center gap-2 text-sm text-black/70 dark:text-white/70">
+          <span className="whitespace-nowrap">Whole file is a list for</span>
+          <select
+            name="rosterPublication"
+            value={rosterPublicationId}
+            onChange={(event) => setRosterPublicationId(event.currentTarget.value)}
+            className="rounded-lg border border-black/20 bg-transparent px-2 py-1.5 text-sm dark:border-white/25"
+          >
+            <option value="">— the file says which —</option>
+            {publications.map((pub) => (
+              <option key={pub.id} value={pub.id}>
+                {pub.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="submit"
           disabled={planPending || Boolean(fileError)}
@@ -171,8 +279,11 @@ export function ImportWorkspace({
           </p>
         ) : null}
         <p className="w-full text-xs text-black/60 dark:text-white/60">
-          CSV or .xlsx, up to 5 MB. Columns: action, name, house number, street, publication,
-          floor/side, instructions — header names are matched loosely.
+          CSV, .xlsx or .xlsm, up to 5 MB. Columns: action, name, house number, street,
+          publication, floor/side, instructions — header names are matched loosely, and a
+          whole address in one cell is split for you. For a publication&rsquo;s own list, which
+          has none of those columns, pick the publication above instead. Nothing is removed
+          from a list on the strength of an address being missing from it.
         </p>
       </form>
 
@@ -308,6 +419,10 @@ export function ImportWorkspace({
 
           <form action={applyAction} className="mt-4 flex flex-wrap items-center gap-3">
             <input type="hidden" name="plan" value={JSON.stringify(included)} />
+            {/* Carried through so the run is identifiable on the undo list --
+                "roster.xlsm · The Voice · 111 changes" rather than a bare id. */}
+            <input type="hidden" name="fileName" value={planState.fileName ?? ""} />
+            <input type="hidden" name="rosterPublication" value={rosterPublicationId} />
             <button
               type="submit"
               disabled={applyPending || !readyCount}

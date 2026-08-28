@@ -10,9 +10,16 @@ export default async function ImportPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: zones }, { data: publications }] = await Promise.all([
+  const [{ data: zones }, { data: publications }, { data: runs }] = await Promise.all([
     supabase.from("zones").select("id, number, name").order("number"),
     supabase.from("publications").select("id, code, name").eq("active", true).order("name"),
+    // Only the courier office can see these -- import_runs_select enforces it,
+    // so a scoped staffer simply gets an empty list rather than an error.
+    supabase
+      .from("import_runs")
+      .select("id, created_at, file_name, applied_count, undone_at, publication_id")
+      .order("created_at", { ascending: false })
+      .limit(5),
   ]);
 
   return (
@@ -23,6 +30,15 @@ export default async function ImportPage() {
         label: zone.name ?? `Zone ${zone.number}`,
       }))}
       publications={publications ?? []}
+      runs={(runs ?? []).map((run) => ({
+        id: run.id,
+        createdAt: run.created_at,
+        fileName: run.file_name,
+        appliedCount: run.applied_count,
+        undoneAt: run.undone_at,
+        publicationName:
+          (publications ?? []).find((pub) => pub.id === run.publication_id)?.name ?? null,
+      }))}
     />
   );
 }

@@ -9,6 +9,12 @@ export type ExistingStop = {
   street: string;
   floorSide: string | null;
   publicationIds: string[];
+  /**
+   * False for a stop a publication's subscriber export will never contain --
+   * commercial drops, institutions. Such a stop can still be added to; it just
+   * must never be removed because a roster failed to mention it.
+   */
+  rosterManaged?: boolean;
 };
 
 export type Candidate = { stopId: string; label: string; zoneNumber: number };
@@ -88,12 +94,209 @@ export function normalizeHouseNumber(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function normalizeFloorSide(value: string | null): string | null {
+/**
+ * upstairs / basement / nothing. Never anything else, and never a guess --
+ * floor/side is part of an address's identity, so a wrong label picks the wrong
+ * household at a two-family house.
+ *
+ * The first version was `/base|bsmt|bsmnt|down/` then `/up|second|2nd|top/`,
+ * both unanchored. Measured against all 970 distinct floor cells in The Voice's
+ * real roster (docs/domain-notes.md), it got three classes of value wrong:
+ *
+ *   - Six real basements returned nothing, because `basment` contains none of
+ *     `base`, `bsmt` or `bsmnt`.
+ *   - `upstairs (no one lives in basement)` returned basement: the basement
+ *     branch ran first, and the word appears in a note *denying* it.
+ *   - Unanchored `/up/` matched the "up" inside "older co(up)le", and `top`
+ *     matched "on top of mailbox" -- inventing a floor out of placement text.
+ *
+ * So: whole words only, the misspellings that actually occur spelled out, and a
+ * cell naming both floors resolves to nothing rather than picking one.
+ */
+const UPSTAIRS =
+  /\b(?:up|upstairs|upstair|upstaira|upstaire|uptairs|usptairs|upsatirs)\b|\b(?:2nd|second)\s+floor\b/;
+const BASEMENT =
+  /\b(?:basement|basment|basemnt|bsement|bsmt|bsmnt|bmnst|bmsnt|downstairs)\b|\blower\s+level\b/;
+
+export function normalizeFloorSide(value: string | null): string | null {
   if (!value) return null;
   const v = value.toLowerCase();
-  if (/base|bsmt|bsmnt|down/.test(v)) return "basement";
-  if (/up|second|2nd|top/.test(v)) return "upstairs";
+  const up = UPSTAIRS.test(v);
+  const down = BASEMENT.test(v);
+  // Both named, e.g. "Upstairs and downstairs" -- unresolvable, so label nothing.
+  if (up && down) return null;
+  if (down) return "basement";
+  if (up) return "upstairs";
   return null;
+}
+
+/**
+ * Some cells carry a floor in each of the two extension columns the publication
+ * exports. Union them, and refuse to choose when they disagree.
+ */
+export function mergeFloorSides(a: string | null, b: string | null): string | null {
+  const first = normalizeFloorSide(a);
+  const second = normalizeFloorSide(b);
+  if (first && second) return first === second ? first : null;
+  return first ?? second;
+}
+
+const STREET_TYPES = new Set(Object.values(SUFFIXES));
+const houseNum = (h: string) => parseInt(h, 10) || 0;
+
+/**
+ * Is one of our addresses present in the upload under ANY spelling of its street?
+ *
+ * Only ever used to *suppress* a removal, never to create a match, so it is
+ * deliberately generous where the ruling is strict. The asymmetry is the point:
+ * a wrong addition wastes one paper, a wrong removal stops a paying subscriber
+ * and they complain to the publication rather than to us, so nobody here finds
+ * out. Being too eager to suppress costs a stale address; being too strict costs
+ * a cancelled subscriber.
+ *
+ * It catches what ruleStreetVariants cannot, because the ruling groups streets
+ * by their base word and a typo changes the base word itself. On the real Voice
+ * roster our 10 SHENANDOAH DR is written "10 Shenendoah Dr", and a check that
+ * only knew about street *types* read that address as gone. Seven of nine
+ * apparent cancellations in zones 1-2 were this shape.
+ *
+ * The unit letter is treated the same way: we hold 105A CANARY DR where the
+ * upload writes 105 with "apt A" in its floor column, and vice versa.
+ *
+ * Generous is not the same as blind. Comparison is on the street's base word
+ * with its type stripped, so CANARY ST can stand in for our CANARY DR, and the
+ * tolerance scales with length: two edits are allowed only on a base of eight
+ * characters or more. Flat "within two edits" suppressed 207 CAROL ST because
+ * the upload contains 207 CAREY ST -- two edits on a five-letter name, and a
+ * different street. That is the opposite failure and just as bad: a suppressor
+ * that swallows everything makes removals useless.
+ */
+function sameStreetLoosely(a: string, b: string): boolean {
+  if (a === b) return true;
+  const baseA = stripStreetSuffix(a);
+  const baseB = stripStreetSuffix(b);
+  if (baseA === baseB) return true;
+  const distance = editDistance(baseA, baseB);
+  if (distance <= 1) return true;
+  return distance === 2 && Math.min(baseA.length, baseB.length) >= 8;
+}
+
+export function listedUnderAnySpelling(
+  ourStreet: string,
+  ourHouse: string,
+  fileStreets: Map<string, Set<string>>,
+): boolean {
+  const street = normalizeStreet(ourStreet);
+  const house = normalizeHouseNumber(ourHouse);
+  const bare = house.replace(/[a-z]$/, "");
+  for (const [candidate, houses] of fileStreets) {
+    if (!sameStreetLoosely(candidate, street)) continue;
+    for (const theirs of houses) {
+      if (theirs === house) return true;
+      if (theirs.replace(/[a-z]$/, "") === bare) return true;
+    }
+  }
+  return false;
+}
+
+export type StreetRuling = "same" | "different" | "unresolved";
+
+/**
+ * Decides, for every street spelling in an upload that does not match one of
+ * ours exactly, whether it IS one of our streets written differently.
+ *
+ * This exists because edit distance cannot tell the two cases apart, and both
+ * occur in the same real file. `HAZELWOOD CT` is our HAZELWOOD LN; `CHELSEA RD`
+ * is a different road that merely rhymes with our CHELSEA CT. Both are two edits
+ * away from ours and both share house numbers with us. Matching on the name
+ * alone either invents deliveries or cancels real ones -- and a wrong
+ * cancellation is the one nobody finds out about.
+ *
+ * The evidence that separates them is in the upload itself, so all of it is
+ * needed at once rather than row by row:
+ *
+ *   1. No street type at all (`PONDEROSA`) and exactly one of our streets
+ *      carries that base -- a bare base word cannot be a *different* street.
+ *   2. It holds none of our house numbers -- a different street.
+ *   3. Most of its numbers sit outside the range we cover -- a different street.
+ *      `CEDAR CT` runs to 70 where our CEDAR ST stops at 18.
+ *   4. The upload ALSO uses our spelling. Disjoint number sets mean one street
+ *      written two ways (`HAZELWOOD CT` 4,6,11,14,19 against the file's own
+ *      HAZELWOOD LN 1,3,8,9,10,12,15,16 -- never the same number, and together
+ *      they fill our 1-17). Overlapping sets mean two real roads.
+ *   5. The upload never uses our spelling -- then this is our street.
+ *
+ * Anything left over is "unresolved" and must reach a person. `VINE ST` is the
+ * case that forces that: the file uses that one name both for a road in the 100s
+ * we do not serve and for 580-736, which is our VINE AVE.
+ */
+export function ruleStreetVariants(
+  fileStreets: Map<string, Set<string>>,
+  ourStreets: Map<string, Set<string>>,
+): Map<string, { ourStreet: string; ruling: StreetRuling; why: string }> {
+  const byBase = new Map<string, string[]>();
+  for (const street of ourStreets.keys()) {
+    const base = stripStreetSuffix(street);
+    byBase.set(base, [...(byBase.get(base) ?? []), street]);
+  }
+
+  const out = new Map<string, { ourStreet: string; ruling: StreetRuling; why: string }>();
+  for (const [fileStreet, fileNums] of fileStreets) {
+    if (ourStreets.has(fileStreet)) continue; // exact match, nothing to rule
+    const candidates = byBase.get(stripStreetSuffix(fileStreet)) ?? [];
+    if (candidates.length !== 1) continue; // no candidate, or ambiguous between our own streets
+    const ourStreet = candidates[0];
+    const ourNums = ourStreets.get(ourStreet)!;
+    const put = (ruling: StreetRuling, why: string) => out.set(fileStreet, { ourStreet, ruling, why });
+
+    const last = fileStreet.split(" ").pop() ?? "";
+    if (!STREET_TYPES.has(last)) {
+      put("same", `no street type given, and only ${ourStreet.toUpperCase()} carries that name`);
+      continue;
+    }
+
+    const overlap = [...fileNums].filter((n) => ourNums.has(n));
+    if (!overlap.length) {
+      put("different", `holds none of the house numbers we deliver to on ${ourStreet.toUpperCase()}`);
+      continue;
+    }
+
+    const values = [...ourNums].map(houseNum).filter(Boolean);
+    const lo = Math.min(...values);
+    const hi = Math.max(...values);
+    const outside = [...fileNums].filter((n) => houseNum(n) < lo || houseNum(n) > hi);
+
+    // Substantially in our range AND substantially outside it means the upload
+    // is using one name for two roads. VINE ST does exactly this, covering both
+    // a stretch in the 100s we do not serve and 580-736, which is our VINE AVE.
+    // Calling the whole spelling "different" would drop the real addresses and,
+    // once removals are enabled, read them as cancellations; calling it "same"
+    // would invent deliveries on our street for the other road's numbers. So it
+    // goes to a person to split row by row. One or two collisions either way is
+    // coincidence; three is a pattern. Deliberately not a ratio -- an evenly
+    // split street is the ambiguous case, not a resolved one.
+    if (overlap.length >= 3 && outside.length >= 3) {
+      put("unresolved", `it covers both our ${lo}-${hi} and a stretch well outside it — one name, two roads`);
+      continue;
+    }
+    if (outside.length > fileNums.size / 2) {
+      put("different", `most of its numbers fall outside our ${lo}-${hi} on ${ourStreet.toUpperCase()}`);
+      continue;
+    }
+
+    const canonical = fileStreets.get(ourStreet);
+    if (!canonical) {
+      put("same", `the upload never spells it ${ourStreet.toUpperCase()}, and its numbers are ours`);
+      continue;
+    }
+    const collides = [...fileNums].some((n) => canonical.has(n));
+    if (!collides) {
+      put("same", `the upload uses both spellings but never for the same house number`);
+    } else {
+      put("unresolved", `the upload uses both spellings for some of the same house numbers`);
+    }
+  }
+  return out;
 }
 
 /** Levenshtein, capped — we only care about near-misses. */
@@ -135,6 +338,12 @@ export function planRow(
   stops: ExistingStop[],
   publications: { id: string; code: string; name: string }[],
   streetZones: Map<string, { zoneId: string; zoneNumber: number }[]>,
+  /**
+   * Ruling for every street spelling in this upload that is not one of ours --
+   * see ruleStreetVariants. Without it a near-miss street cannot be told from a
+   * different road with a similar name, and the matcher auto-merges both.
+   */
+  streetRuling: Map<string, { ourStreet: string; ruling: StreetRuling; why: string }> = new Map(),
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -148,7 +357,7 @@ export function planRow(
     stopId: null,
     newStop: null,
     instructions: row.instructions,
-    floorSide: normalizeFloorSide(row.floorSide),
+    floorSide: mergeFloorSides(row.floorSide, row.floorSideAlt),
   };
 
   if (row.problem) return { ...base, message: row.problem };
@@ -180,16 +389,66 @@ export function planRow(
       normalizeStreet(stop.street) === street && normalizeHouseNumber(stop.houseNumber) === house,
   );
 
-  // No exact street hit: allow a near-miss on the street name only, so
-  // "Shenandoa Dr" still finds "SHENANDOAH DR".
+  // No exact street hit. This used to accept any street within two edits that
+  // shared the house number, and call the result ready -- which cannot tell
+  // "HAZELWOOD CT is our HAZELWOOD LN" from "CHELSEA RD is a different road".
+  // Both are two edits away and both share house numbers with us. So the ruling
+  // decides, and anything it cannot settle goes to a person instead of being
+  // applied. `needsPerson` carries the reason through to the review screen.
   let fuzzy = false;
-  if (!matches.length) {
-    matches = stops.filter(
+  let needsPerson: string | null = null;
+  const onOur = (ourStreet: string) =>
+    stops.filter(
       (stop) =>
-        normalizeHouseNumber(stop.houseNumber) === house &&
-        editDistance(normalizeStreet(stop.street), street) <= 2,
+        normalizeStreet(stop.street) === ourStreet &&
+        normalizeHouseNumber(stop.houseNumber) === house,
     );
-    fuzzy = matches.length > 0;
+
+  if (!matches.length) {
+    const ruled = streetRuling.get(street);
+    if (ruled?.ruling === "different") {
+      return {
+        ...base,
+        status: "blocked",
+        message: `${row.street.toUpperCase()} is not one of our streets — ${ruled.why}`,
+      };
+    }
+    if (ruled?.ruling === "same") {
+      matches = onOur(ruled.ourStreet);
+      fuzzy = matches.length > 0;
+    } else if (ruled?.ruling === "unresolved") {
+      matches = onOur(ruled.ourStreet);
+      if (matches.length) needsPerson = ruled.why;
+    } else {
+      // No ruling at all: the base word itself differs, so this is a typo
+      // ("SHENENDOAH DR"). Still worth surfacing, never worth auto-applying.
+      matches = stops.filter(
+        (stop) =>
+          normalizeHouseNumber(stop.houseNumber) === house &&
+          editDistance(normalizeStreet(stop.street), street) <= 2,
+      );
+      if (matches.length) needsPerson = `the street is spelled differently from ours`;
+    }
+  }
+
+  // The unit written as a letter on the house number on one side and not the
+  // other -- we hold 105A CANARY DR, the upload says 105 with "apt A" in its
+  // floor column, or the reverse. Measured on the real roster this is a larger
+  // source of false cancellations than the street-suffix problem, because the
+  // address looks absent and a roster import reads absent as gone.
+  if (!matches.length) {
+    const bare = house.replace(/[a-z]$/, "");
+    const letterKin = stops.filter((stop) => {
+      if (normalizeStreet(stop.street) !== street) return false;
+      const theirs = normalizeHouseNumber(stop.houseNumber);
+      return theirs !== house && theirs.replace(/[a-z]$/, "") === bare;
+    });
+    if (letterKin.length) {
+      matches = letterKin;
+      needsPerson = `we deliver to ${letterKin
+        .map((stop) => stop.houseNumber)
+        .join(" and ")} on this street, not ${row.houseNumber} — same door or a second unit?`;
+    }
   }
 
   // Narrow by floor/side, then by name, before declaring it ambiguous.
@@ -226,6 +485,9 @@ export function planRow(
       };
     }
     const stop = matches[0];
+    if (needsPerson) {
+      return { ...base, status: "needs_choice", stopId: stop.id, candidates, message: needsPerson };
+    }
     if (row.action === "remove" && publication && !stop.publicationIds.includes(publication.id)) {
       return {
         ...base,
@@ -245,6 +507,9 @@ export function planRow(
   // action === "add"
   if (matches.length === 1) {
     const stop = matches[0];
+    if (needsPerson) {
+      return { ...base, status: "needs_choice", stopId: stop.id, candidates, message: needsPerson };
+    }
     if (publication && stop.publicationIds.includes(publication.id)) {
       return {
         ...base,
@@ -274,15 +539,61 @@ export function planRow(
 
   // Brand new address: infer the zone from other stops on the same street.
   const zoneCandidates = streetZones.get(street) ?? [];
+
+  // The street name matches ours exactly, but is this the stretch we walk?
+  // A town-wide roster contains the whole of a street we only cover part of:
+  // OAK ST 1386-1491 against our 26-110, twelve HENRY ST numbers in the 200s
+  // against our 28-111, VINE AVE 102-186 against our 550-736, MARC DR 8-50
+  // against our 504-604. Fifty of the sixty-eight "new addresses" on the real
+  // Voice roster were this. Nothing flagged them, because ruleStreetVariants
+  // only looks at streets whose NAME differs -- so an exact name match with a
+  // house number from a different part of town sailed through as ready.
+  //
+  // Not blocked, because the judgement is genuinely open at the edges: 19
+  // HAZELWOOD LN just past our 1-17 is probably the next house along, and
+  // docs/domain-notes.md records 314 CEDAR BRIDGE AVE as a real addition even
+  // though our Cedar Bridge is only 417 and 419. So it becomes a decision with
+  // the range named, rather than a silent creation in the wrong part of town.
+  const numbersOnStreet = stops
+    .filter((stop) => normalizeStreet(stop.street) === street)
+    .map((stop) => parseInt(normalizeHouseNumber(stop.houseNumber), 10))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const asNumber = parseInt(house, 10);
+  if (numbersOnStreet.length && Number.isFinite(asNumber) && asNumber > 0) {
+    const lo = Math.min(...numbersOnStreet);
+    const hi = Math.max(...numbersOnStreet);
+    if (asNumber < lo || asNumber > hi) {
+      return {
+        ...base,
+        status: "needs_choice",
+        message: `${row.houseNumber} is outside the ${lo}–${hi} stretch of ${row.street.toUpperCase()} our routes cover — confirm it is on this route before adding it`,
+        newStop: newStopFrom(row, base, zoneCandidates),
+      };
+    }
+  }
+
+  // A street that appears in no route at all is out of the area we deliver to.
+  // A publication's roster covers a whole town -- 18,018 of the 19,621 rows in
+  // the real Voice file are on 1,856 streets we have never delivered to -- so
+  // asking the office to place each one would bury the handful that matter
+  // under thousands that do not. Ari's rule is that an unplaced address stays
+  // off the route pages; it is reported, not queued as a decision.
+  if (!zoneCandidates.length) {
+    return {
+      ...base,
+      status: "blocked",
+      message: `${row.street.toUpperCase()} is not on any of our routes`,
+      newStop: newStopFrom(row, base, zoneCandidates),
+    };
+  }
+
   return {
     ...base,
     status: zoneCandidates.length === 1 ? "ready" : "needs_choice",
     message:
       zoneCandidates.length === 1
         ? `new address — zone ${zoneCandidates[0].zoneNumber} (from other stops on this street)`
-        : zoneCandidates.length
-          ? "new address — this street spans several zones, pick one"
-          : "new address — street not in any route yet, pick a zone",
+        : "new address — this street spans several zones, pick one",
     newStop: newStopFrom(row, base, zoneCandidates),
   };
 }
@@ -302,6 +613,93 @@ function newStopFrom(
     floorSide: base.floorSide,
     instructions: row.instructions,
   };
+}
+
+/**
+ * Turns "absent from the roster" into proposed removals.
+ *
+ * A publication's roster says who should be receiving it. It has no way to say
+ * "cancel this one" -- a cancellation shows up only as an address that is no
+ * longer there. So the removals have to be derived by walking our own list, and
+ * that is the dangerous direction: every weakness in matching becomes a
+ * subscriber who silently stops getting their paper.
+ *
+ * Three rules keep it honest:
+ *
+ *  - Only addresses on streets the roster actually covers are considered. The
+ *    roster is town-wide but we hold five zones of about thirty, so a street the
+ *    upload never mentions at all means the publication did not send us that
+ *    part of town, not that everyone on it cancelled.
+ *  - Presence is tested with listedUnderAnySpelling, which is deliberately
+ *    looser than the matcher.
+ *  - It works at address level, never unit level. If a house has two units
+ *    taking the publication and the roster lists the address once, neither is
+ *    removed. Ari's rule is a count per address; a roster cannot say which unit
+ *    stopped, so this does not guess. The cost is that a house going from two
+ *    copies to one is not detected here.
+ */
+export function planRosterRemovals(
+  stops: ExistingStop[],
+  publication: { id: string; name: string },
+  fileStreets: Map<string, Set<string>>,
+  startingRowNumber: number,
+): PlanRow[] {
+  // Streets the roster covers at all -- compared loosely, so a street that only
+  // ever appears misspelled still counts as covered.
+  const covered = (street: string) =>
+    [...fileStreets.keys()].some((candidate) => sameStreetLoosely(candidate, normalizeStreet(street)));
+
+  const seen = new Set<string>();
+  const out: PlanRow[] = [];
+  let rowNumber = startingRowNumber;
+
+  for (const stop of stops) {
+    if (!stop.publicationIds.includes(publication.id)) continue;
+    // The round includes commercial drops -- Silvino's Auto, Ocean Dental,
+    // Leisure Chateau -- that a subscriber export will never list. Without this
+    // every roster import would propose cancelling all of them, every week.
+    if (stop.rosterManaged === false) continue;
+    const key = `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!covered(stop.street)) continue;
+    if (listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets)) continue;
+
+    out.push({
+      rowNumber: rowNumber++,
+      action: "remove",
+      summary: `${stop.houseNumber} ${stop.street}${stop.recipientName ? ` · ${stop.recipientName}` : ""}`,
+      publicationId: publication.id,
+      publicationName: publication.name,
+      status: "ready",
+      message: `not on the new ${publication.name} list — stop delivering`,
+      candidates: [],
+      stopId: stop.id,
+      newStop: null,
+      instructions: null,
+      floorSide: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Real week-to-week churn on these routes is a handful of addresses. A run that
+ * proposes to cancel a large slice of a publication's list is a matching fault
+ * or a truncated file, not a week's changes -- and it is the one mistake nobody
+ * finds out about, because the subscriber complains to the publication.
+ *
+ * So the run stops and says so rather than applying. This is the "diff two
+ * consecutive issues" control from docs/handoff.md, in the only form available
+ * before there is a previous file to diff against: once the database mirrors
+ * last week's roster, the same check compares this week to last week for free.
+ */
+export function removalsLookWrong(
+  removals: number,
+  publicationAddresses: number,
+): { tripped: boolean; limit: number } {
+  const limit = Math.max(25, Math.round(publicationAddresses * 0.05));
+  return { tripped: removals > limit, limit };
 }
 
 /** street (normalized) -> zones that already contain it */

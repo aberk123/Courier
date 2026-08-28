@@ -232,10 +232,16 @@ exact structure shown in the zone samples) **plus** a cover sheet.
   route order, so a staffer looking someone up also sees where they
   fall in the run.
 - Consequence for writes: any stop created in-app must be given a
-  `route_entries` row, or it is invisible in the default view. New
-  stops are placed after the last existing stop on the same street,
-  falling back to the end of the route when that street is not yet in
-  the sequence.
+  `route_entries` row, or it is invisible in the default view. **A new stop is
+  appended to the end of the route** — `max(sequence) + 1` — and the courier
+  office positions it. It is deliberately not slotted in after the last stop on
+  the same street: a street can appear in several separate blocks of one route
+  (Shenandoah Dr three times in zone 1, Ponderosa Dr four times in zone 2), so
+  that guess would often be wrong. See `create_stop_in_route`.
+
+  An earlier version of this note described the after-the-last-stop-on-the-street
+  behaviour, which the function has never done. Read the migration, not this
+  paragraph, if it matters.
 
 ## Weekly import file format (assumption, built 2026-08-20)
 
@@ -573,6 +579,239 @@ addition before being handled:
 
 Handling these moved matched from 101 to 107 out of 167. The remainder is real
 divergence, not spelling.
+
+### Which streets you may not interpolate on — measured, zone 2 (2026-08-25)
+
+"Reached at N separate points" and "has N blocks of deliveries" are different
+numbers, and the second is the one the interpolation rule needs. Zone 2's route
+*touches* Pine St at four points, but only two of them have deliveries: seq 47-50
+(150, 150, 150-retired, 152) and seq 422-439 (198-270). The other two touches are
+direction text only (`EXIT PINE RIVER, TURN RIGHT ON PINE ST`, `GO BACK TO PINE
+ST, TURN LEFT ON PINE ST AND LEFT ON MARK DR`). So a new Pine St number outside
+150-152 and outside 198-270 has **no safe position** in zone 2.
+
+Zone 2's multi-block delivery streets, measured from the route dump — do not
+interpolate on any of these without asking:
+
+| Street | Delivery blocks in zone 2 |
+| --- | --- |
+| Ponderosa Dr | 4 |
+| Spruce St | 3 |
+| Pine St | 2 |
+| Juniper Ln | 2 |
+| Marc Dr | 2 |
+| Daniel Dr | 2 |
+| Howard Dr | 2 |
+
+Zones 1 and 3-5 have not been measured this way.
+
+### The publication-letters column has a hard width limit (2026-08-25)
+
+`stopPubs` is 20% of the 544pt content width — 108.8pt — at 13.5pt bold with
+`letterSpacing: 1`. **Eight letters is the limit, and only without a wide glyph:**
+every 8-letter set containing `M`, `W` or `K` overflows onto a second line, and
+sets without one fit with under 3pt to spare. Ten of the fifteen stops on the five
+real routes that carry 8+ publications overflow today (see `docs/handoff.md`).
+
+Consequence for this record: **confirming one of the five guessed courier letters,
+or adding a publication to a stop that already has seven, can push a row over.**
+Check the render, not just the data.
+
+## The Voice's real roster — measured 2026-08-26
+
+Ari supplied `Address changes for 08272026.NEW.xlsm`. **Despite the name it is not a
+changes file**: it is a full roster of 19,621 rows / 19,568 distinct `customers.id`,
+covering all of Lakewood (1,927 streets). Confirmed by Ari as The Voice's list, and
+corroborated by a coverage fingerprint rather than taken on trust — of our zone 1+2
+addresses, **98% of the Voice ones appear in the file**, against 74% BP, 73% Shopper,
+73% Lakewood Courier, 78% Circle, 83% Yated. A broken matcher could not produce a 98%
+hit rate on one publication, so the fingerprint doubles as end-to-end validation.
+
+Shape, and how it differs from what the importer expects:
+
+- **`.xlsm`, not `.xls`.** It is the same OOXML container as `.xlsx`, so `exceljs`
+  reads it — unlike the legacy BIFF8 files recorded above. Only the file picker's
+  `accept` list rejects it.
+- Columns: `customers.id | customers.first_name | customers.last_name |
+  addresses.addr | addresses.extended_addr | addresses.extended_addr2`. A header row
+  is present. **No action column, no publication column, no zone column.**
+- The whole address is in one cell (`999 Morris Ave`). 19,608 of 19,621 split cleanly
+  on `^(\d+[A-Za-z]?)\s+(.*)$`; the 13 that do not are reversed (`Meadowood Road 429`)
+  or glued (`1OMNI CT`), and none is on our streets.
+- Scope against our five routes: **1,590 rows land on our 71 streets**; 18,018 fall on
+  1,856 streets we do not deliver to.
+
+### `extended_addr2` holds most of the basement labels
+
+The two extension columns are **near-disjoint**, not duplicates: `extended_addr` is
+filled on 3,475 rows, `extended_addr2` on 2,198, **both on only 18**, and identical on
+exactly **one** (`14 Palm Ct | Basement | Basement`). They split by kind:
+
+| | `extended_addr` | `extended_addr2` |
+| --- | --- | --- |
+| basement | 953 | **1,537** |
+| upstairs | 1,477 | 363 |
+| other (unit, copy count, placement) | 1,045 | 298 |
+
+**Reading only `extended_addr` loses roughly 1,500 basement labels**, silently merging
+each basement household into the upstairs one at the same door. Floor/side is part of
+identity, so any parser must read and union both columns.
+
+### `normalizeFloorSide` gets real values wrong
+
+Tested against all 970 distinct `extended_addr` / `extended_addr2` values in the file.
+The shipped regexes are `/base|bsmt|bsmnt|down/` then `/up|second|2nd|top/`, unanchored:
+
+- **Six real basements return no label**: `Basment`, `Lower level`, `bmnst`, `bmsnt`,
+  `bmsnt of 105`, `bmsnt, side door`. (`Basment` misses because the alternation has
+  `base|bsmt|bsmnt` and none of them is a substring of `basment`.)
+- **`upstairs (no one lives in basement)` returns basement** — the note says the
+  opposite of what the code concludes.
+- **`/up/` has no word boundary**: `plz put on steps WITH the railing, older couple`
+  returns upstairs, on the `up` inside *couple*.
+- Placement text becomes an invented floor label: `plz put on top of mailbox` →
+  upstairs, `down the driveway` → basement, `entrance is on the left side of the house
+  by the second driveway` → upstairs.
+
+### How to rule a near-miss street name
+
+The rule that matters is not "strip the suffix". Three tests, in order, each measured
+against the file itself rather than guessed:
+
+1. **No street type at all, and exactly one of our streets carries that base** →
+   same street. A bare base word cannot be a *different* street. (`PONDEROSA`,
+   `GRASSMERE`, `CANARY`, `SHERATON`, `HILTON`, `HEARTHSTONE`, `BRIDGEWOOD`.)
+2. **Does the file also use our spelling, and do the two number sets overlap?**
+   Disjoint sets are the signature of one street written two ways; overlapping sets
+   mean two real streets. `HAZELWOOD CT` = {4, 6, 11, 14, 19} against the file's own
+   `HAZELWOOD LN` = {1, 3, 8, 9, 10, 12, 15, 16} — never the same number, and together
+   they fill our 1–17. Contrast `CHELSEA RD` (3–65, odds included) where the file
+   *also* lists `CHELSEA CT` as exactly our 2–20 evens: two roads.
+3. **Are the variant's house numbers inside the range we cover?** `READ PL` is
+   1341–1485 against our Read St 241–280; `OAK LN` is 240–317 against Oak St 26–110;
+   `ALAN TER` is 4–41 against Alan Ct 120–128. Different parts of town.
+
+Applied to this file, 181 raw candidates resolve to **98 rows on genuinely different
+streets, 12 auto-matched, and 49 rows needing a human across 14 decisions.** Only
+`VINE ST` has to be split row by row: the file uses that one name both for a road in
+the 100s that we do not serve and for 580–736, which is our Vine Ave.
+
+**This is implemented, not just recorded.** `ruleStreetVariants` in
+`src/lib/import/match.ts` does it, over the whole upload at once — the evidence is
+whether the file *also* uses our spelling and for which numbers, which no single row
+can see. `planRow` then auto-applies a variant street only where the ruling says
+`same`; `unresolved` becomes a choice for the office and `different` is reported as
+out of area. Checked both ways: the 14 tests in `src/lib/import/import.test.ts`
+(`npm test`) pin the shapes, and run against the real 19,621-row roster the ruling
+reproduces the hand analysis on **24 of 24** street spellings, with **0** rows on a
+`different` or `unresolved` street reaching `ready`.
+
+Two things the same pass fixed, both measured against the real file:
+`normalizeFloorSide` now reads all 970 distinct floor cells with 0 missed basements
+and 0 invented labels (it had six and eight); and reading both extension columns
+takes basement labels from 953 to **2,487**.
+
+One consequence worth knowing: the ruling needs the *complete* stop list to be
+right. Run against zones 1–2 only, `VINE ST` comes out `different` rather than
+`unresolved`, because our Vine Ave then looks like 550–580 instead of 550–736. The
+app always passes every stop, so this only bites a partial harness.
+
+### Things about this file that must be settled before anything is applied
+
+- **71 rows at the tail (19552–19622) are not from the subscription system.** Their
+  `customers.id` values are `Zone1_1` … `zone2_8` — synthetic, zone-prefixed and
+  sequence-numbered — with names like `Family Cohen` on our zone 1 and 2 streets.
+  They look like route data pasted into the export. Measured on zones 1+2,
+  Voice-scoped, including them moves the result from **93 additions / 61 removals to
+  133 / 36**. No number from this file should reach a driver until their provenance
+  is known.
+- **House-number letter variants are the largest false-deletion generator on this
+  file**, ahead of the suffix problem. We store the unit as a suffix (`105A CANARY
+  DR`); the file keeps the base number and puts the unit in `extended_addr`. 81 such
+  pairs across the five routes, concentrated where the route uses duplex numbering
+  (Canary Dr, Eagle Ln, Rena Ln, Gila Pl).
+- **Copy counts are double-encoded.** 25 `customers.id` values repeat across 53
+  surplus rows *and* carry the count in `extended_addr` (`This address needs 4`,
+  ×4 rows). Reading both gives 16 papers where 4 are wanted. Which encoding governs
+  is a human decision.
+
+### Whose list wins — partially answered 2026-08-26
+
+Ari: *"The new list that I'm giving you is the actual real one that we want to go
+with."* So the publication's file is authoritative where the two disagree.
+
+**Two things are still open**, and both were flagged back to him:
+
+- He described the cover sheet as *additions, corrections and comments* — no
+  deletions. But an authoritative file means an address absent from it should stop
+  receiving the paper. Whether removals are in scope is unconfirmed, and it is the
+  half of the diff with the asymmetric risk.
+- **The database is not "last week's Voice list".** There has never been a Voice
+  roster in it; our data came from Amrom's hand-maintained route spreadsheets. So
+  this run is the one-time reconciliation, not a weekly delta — which is why the
+  numbers are in the hundreds rather than the handful of real weekly churn. Next
+  week's file against this one is the first true week-over-week diff, and is also
+  the control the reconciliation agent could not run this time.
+
+### The weekly roster cycle (Ari, 2026-08-27)
+
+The settled shape of the job, and it answers "whose list wins": **the publication's
+new list wins.** Each week The Voice sends its full Lakewood roster; we reconcile it
+against the database, apply the result, and the database becomes the list we work
+from. Next week's file is compared against *that*, and so on.
+
+Two consequences worth holding on to:
+
+- **The first run is the risky one.** It is a one-time reconciliation between the
+  publication's billing view and Amrom's hand-maintained route sheets, which have
+  never been reconciled — 111 additions and 16 removals on the 27 Aug file. Every
+  run after it is a week of real churn, which `docs/handoff.md` records as a
+  handful of addresses.
+- **From week two the file-to-file control comes for free.** The reconciliation
+  agent's strongest check — diff two consecutive issues, because real churn is tiny
+  and a large diff means divergence or a matching fault — was impossible with one
+  file. Once the database mirrors last week's roster, every weekly run *is* that
+  diff. `removalsLookWrong` is the guard that acts on it; its threshold (5% of the
+  publication's addresses, floor of 25) is set for the first run and should be
+  tightened once a few normal weeks have been seen.
+
+Removals are derived, never stated: a roster cannot say "cancel this one", only
+stop listing it. `planRosterRemovals` does that derivation, and its three rules —
+covered streets only, loose presence test, address level never unit level — are
+what stop a matching weakness turning into cancelled subscribers.
+
+### Zone membership is decided by street (Ari, 2026-08-27)
+
+The publication's list covers all of Lakewood — about 30 zones. We hold five. The
+`zones` table has no boundary or street list, only `id`, `number`, `name`: the sole
+thing that defines a zone is the stops currently in it. So "is this address in one
+of our zones?" is answered as **"is it on one of the 71 streets we already have a
+subscriber on?"**
+
+Ari chose this knowingly. **The blind spot, recorded so nobody rediscovers it as a
+bug:** the first-ever subscriber on a street that lies inside one of our five zones
+but that we have never delivered to is classified as out of area and dropped. We
+cannot currently tell those streets from streets across town. Closing it needs a
+street-list-per-zone from Amrom covering streets with no current subscriber.
+
+### Removal suppression is deliberately looser than matching
+
+`listedUnderAnySpelling` decides whether one of our addresses appears in an upload
+under *any* spelling, and is used only to hold a removal back — never to create a
+match. The asymmetry is the whole point, and the thresholds were set by what the
+real file actually contains:
+
+- Street compared on its base word with the type stripped, so `CANARY ST` stands in
+  for our `CANARY DR`.
+- One edit always; two edits only on a base of eight characters or more. `HAZLEWOOD`
+  for `HAZELWOOD` and `SHENENDOAH` for `SHENANDOAH` are the same street. `CAREY ST`
+  for `CAROL ST` is not — two edits on five letters, and flat "within two edits"
+  hid a real removal behind it.
+- The unit letter in either direction: we hold `105A`, the upload writes `105`.
+
+Measured on the 27 Aug Voice roster, this took candidate removals from 65 raw to
+**16**, and every one it suppressed was checked to be a real household present in
+the file under a variant spelling.
 
 ## Items to confirm with Amrom (neither is blocking)
 

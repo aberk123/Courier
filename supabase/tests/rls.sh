@@ -283,5 +283,66 @@ check "a lowercase or multi-character letter is refused" \
   "$(psql -tAq -c "update publications set courier_letter='vv' where code='shopper';" 2>&1 | grep -c 'courier_letter_format')" "1"
 
 echo
+echo "undo_import_run (reversing a whole import)"
+RUN=dddddddd-0000-0000-0000-000000000001
+# An address the import created is deleted outright -- a counter-event would
+# leave a retired stop and an orphan route entry behind.
+check "undo deletes an address the import created, with its route entry" \
+  "$(as $OFFICE "insert into public.import_runs (id, created_by, file_name)
+       values ('$RUN','$OFFICE','roster.xlsm');
+     create temp table t as select public.create_stop_in_route(
+       '$Z','Green','611','RIVER AVE',null,null,array['$PV']::uuid[],'$RUN') as id;
+     select count(*) from public.stops where import_run_id='$RUN';
+     select (public.undo_import_run('$RUN')->>'deleted');
+     select count(*) from public.stops where import_run_id='$RUN';
+     select count(*) from public.route_entries where stop_id=(select id from t);")" \
+  "1,1,0,0"
+# A publication switched on at an address that already existed is reversed by
+# logging the opposite event, so stop_publications and stops.active stay
+# consistent through the same trigger that applied it.
+check "undo switches a publication back off an address that already existed" \
+  "$(as $OFFICE "insert into public.import_runs (id, created_by, file_name)
+       values ('$RUN','$OFFICE','roster.xlsm');
+     insert into public.stop_publication_events (stop_id, publication_id, event_type, import_run_id)
+       values ('$A','$PS','added','$RUN');
+     select count(*) from public.stop_publications where stop_id='$A';
+     select (public.undo_import_run('$RUN')->>'reversed');
+     select count(*) from public.stop_publications where stop_id='$A';")" \
+  "2,1,1"
+check "undo restores a publication the import removed" \
+  "$(as $OFFICE "insert into public.import_runs (id, created_by, file_name)
+       values ('$RUN','$OFFICE','roster.xlsm');
+     insert into public.stop_publication_events (stop_id, publication_id, event_type, import_run_id)
+       values ('$C','$PS','removed','$RUN');
+     select count(*) from public.stop_publications where stop_id='$C';
+     select (public.undo_import_run('$RUN')->>'reversed');
+     select count(*) from public.stop_publications where stop_id='$C';")" \
+  "1,1,2"
+# Undoing twice would double-reverse -- i.e. re-apply the import.
+check "an import cannot be undone twice" \
+  "$(as $OFFICE "insert into public.import_runs (id, created_by, file_name)
+       values ('$RUN','$OFFICE','roster.xlsm');
+     insert into public.stop_publication_events (stop_id, publication_id, event_type, import_run_id)
+       values ('$A','$PS','added','$RUN');
+     select (public.undo_import_run('$RUN')->>'reversed');
+     select public.undo_import_run('$RUN');" | grep -c 'already undone')" \
+  "1"
+check "a publication-scoped staffer cannot undo an import" \
+  "$(as $VOICE "select public.undo_import_run('$RUN');" | grep -c 'Only the courier office')" \
+  "1"
+# Somebody may have worked on an address the import created before anyone hits
+# undo. Deleting it then would destroy their work, so it is kept and reported.
+check "an address edited since the import is kept, not deleted" \
+  "$(as $OFFICE "insert into public.import_runs (id, created_by, file_name)
+       values ('$RUN','$OFFICE','roster.xlsm');
+     create temp table t2 as select public.create_stop_in_route(
+       '$Z','Green','611','RIVER AVE',null,null,array['$PV']::uuid[],'$RUN') as id;
+     insert into public.stop_publication_events (stop_id, publication_id, event_type)
+       values ((select id from t2),'$PS','added');
+     select (public.undo_import_run('$RUN')->>'kept_because_edited');
+     select count(*) from public.stops where id=(select id from t2);")" \
+  "1,1"
+
+echo
 printf 'ceil %d passed, %d failed\n' "$pass" "$fail" | sed 's/^ceil //'
 [ "$fail" -eq 0 ]

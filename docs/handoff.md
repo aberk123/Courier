@@ -47,6 +47,14 @@ Shipped and working:
 - Manage Users: invite, edit, delete, publication scoping, reset links
 - Breadcrumb navigation
 - RLS throughout, with a regression suite (`supabase/tests/rls.sh`, 34 passing)
+- Weekly import reads a publication's own roster: `.xlsm`, a whole address in
+  one cell, two floor/side columns, no action or publication column
+- Roster removals: an address the new list no longer carries becomes a Deletion,
+  guarded by `removalsLookWrong` so an implausibly large run stops instead of
+  applying
+- `npm test` — 18 import-matcher tests, on Node's built-in runner, no new
+  dependency. Every case is a shape the real Voice roster contained and the code
+  got wrong before
 
 Deliberately deferred by Ari — do not build without being asked: master-list
 reconciliation across all routes beyond the five-route MVP, the courier check-off
@@ -235,26 +243,202 @@ say so explicitly.
   registered now; re-running it against a rendered booklet is cheap and worth
   doing before the first real print run.
 
+### Verified 2026-08-25 against the real zone 2 route — the letters column overflows
+
+Zone 2 (735 entries: 65 directions, 670 stops) was dumped and rendered the same
+way. This time the dump's provenance is **proven, not asserted**: the `md5` of the
+local file equals the `md5` of the same string built inside the production
+database (`e79a82dea4ca69bc043e6be44eecea92`; zone 1 is
+`4f5ae43fa3cb6c123528e324d2f99d16`, checked retroactively, which closes the gap
+the zone 1 review left open). Note `string_agg` produces no trailing newline, so
+compare with the file's final newline stripped.
+
+`lakewood-courier-routing` — the real agent this time — audited it.
+
+**The collapse behaves correctly on zone 2.** Over all 16 publication filters: 0
+mislabelled directions, 0 directions missing from before the last delivery. The
+agent independently rebuilt each filter's expected direction list from the dump
+and compared it as an **ordered exact list** — stronger than a multiset check, so
+`CROSS OVER TO ODD SIDE` (×4) and `CROSS BACK TO EVEN SIDE` (×4) cannot hide a
+drop: `ordered_exact=YES` on all 18 filters it tested. Every stop present and
+intact, verified from the PDFs positionally rather than by pattern matching:
+676/676, 408/408, 79/79, 254/254 rows, 0 problems. All-publications booklet is 20
+pages, matching the measured table in `docs/domain-notes.md`.
+
+**The deadness fix matters more here than on zone 1.** It restored 4–8 directions
+to full weight on *every* filter, and the all-publications booklet now has zero
+collapsed blocks — correct, since nothing is filtered out. Most important:
+`CROSS THE STREET TO YOUR BAG AT 1 FOREST PARK CIR` (seq 357) had been muted on
+ALL, Voice, Shopper, BP, Lakewood Courier and Circle. That line is where the
+driver's papers are staged, and the old behaviour left only *deliver even numbers*
+loud. It is still muted on 8 of 18 filters where that stretch is genuinely dead.
+
+#### The new defect: the publication-letters cell is too narrow, and a letter lands on a line with no address
+
+`stopPubs` in `src/lib/booklet-pdf.tsx` is `width: "20%"` — on a LETTER page with
+`paddingHorizontal: 34` that is 20% of 544pt = **108.8pt** — at 13.5pt bold with
+`letterSpacing: 1`. Eight letters is already at the limit.
+
+Measured by rendering all 15 active stops on the five real routes that carry 8+
+publications: **10 of them wrap.** Zone 1's maximum is 7 letters, which is exactly
+why the zone 1 review could not have found this.
+
+| Zone | Stop | Letters | |
+| --- | --- | --- | --- |
+| 2 | 106 SPRUCE ST (upstairs) | `ABCLMNSVWY` | wraps |
+| 2 | 41 NEWBERRY CT (upstairs) | `BCLMNSVY` | wraps |
+| 2 | 142 SPRUCE ST | `BCHLNSVY` | fits, at 106.2 of 108.8 |
+| 3 | 24 HIGH ST | `ABCHLMSVY` | wraps |
+| 3 | 41 CANARY DR | `ABCLMNSV` | wraps |
+| 3 | 46 CANARY DR | `BCHLMNSV` | wraps |
+| 3 | 272 READ ST | `BCHLNSVY` | fits |
+| 4 | 1021 NETHERWOOD DR | `BCHKLNSVY` | wraps |
+| 4 | 67 FINCHLEY BLVD | `BCHLMSVY` | wraps |
+| 5 | 105 HADASSAH LN, 166 CHATEAU DR, 53 RENA LN | 8 each | wrap |
+| 5 | 48 / 28 CUSHMAN ST, 25 HEKEL RD | 8 each | fit, at 106.2 |
+
+The discriminator is glyph width, not count: every wrapping set contains `M`, `W`
+or `K`. The sets that fit sit within 3pt of the edge, so one more publication on a
+7-letter stop, or a confirmed letter for one of the five guesses, tips more over.
+
+**Severity, stated precisely, because it is easy to overstate.** The zebra band
+grows with the row, so on a *shaded* row the wrap is contained and reads correctly
+— `106 SPRUCE ST (upstairs)` shows `A B C L M N S` / `V W Y` inside one band. On a
+*white* row there is no band to bind it: `41 NEWBERRY CT (upstairs)` prints
+`B C L M N S V` and then a bare `Y` on the next line, delimited only by the shaded
+bands of 37 above and 43 below. It is not wrong, but at night a hurried driver
+could read that `Y` as 43's — and 41's instruction is `YATED ON PORCH`, so the one
+publication with a placement instruction is the one whose letter is stranded.
+
+**Widening the column is only a partial fix**, measured: at 24% (130.6pt) the ten
+drop to two; `106 SPRUCE ST` still wraps at 26% (141.4pt), and any hypothetical
+stop with 11+ letters always wraps. Halving `letterSpacing` to 0.5 achieves about
+the same as 22%. So the durable fix has to make a wrapped line unambiguous rather
+than try to prevent wrapping. **This is Ari's call** — he set 13.5pt at natural
+height deliberately and rejected squeezing the letters once already — and it is a
+layout question for `lakewood-courier-ux`.
+
+**Not a regression from the collapse work.** `stopPubs` predates it (commits
+`1336534`, `e6d8518`). It only appears when a stop has 8+ *selected* letters, so
+single-publication booklets are unaffected; the all-publications booklet is the
+exposed one.
+
+#### Other findings from the zone 2 audit
+
+- **`545 HOWARD DR` decodes as two real households.** Read against the
+  spreadsheet's column order, `I STEIN BOYS V S 545 HOWARD DR` and
+  `I V 545 HOWARD DR` are address rows: a `V`+`S` household and a `V` household.
+  If that reading is right, two Voice subscriptions and one Shopper are on no
+  booklet at all. The leading `I` is unexplained — possibly a mangled floor glyph
+  — so **a human must open `BP ZONE 2.xlsm` and read the cells.** The route
+  position is *not* in doubt: `545 HOWARD DR` appears only at seq 613–616, one
+  contiguous block, so the recovered rows belong at 613–618. No interpolation
+  needed. All four existing rows are `active=false`, one carrying
+  `5 COPIES TO THIS ADDRESS`, which also needs reconciling.
+- **The corrupted rows now print loud, and that is correct.** They render in
+  `#d8d8d8` bold between `553 HOWARD DR` and `TURN LEFT ON NEAL CT` on the ALL,
+  Voice, Shopper, BP, Circle and Lakewood Courier booklets. Quiet-and-wrong would
+  print "Nothing for this booklet along here" over what may be three undelivered
+  papers — an affirmative false statement. A visible anomaly is what gets
+  reported; that is the only thing that fixes it. The pre-fix muting was
+  accidental, not protective.
+- **37 active stops carry an instruction naming a publication they do not
+  receive** — 27 in zone 2, 10 in zone 1, after excluding every case where another
+  unit at the same house number holds that letter. Examples:
+  `49 FOREST PARK CIR [BS]` / `YATED AT DOOR`; `25 NEWBERRY CT [BCLSV]` /
+  `PUT AMI AT DOOR!`; `16 CHELSEA CT [BSV]` / `PUT MISHPACHA IN MAIL SLOT`. Each
+  is either a missing `stop_publications` link — a paying subscriber getting
+  nothing, silently — or a stale note. Inherited from the route spreadsheets;
+  present on `main` before and after this work. A reconciliation question, and the
+  asymmetry rule applies: do not resolve it by deleting.
+- **Forest Park Cir may be missing a stretch, or may be one-sided.** Measured on
+  zone 2: 113 odd-numbered stops covering 1→167, and only 11 even — 4, 6, 8, 10,
+  12. Evens 14–166 are absent entirely. So `CROSS THE STREET AND DELIVER EVEN
+  NUMBERS` (seq 359) leads to five houses, and `CONTINUE ODD NUMBERS` (seq 358)
+  sits *after* all 113 odds are already delivered. Either seq 358 is vestigial and
+  the circle is genuinely one-sided, or a stretch never got imported. **Needs
+  Amrom**; do not guess.
+- **`START 485 RIVER AVE` prints loud only by luck.** On the all-publications
+  booklet the whole dead set is `{1, 519, 735}`, and seq 1 is dead because its only
+  stop (`485 RIVER AVE`, seq 2) is retired. It stays at full weight purely because
+  a run of 1 is below `SKIP_RUN_MIN`. **Anyone lowering `SKIP_RUN_MIN` mutes the
+  route's start point on the booklet that goes out every week.**
+- **`getBooklet` never checks `.error`.** Every query is consumed as
+  `x.data ?? []`, so a failed or truncated PostgREST response yields a shorter
+  booklet with no warning. Zone 2 is the largest route at 735 entries and the
+  zone page's own `ROW_CAP` is 1000, so there is not much headroom. Worth a real
+  check against production.
+- **Three publications render a blank route page** in zone 2 (Dee Voch, Hundred,
+  Kindline) — the same "reads as a print failure" issue already recorded for zone 1.
+
+#### Corrections to the zone 1 verification method
+
+Both are worth knowing because they made that pass weaker than it looked.
+
+- The zone 1 harness's `truthDead` was a **transliteration of
+  `markDeadDirections`, not an independent recomputation** — same unit boundaries,
+  same latch. "0 dead-set mismatches" proved the transcription was faithful, not
+  that the rule was right. The load-bearing evidence is the ordered/multiset
+  direction comparison, which does not depend on the deadness rule at all.
+- The pre-fix/post-fix comparison used set membership (`!includes`) rather than a
+  counted multiset, so a text muted 4× before and 3× after would have reported
+  zero change. Recomputed properly: the promotions are right, and **nothing is
+  newly muted** on any zone 2 filter.
+
+### What the zone 2 verification still does NOT cover
+
+- **Zones 3, 4 and 5 have never been dumped.** The letters-overflow table above
+  is from the database directly, not from rendered booklets for those zones.
+- The cover sheet remains completely unexercised, and RLS remains bypassed.
+- The harness hardcodes the five unconfirmed courier letters. Wellsprings and
+  Shtenderel — the two worst-rendered sparse booklets — exist only on guesses.
+- There is no unplaced/near-miss section in `Booklet` or `BookletDocument` at all
+  (`grep -rn "unplaced" src/` is empty), so `docs/domain-notes.md`'s rule that an
+  unconfirmed address is listed on the cover and kept off the route pages has no
+  implementation to test. That is the open item below.
+
 ## What is open
 
 - **The >1 MB import post-deploy check.** Upload and review only, do not apply.
   Needs a signed-in production session. Last item from `SETUP.md`.
-- **Donath (`rdonath@circmag.com`) has never set a password.** Her `updated_at`
-  is 2ms after her `last_sign_in_at` — the same transaction. She needs a fresh
-  reset link, generated from Manage Users and opened by her.
 - **Five unconfirmed courier letters** (above), before the first real print run.
-- **Whose list wins.** When our list says an address takes a publication and the
-  publication's file does not, nobody has decided who is right. Do not build the
-  apply step for master-list import until Ari answers. Measured against
-  Mishpacha issue 1125: 160 of 167 matched, 11 added, 4 removed, 3 unresolved.
 - **A near-miss list has nowhere to go.** Unresolved addresses are correctly
   withheld from the courier, but nothing tells the office they exist, so they
   would be withheld silently forever. Needs a fourth cover section or an
-  office-only sheet.
+  office-only sheet. As of 2026-08-26 this has **49 concrete rows** attached to it
+  from the real Voice roster — see `docs/domain-notes.md`. `grep -rn "unplaced" src/`
+  is still empty, so there is no implementation to put them in.
+- **The publication-letters cell overflows on 10 real addresses** across zones
+  2–5 (above). Needs Ari's decision on the layout before the first real print run.
+- **The 27 Aug Voice roster has not been applied.** The run is computed and
+  verified — 111 additions, 16 removals, 68 needing a choice — but two things
+  are unresolved. Seven of the sixteen removals are the whole of River Ave
+  (203–962), and an entire street going at once is not churn; and 71 rows at the
+  tail of that file carry ids `Zone1_1`…`zone2_8` instead of customer ids, which
+  move the result by about 40 additions and 25 removals on their own. Both are
+  questions for Ari and Amrom, not for the code.
 - **Two corrupted rows in zone 2's production route.** `I STEIN BOYS V S 545
   HOWARD DR` and `I V 545 HOWARD DR` are stored as `direction` rows but are
   clearly address rows. They print as loud driving instructions, and because
   545 Howard Dr is not a stop record it is invisible to every publication filter.
+
+## Closed since this file was last rewritten
+
+- **"Whose list wins" is answered (Ari, 2026-08-27).** The publication's new list
+  wins. Each week its full Lakewood roster is reconciled against the database, the
+  result is applied, and the database becomes the list we work from; next week's
+  file is compared against that. Removals are therefore in scope and are built —
+  see `planRosterRemovals` and the weekly-cycle section of `docs/domain-notes.md`.
+- **Donath's password.** The open item said she had never set one. She had:
+  `rdonath@circmag.com` shows `last_sign_in_at` 2026-08-21 13:14 and signed in
+  again on 2026-08-27. Nothing to do. Worth knowing *why* the old reading was
+  wrong, because the same trap is easy to fall into again: `updated_at` moving
+  without `last_sign_in_at` moving does **not** mean a failed password set. A
+  refresh-token rotation logs as `action: login` with `login_method: token` and
+  bumps `updated_at` alone. Ari's own account looked broken for exactly that
+  reason on 2026-08-27 — an `updated_at` of 25 Aug that was a session refresh,
+  not a password change. Check `login_method` in the auth logs before concluding
+  anything from those two timestamps.
 
 ## Subagents — use them, especially on anything that reaches a courier
 
@@ -290,7 +474,9 @@ real driver.**
   they may never be dropped.
 - Interpolating a new address by house number is only safe when the street is one
   contiguous block of the route and the number is inside the covered range. Oak
-  St is reached at five separate points in zone 3, Pine St at four in zone 2.
+  St is reached at five separate points in zone 3, Pine St at four in zone 2 --
+  though only two of Pine St's four are blocks with deliveries; see
+  `docs/domain-notes.md` for the measured per-street counts.
   Otherwise it asks — and an unplaced address stays off the route pages entirely.
 - The sequence is a walking pattern, not geometry. `761 → 658 → 707 CYPRESS AVE`
   is correct. Never "fix" an order that looks unsorted, and never reach for a map
