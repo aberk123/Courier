@@ -579,11 +579,16 @@ export function planRow(
   // under thousands that do not. Ari's rule is that an unplaced address stays
   // off the route pages; it is reported, not queued as a decision.
   if (!zoneCandidates.length) {
+    // Deliberately NO newStop. The review screen offers a route picker whenever
+    // a row carries one, and picking a route marks the row ready -- so leaving
+    // it populated here meant every one of the ~19,000 out-of-area rows showed
+    // a dropdown that would happily place 27 Hawk Way on a route that has never
+    // been near Hawk Way. There is nothing to choose: we do not deliver to that
+    // street at all.
     return {
       ...base,
       status: "blocked",
       message: `${row.street.toUpperCase()} is not on any of our routes`,
-      newStop: newStopFrom(row, base, zoneCandidates),
     };
   }
 

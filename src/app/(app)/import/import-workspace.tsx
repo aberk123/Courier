@@ -54,6 +54,13 @@ export function ImportWorkspace({
   const [undoState, undoAction, undoPending] = useActionState(undoImport, initialUndoState);
 
   const [rows, setRows] = useState<PlanRow[]>([]);
+  // A publication's roster covers the whole town while we hold five routes, so
+  // most of any upload is addresses we simply do not deliver to -- 19,191 of
+  // 19,625 on the real Voice file. Showing them all buried the 434 rows that
+  // actually needed the office under thousands that needed nothing, which made
+  // correct behaviour look like broken behaviour. Default to the rows that need
+  // a person; the rest are one click away.
+  const [showSettled, setShowSettled] = useState(false);
   // Remembered from the upload form so the apply can record which publication
   // the run was for.
   const [rosterPublicationId, setRosterPublicationId] = useState("");
@@ -82,6 +89,13 @@ export function ImportWorkspace({
   const included = useMemo(
     () => rows.filter((row) => !excluded.includes(row.rowNumber)),
     [rows, excluded],
+  );
+  // "Settled" = nothing for the office to do: an address we do not deliver to,
+  // or one that already has the publication. Correct outcomes, but noise.
+  const settled = (row: PlanRow) => row.status === "blocked";
+  const visibleRows = useMemo(
+    () => (showSettled ? rows : rows.filter((row) => !settled(row))),
+    [rows, showSettled],
   );
   const readyCount = included.filter((row) => row.status === "ready").length;
   const choiceCount = rows.filter((row) => row.status === "needs_choice").length;
@@ -314,9 +328,28 @@ export function ImportWorkspace({
             <span className="text-black/60 dark:text-white/60">
               {rows.length} rows · {readyCount} ready
               {choiceCount ? ` · ${choiceCount} need a choice` : ""}
-              {blockedCount ? ` · ${blockedCount} cannot be applied` : ""}
+              {blockedCount ? ` · ${blockedCount} not on our routes` : ""}
             </span>
           </div>
+
+          {/* Says plainly what the big number is, so it does not read as a
+              failure. A publication's roster covers the whole town; we hold five
+              routes of about thirty. */}
+          {blockedCount ? (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-black/60 dark:text-white/60">
+              <span>
+                {blockedCount.toLocaleString()} of these are on streets outside your five routes —
+                nothing to do with them.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowSettled((current) => !current)}
+                className="underline underline-offset-2"
+              >
+                {showSettled ? "Hide them" : "Show them anyway"}
+              </button>
+            </p>
+          ) : null}
 
           <div className="mt-3 overflow-x-auto rounded-xl border border-black/10 dark:border-white/10">
             <table className="w-full min-w-[52rem] text-sm">
@@ -331,7 +364,7 @@ export function ImportWorkspace({
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/10 dark:divide-white/10">
-                {rows.map((row) => {
+                {visibleRows.map((row) => {
                   const isExcluded = excluded.includes(row.rowNumber);
                   const needsZone = Boolean(row.newStop) && !row.stopId && !row.newStop?.zoneId;
                   return (
