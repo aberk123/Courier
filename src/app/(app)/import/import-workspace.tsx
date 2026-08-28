@@ -23,7 +23,7 @@ type ImportRun = {
   publicationName: string | null;
 };
 
-const initialPlanState: PlanState = { error: null, rows: null, fileName: null };
+const initialPlanState: PlanState = { error: null, rows: null, fileName: null, summary: null };
 const initialApplyState: ApplyState = { error: null, applied: null, skipped: null };
 const initialUndoState: UndoState = { error: null, message: null };
 
@@ -54,6 +54,13 @@ export function ImportWorkspace({
   const [undoState, undoAction, undoPending] = useActionState(undoImport, initialUndoState);
 
   const [rows, setRows] = useState<PlanRow[]>([]);
+  // A publication's roster covers the whole town while we hold five routes, so
+  // most of any upload is addresses we simply do not deliver to -- 19,191 of
+  // 19,625 on the real Voice file. Showing them all buried the 434 rows that
+  // actually needed the office under thousands that needed nothing, which made
+  // correct behaviour look like broken behaviour. Default to the rows that need
+  // a person; the rest are one click away.
+  const [showSettled, setShowSettled] = useState(false);
   // Remembered from the upload form so the apply can record which publication
   // the run was for.
   const [rosterPublicationId, setRosterPublicationId] = useState("");
@@ -83,9 +90,20 @@ export function ImportWorkspace({
     () => rows.filter((row) => !excluded.includes(row.rowNumber)),
     [rows, excluded],
   );
+  // "Settled" = nothing for the office to do: an address we do not deliver to,
+  // or one that already has the publication. Correct outcomes, but noise.
+  const settled = (row: PlanRow) => row.status === "blocked" || row.status === "no_change";
+  const visibleRows = useMemo(
+    () => (showSettled ? rows : rows.filter((row) => !settled(row))),
+    [rows, showSettled],
+  );
   const readyCount = included.filter((row) => row.status === "ready").length;
-  const choiceCount = rows.filter((row) => row.status === "needs_choice").length;
-  const blockedCount = rows.filter((row) => row.status === "blocked").length;
+  // From the server's summary: the browser is only sent actionable rows plus a
+  // small sample, so counting what is on screen would understate the file.
+  const summary = planState.summary;
+  const choiceCount = summary?.needsChoice ?? 0;
+  const noChangeCount = summary?.noChange ?? 0;
+  const blockedCount = summary?.blocked ?? 0;
 
   function patchRow(rowNumber: number, patch: (row: PlanRow) => PlanRow) {
     setRows((current) =>
@@ -312,11 +330,45 @@ export function ImportWorkspace({
           <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
             <span className="font-medium">{planState.fileName}</span>
             <span className="text-black/60 dark:text-white/60">
-              {rows.length} rows · {readyCount} ready
+              {(summary?.total ?? rows.length).toLocaleString()} rows · {readyCount} to apply
               {choiceCount ? ` · ${choiceCount} need a choice` : ""}
-              {blockedCount ? ` · ${blockedCount} cannot be applied` : ""}
+              {noChangeCount ? ` · ${noChangeCount.toLocaleString()} already correct` : ""}
+              {blockedCount ? ` · ${blockedCount.toLocaleString()} not on our routes` : ""}
             </span>
           </div>
+
+          {/* Says plainly what the big number is, so it does not read as a
+              failure. A publication's roster covers the whole town; we hold five
+              routes of about thirty. */}
+          {blockedCount || noChangeCount ? (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-black/60 dark:text-white/60">
+              <span>
+                {noChangeCount ? (
+                  <>
+                    {noChangeCount.toLocaleString()} already have this publication and need nothing
+                    doing.{" "}
+                  </>
+                ) : null}
+                {blockedCount ? (
+                  <>
+                    {blockedCount.toLocaleString()} are on streets outside your five routes — the
+                    list covers all of Lakewood and you hold five of about thirty rounds.
+                  </>
+                ) : null}
+              </span>
+              {summary?.sampled ? (
+                <button
+                  type="button"
+                  onClick={() => setShowSettled((current) => !current)}
+                  className="underline underline-offset-2"
+                >
+                  {showSettled
+                    ? "Hide the examples"
+                    : `Show ${summary.sampled} examples`}
+                </button>
+              ) : null}
+            </p>
+          ) : null}
 
           <div className="mt-3 overflow-x-auto rounded-xl border border-black/10 dark:border-white/10">
             <table className="w-full min-w-[52rem] text-sm">
@@ -331,7 +383,7 @@ export function ImportWorkspace({
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/10 dark:divide-white/10">
-                {rows.map((row) => {
+                {visibleRows.map((row) => {
                   const isExcluded = excluded.includes(row.rowNumber);
                   const needsZone = Boolean(row.newStop) && !row.stopId && !row.newStop?.zoneId;
                   return (
@@ -450,12 +502,14 @@ function StatusPill({ status }: { status: PlanRow["status"] }) {
   const styles: Record<PlanRow["status"], string> = {
     ready: "border-green-600/40 text-green-700 dark:text-green-300",
     needs_choice: "border-amber-500/50 text-amber-700 dark:text-amber-300",
+    no_change: "border-black/15 text-black/45 dark:border-white/20 dark:text-white/45",
     blocked: "border-black/20 text-black/50 dark:border-white/25 dark:text-white/50",
   };
   const label: Record<PlanRow["status"], string> = {
     ready: "Ready",
     needs_choice: "Needs a choice",
-    blocked: "Skipped",
+    no_change: "Already correct",
+    blocked: "Not on our routes",
   };
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${styles[status]}`}>

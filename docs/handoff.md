@@ -125,8 +125,11 @@ it cannot tell "these directions had their stops filtered out" from "these
 directions simply sit next to each other in the route". Consecutive direction
 rows are normal in the source — a door code follows the drive to the building,
 `WALKING ROUTE` follows the park instruction. So the collapse fires on booklets
-where **nothing was skipped at all**, including the all-publications booklet that
-is printed today.
+where **nothing was skipped at all**, including an all-publications booklet.
+(Note: Ari confirmed 2026-08-28 that an all-publications booklet is *not* what
+gets printed — the drivers do about three runs a week, each with a different mix.
+The defect was still real on any booklet where a run of directions was not
+actually skipped.)
 
 Zone 1 sequences 158–160 are three consecutive direction rows with live
 deliveries right after them, so the all-publications booklet prints:
@@ -320,8 +323,10 @@ layout question for `lakewood-courier-ux`.
 
 **Not a regression from the collapse work.** `stopPubs` predates it (commits
 `1336534`, `e6d8518`). It only appears when a stop has 8+ *selected* letters, so
-single-publication booklets are unaffected; the all-publications booklet is the
-exposed one.
+single-publication booklets are unaffected, and it needs 8+ letters on one stop.
+**Closed 2026-08-28:** a real run selects a handful of publications, never
+fifteen, so this cannot arise in practice. Ari: "You don't have to be concerned
+about the ones that don't fit on the line." Do not widen the column.
 
 #### Other findings from the zone 2 audit
 
@@ -408,8 +413,6 @@ Both are worth knowing because they made that pass weaker than it looked.
   office-only sheet. As of 2026-08-26 this has **49 concrete rows** attached to it
   from the real Voice roster — see `docs/domain-notes.md`. `grep -rn "unplaced" src/`
   is still empty, so there is no implementation to put them in.
-- **The publication-letters cell overflows on 10 real addresses** across zones
-  2–5 (above). Needs Ari's decision on the layout before the first real print run.
 - **The 27 Aug Voice roster has not been applied.** The run is computed and
   verified — 111 additions, 16 removals, 68 needing a choice — but two things
   are unresolved. Seven of the sixteen removals are the whole of River Ave

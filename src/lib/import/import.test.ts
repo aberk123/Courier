@@ -288,3 +288,43 @@ test("a stop the roster does not manage is never removed by absence", () => {
   const out = planRosterRemovals(stops, { id: "V", name: "The Voice" }, streets({ "RIVER AVE": ["999"] }), 2);
   assert.deepEqual(out.map((r) => r.stopId), ["home"]);
 });
+
+test("an out-of-area row offers nothing to place, so it cannot be misfiled", () => {
+  // The review screen shows a route picker for any row carrying a newStop, and
+  // choosing a route marks that row ready. An out-of-area row must therefore
+  // carry no newStop, or the office can place an address on a route that does
+  // not go near it.
+  const stops = [{
+    id: "s1", zoneId: "z", zoneNumber: 1, recipientName: null,
+    houseNumber: "1", street: "DUNE CT", floorSide: null, publicationIds: [] as string[],
+  }];
+  const plan = planRow(
+    { rowNumber: 2, action: "add", name: "Bailke Blumberg", houseNumber: "27",
+      street: "Hawk Way", publication: "thevoice", floorSide: null, floorSideAlt: null, instructions: null },
+    stops,
+    [{ id: "V", code: "thevoice", name: "The Voice" }],
+    buildStreetZoneMap(stops),
+  );
+  assert.equal(plan.status, "blocked");
+  assert.equal(plan.newStop, null);
+  assert.match(plan.message, /not on any of our routes/);
+});
+
+test("an address that already has the publication reports no change, not a failure", () => {
+  // This was returning "blocked", so more than a thousand perfectly matched rows
+  // on the real roster were counted under "cannot be applied".
+  const stops = [{
+    id: "s1", zoneId: "z", zoneNumber: 4, recipientName: null,
+    houseNumber: "999", street: "MORRIS AVE", floorSide: null, publicationIds: ["V"],
+  }];
+  const plan = planRow(
+    { rowNumber: 2, action: "add", name: "Family Ochana", houseNumber: "999",
+      street: "Morris Ave", publication: "thevoice", floorSide: null, floorSideAlt: null, instructions: null },
+    stops,
+    [{ id: "V", code: "thevoice", name: "The Voice" }],
+    buildStreetZoneMap(stops),
+  );
+  assert.equal(plan.status, "no_change");
+  assert.match(plan.message, /already gets The Voice/);
+  assert.equal(plan.stopId, "s1");
+});

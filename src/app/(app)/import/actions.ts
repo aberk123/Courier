@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { parseCsv, rowsFromGrid, type ParsedRow } from "@/lib/import/parse";
 import {
+  buildStopIndex,
   buildStreetZoneMap,
   normalizeHouseNumber,
   normalizeStreet,
@@ -16,7 +17,29 @@ import {
   type PlanRow,
 } from "@/lib/import/match";
 
-export type PlanState = { error: string | null; rows: PlanRow[] | null; fileName: string | null };
+/**
+ * `rows` deliberately carries only the rows a person can act on, plus a small
+ * sample of the rest. A publication's town-wide roster plans ~19,600 rows, and
+ * sending them all cost three things at once, measured on the real Voice file:
+ * 5.4 MB of JSON to the browser and back through a hidden input (against a 6 MB
+ * Server Action limit, so Apply was ~0.6 MB from failing silently), 19,600 table
+ * rows in the DOM, and a page that locked up for a minute. `summary` carries the
+ * counts so nothing is hidden from the office -- only shipped.
+ */
+export type PlanSummary = {
+  total: number;
+  ready: number;
+  needsChoice: number;
+  noChange: number;
+  blocked: number;
+  sampled: number;
+};
+export type PlanState = {
+  error: string | null;
+  rows: PlanRow[] | null;
+  fileName: string | null;
+  summary: PlanSummary | null;
+};
 export type ApplyState = { error: string | null; applied: number | null; skipped: number | null };
 
 async function loadContext() {
@@ -84,10 +107,10 @@ async function gridFromFile(file: File): Promise<string[][]> {
 export async function planImport(_prev: PlanState, formData: FormData): Promise<PlanState> {
   const file = formData.get("file");
   if (!(file instanceof File) || !file.size) {
-    return { error: "Choose a spreadsheet first.", rows: null, fileName: null };
+    return { error: "Choose a spreadsheet first.", rows: null, fileName: null, summary: null };
   }
   if (file.size > 5 * 1024 * 1024) {
-    return { error: "That file is larger than 5 MB.", rows: null, fileName: null };
+    return { error: "That file is larger than 5 MB.", rows: null, fileName: null, summary: null };
   }
 
   // A file with no action column is a publication's own roster -- a list of who
@@ -105,11 +128,17 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
       error: `Could not read that file: ${(error as Error).message}`,
       rows: null,
       fileName: file.name,
+      summary: null,
     };
   }
 
   if (!parsed.length) {
-    return { error: "No rows found. Is the first row a header?", rows: null, fileName: file.name };
+    return {
+      error: "No rows found. Is the first row a header?",
+      rows: null,
+      fileName: file.name,
+      summary: null,
+    };
   }
 
   const { existing, publications } = await loadContext();
@@ -119,7 +148,12 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   if (rosterPublication) {
     const chosen = publications.find((pub) => pub.id === rosterPublication);
     if (!chosen) {
-      return { error: "Pick which publication that list is for.", rows: null, fileName: file.name };
+      return {
+        error: "Pick which publication that list is for.",
+        rows: null,
+        fileName: file.name,
+        summary: null,
+      };
     }
     for (const row of parsed) row.publication = chosen.code;
   }
@@ -145,7 +179,11 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   }
   const streetRuling = ruleStreetVariants(fileStreets, ourStreets);
 
-  const rows = parsed.map((row) => planRow(row, existing, publications, streetZones, streetRuling));
+  // Built once, not once per row -- see buildStopIndex.
+  const stopIndex = buildStopIndex(existing);
+  const rows = parsed.map((row) =>
+    planRow(row, existing, publications, streetZones, streetRuling, stopIndex),
+  );
 
   // A roster is the whole truth for its publication, so an address it no longer
   // carries is a cancellation. Nothing in the file says so -- it has to be
@@ -174,12 +212,28 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
           `check the file covers all of Lakewood and re-upload.`,
         rows: null,
         fileName: file.name,
+        summary: null,
       };
     }
     rows.push(...removals);
   }
 
-  return { error: null, rows, fileName: file.name };
+  const summary: PlanSummary = {
+    total: rows.length,
+    ready: rows.filter((row) => row.status === "ready").length,
+    needsChoice: rows.filter((row) => row.status === "needs_choice").length,
+    noChange: rows.filter((row) => row.status === "no_change").length,
+    blocked: rows.filter((row) => row.status === "blocked").length,
+    sampled: 0,
+  };
+
+  // Everything actionable, plus a handful of the rest so the office can spot
+  // check that "not on our routes" really means that.
+  const actionable = rows.filter((row) => row.status === "ready" || row.status === "needs_choice");
+  const sample = rows.filter((row) => row.status !== "ready" && row.status !== "needs_choice").slice(0, 40);
+  summary.sampled = sample.length;
+
+  return { error: null, rows: [...actionable, ...sample], fileName: file.name, summary };
 }
 
 export async function applyImport(_prev: ApplyState, formData: FormData): Promise<ApplyState> {
