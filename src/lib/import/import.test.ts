@@ -309,3 +309,22 @@ test("an out-of-area row offers nothing to place, so it cannot be misfiled", () 
   assert.equal(plan.newStop, null);
   assert.match(plan.message, /not on any of our routes/);
 });
+
+test("an address that already has the publication reports no change, not a failure", () => {
+  // This was returning "blocked", so more than a thousand perfectly matched rows
+  // on the real roster were counted under "cannot be applied".
+  const stops = [{
+    id: "s1", zoneId: "z", zoneNumber: 4, recipientName: null,
+    houseNumber: "999", street: "MORRIS AVE", floorSide: null, publicationIds: ["V"],
+  }];
+  const plan = planRow(
+    { rowNumber: 2, action: "add", name: "Family Ochana", houseNumber: "999",
+      street: "Morris Ave", publication: "thevoice", floorSide: null, floorSideAlt: null, instructions: null },
+    stops,
+    [{ id: "V", code: "thevoice", name: "The Voice" }],
+    buildStreetZoneMap(stops),
+  );
+  assert.equal(plan.status, "no_change");
+  assert.match(plan.message, /already gets The Voice/);
+  assert.equal(plan.stopId, "s1");
+});

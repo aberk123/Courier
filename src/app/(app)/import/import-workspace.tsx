@@ -92,13 +92,14 @@ export function ImportWorkspace({
   );
   // "Settled" = nothing for the office to do: an address we do not deliver to,
   // or one that already has the publication. Correct outcomes, but noise.
-  const settled = (row: PlanRow) => row.status === "blocked";
+  const settled = (row: PlanRow) => row.status === "blocked" || row.status === "no_change";
   const visibleRows = useMemo(
     () => (showSettled ? rows : rows.filter((row) => !settled(row))),
     [rows, showSettled],
   );
   const readyCount = included.filter((row) => row.status === "ready").length;
   const choiceCount = rows.filter((row) => row.status === "needs_choice").length;
+  const noChangeCount = rows.filter((row) => row.status === "no_change").length;
   const blockedCount = rows.filter((row) => row.status === "blocked").length;
 
   function patchRow(rowNumber: number, patch: (row: PlanRow) => PlanRow) {
@@ -326,20 +327,31 @@ export function ImportWorkspace({
           <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
             <span className="font-medium">{planState.fileName}</span>
             <span className="text-black/60 dark:text-white/60">
-              {rows.length} rows · {readyCount} ready
+              {rows.length.toLocaleString()} rows · {readyCount} to apply
               {choiceCount ? ` · ${choiceCount} need a choice` : ""}
-              {blockedCount ? ` · ${blockedCount} not on our routes` : ""}
+              {noChangeCount ? ` · ${noChangeCount.toLocaleString()} already correct` : ""}
+              {blockedCount ? ` · ${blockedCount.toLocaleString()} not on our routes` : ""}
             </span>
           </div>
 
           {/* Says plainly what the big number is, so it does not read as a
               failure. A publication's roster covers the whole town; we hold five
               routes of about thirty. */}
-          {blockedCount ? (
+          {blockedCount || noChangeCount ? (
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-black/60 dark:text-white/60">
               <span>
-                {blockedCount.toLocaleString()} of these are on streets outside your five routes —
-                nothing to do with them.
+                {noChangeCount ? (
+                  <>
+                    {noChangeCount.toLocaleString()} already have this publication and need nothing
+                    doing.{" "}
+                  </>
+                ) : null}
+                {blockedCount ? (
+                  <>
+                    {blockedCount.toLocaleString()} are on streets outside your five routes — the
+                    list covers all of Lakewood and you hold five of about thirty rounds.
+                  </>
+                ) : null}
               </span>
               <button
                 type="button"
@@ -483,12 +495,14 @@ function StatusPill({ status }: { status: PlanRow["status"] }) {
   const styles: Record<PlanRow["status"], string> = {
     ready: "border-green-600/40 text-green-700 dark:text-green-300",
     needs_choice: "border-amber-500/50 text-amber-700 dark:text-amber-300",
+    no_change: "border-black/15 text-black/45 dark:border-white/20 dark:text-white/45",
     blocked: "border-black/20 text-black/50 dark:border-white/25 dark:text-white/50",
   };
   const label: Record<PlanRow["status"], string> = {
     ready: "Ready",
     needs_choice: "Needs a choice",
-    blocked: "Skipped",
+    no_change: "Already correct",
+    blocked: "Not on our routes",
   };
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${styles[status]}`}>

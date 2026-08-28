@@ -25,8 +25,18 @@ export type PlanRow = {
   summary: string;
   publicationId: string | null;
   publicationName: string | null;
-  /** ready = safe to apply; needs_choice = user must pick; blocked = cannot apply */
-  status: "ready" | "needs_choice" | "blocked";
+  /**
+   * ready        = safe to apply
+   * needs_choice = a person must pick
+   * no_change    = matched, and already correct -- nothing to do
+   * blocked      = cannot be applied at all
+   *
+   * no_change exists because it was being reported as blocked, so a row the
+   * matcher had resolved perfectly ("already gets The Voice") was counted under
+   * "cannot be applied" alongside streets in a different part of town. On the
+   * real Voice roster that is over a thousand rows of success filed as failure.
+   */
+  status: "ready" | "needs_choice" | "no_change" | "blocked";
   message: string;
   candidates: Candidate[];
   /** Set for ready rows that target an existing stop. */
@@ -491,6 +501,7 @@ export function planRow(
     if (row.action === "remove" && publication && !stop.publicationIds.includes(publication.id)) {
       return {
         ...base,
+        status: "no_change",
         stopId: stop.id,
         message: `${stop.recipientName ?? "this address"} does not currently get ${publication.name}`,
       };
@@ -513,6 +524,7 @@ export function planRow(
     if (publication && stop.publicationIds.includes(publication.id)) {
       return {
         ...base,
+        status: "no_change",
         stopId: stop.id,
         message: `already gets ${publication.name} — nothing to do`,
       };
