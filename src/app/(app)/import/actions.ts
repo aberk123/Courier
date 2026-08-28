@@ -3,6 +3,7 @@
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllPages } from "@/lib/fetch-all";
 import { parseCsv, rowsFromGrid, type ParsedRow } from "@/lib/import/parse";
 import {
   buildStopIndex,
@@ -45,18 +46,30 @@ export type ApplyState = { error: string | null; applied: number | null; skipped
 async function loadContext() {
   const supabase = await createClient();
 
-  const [{ data: stops }, { data: publications }, { data: zones }] = await Promise.all([
-    supabase
-      .from("stops")
-      .select(
-        "id, zone_id, recipient_name, house_number, street, floor_side, roster_managed, stop_publications(publication_id), zones!inner(number)",
-      )
-      .eq("active", true),
+  // Paged, and the error is not swallowed. An unpaged select stops at
+  // PostgREST's 1,000-row cap, which had this planning the weekly roster
+  // against the first 1,000 of 2,427 addresses -- see src/lib/fetch-all.ts for
+  // what that did to the numbers. `.order("id")` is what makes the pages line
+  // up; without a stable order they overlap and skip.
+  const [stops, { data: publications, error: pubError }, { data: zones, error: zoneError }] = await Promise.all([
+    fetchAllPages("addresses", (from, to) =>
+      supabase
+        .from("stops")
+        .select(
+          "id, zone_id, recipient_name, house_number, street, floor_side, roster_managed, stop_publications(publication_id), zones!inner(number)",
+        )
+        .eq("active", true)
+        .order("id")
+        .range(from, to),
+    ),
     supabase.from("publications").select("id, code, name").eq("active", true).order("name"),
     supabase.from("zones").select("id, number").order("number"),
   ]);
 
-  const existing: ExistingStop[] = (stops ?? []).map((stop) => ({
+  if (pubError) throw new Error(`Could not read the publication list: ${pubError.message}`);
+  if (zoneError) throw new Error(`Could not read the route list: ${zoneError.message}`);
+
+  const existing: ExistingStop[] = stops.map((stop) => ({
     id: stop.id,
     zoneId: stop.zone_id,
     zoneNumber: stop.zones.number,
@@ -141,7 +154,21 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
     };
   }
 
-  const { existing, publications } = await loadContext();
+  // A truncated or failed read must stop the run, not quietly plan against
+  // whatever arrived: everything the roster did not mention looks like a
+  // cancellation, and everything already on the route looks new.
+  let existing: ExistingStop[];
+  let publications: { id: string; code: string; name: string }[];
+  try {
+    ({ existing, publications } = await loadContext());
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not read the current address list.",
+      rows: null,
+      fileName: file.name,
+      summary: null,
+    };
+  }
 
   // A roster names no publication per row, so the uploader picks one and it is
   // stamped on every row.
@@ -244,7 +271,17 @@ export async function applyImport(_prev: ApplyState, formData: FormData): Promis
     return { error: "The review data was malformed — re-upload the file.", applied: null, skipped: null };
   }
 
-  const { supabase, existing, publications, zones } = await loadContext();
+  let ctx: Awaited<ReturnType<typeof loadContext>>;
+  try {
+    ctx = await loadContext();
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not read the current address list.",
+      applied: null,
+      skipped: null,
+    };
+  }
+  const { supabase, existing, publications, zones } = ctx;
 
   // Everything this apply writes is tagged with one run id, so undo_import_run
   // can reverse the lot as a unit. Without it an undo means finding every row

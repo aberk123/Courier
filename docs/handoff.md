@@ -404,6 +404,12 @@ Both are worth knowing because they made that pass weaker than it looked.
 
 ## What is open
 
+- **The 27 Aug roster still needs re-planning after the paging fix.** Every count
+  produced before 2026-08-28 came off a 1,000-address list and is wrong — the
+  "42 ready / 392 need a choice" numbers included. Expect roughly 61 ready, 582
+  needing a choice, 881 already correct, 18,101 out of area. Re-upload and read
+  the screen; do not carry the old figures forward.
+
 - **The >1 MB import post-deploy check.** Upload and review only, do not apply.
   Needs a signed-in production session. Last item from `SETUP.md`.
 - **Five unconfirmed courier letters** (above), before the first real print run.
@@ -593,6 +599,29 @@ these if you can; rebuilding them is tedious.
 - **PostgREST cannot span a transaction across calls**, and `INSERT ...
   RETURNING` is filtered by the SELECT policy. That is why creating an address
   goes through the `create_stop_in_route` RPC rather than three client writes.
+- **PostgREST caps an unpaged select at 1,000 rows, silently.** Not an error, not
+  a flag in the response — just a short array. This had the weekly importer
+  planning against the first 1,000 of 2,427 active addresses, and every symptom
+  looked like a matching problem rather than a truncation:
+
+  | On the Review screen | Truncated (what staff saw) | Whole list |
+  | --- | --- | --- |
+  | need a choice | 392 | 582 |
+  | already correct | 392 | 881 |
+  | not on our routes | 18,799 | 18,101 |
+
+  So 698 addresses we already deliver to were reported as *not on our routes*, and
+  of 14 rows offered as new addresses **12 already existed — 8 of them houses
+  already receiving The Voice.** Applying would have put a second paper and a
+  second booklet line on eight doors. Found 2026-08-28 by reproducing the exact
+  first 1,000 rows in physical order (`order by ctid limit 1000`) and matching all
+  three disputed buckets exactly; the full list matches none of them. Fixed with
+  `fetchAllPages` in `src/lib/fetch-all.ts` — it pages and, importantly, **throws
+  rather than returning what arrived**, because a partial list makes every address
+  the roster did not mention look like a cancellation. `loadContext` and
+  `getBooklet`'s route query both use it. Route entries are the next thing to
+  watch: zone 2 is 735 of the 1,000 cap.
+
 - **Use `exceljs`, not `xlsx`** — the latter has two high-severity advisories
   with no fix available.
 - **Server Actions cap the request body at 1 MB by default**, and the rejection
