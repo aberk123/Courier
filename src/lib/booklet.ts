@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAllPages } from "@/lib/fetch-all";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Client = SupabaseClient<Database>;
@@ -236,14 +237,32 @@ export async function getBooklet(
       .eq("stops.zone_id", zone.id)
       .is("shown_on_cover_sheet_at", null)
       .order("created_at"),
-    supabase
-      .from("route_entries")
-      .select(
-        "sequence, kind, direction_text, stops(id, house_number, street, floor_side, special_instructions, special_instructions_2, active, stop_publications(publication_id))",
-      )
-      .eq("zone_id", zone.id)
-      .order("sequence"),
+    // Paged. Zone 2 is 735 route entries against PostgREST's 1,000-row cap, and
+    // a select that hits that cap comes back short with no error -- which here
+    // would mean a booklet quietly missing the end of the round. Never let a
+    // driver leave on a partial route.
+    fetchAllPages("the route", (from, to) =>
+      supabase
+        .from("route_entries")
+        .select(
+          "sequence, kind, direction_text, stops(id, house_number, street, floor_side, special_instructions, special_instructions_2, active, stop_publications(publication_id))",
+        )
+        .eq("zone_id", zone.id)
+        .order("sequence")
+        .range(from, to),
+    ),
   ]);
+
+  // The cover-sheet queries are per-zone and unpaged, but a silently short read
+  // there drops an Addition or a Deletion off the sheet, so at least surface the
+  // error instead of consuming `.data ?? []` over it.
+  for (const [label, result] of [
+    ["the pending changes", events],
+    ["the instruction changes", changes],
+    ["the complaints", complaints],
+  ] as const) {
+    if (result.error) throw new Error(`Could not read ${label}: ${result.error.message}`);
+  }
 
   const pubName = new Map(publications.map((pub) => [pub.id, pub.name]));
   // Falls back to the name's first letter so a publication added before anyone
@@ -303,7 +322,7 @@ export async function getBooklet(
   const counts = new Map<string, number>();
   let stopCount = 0;
 
-  const routeEntries = entries.data ?? [];
+  const routeEntries = entries;
 
   // ANY-inclusion: a stop is on this booklet if it is live and receives at least
   // one selected publication. Named because markDeadDirections needs the very
