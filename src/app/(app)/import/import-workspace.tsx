@@ -98,6 +98,10 @@ export function ImportWorkspace({
     [rows, showSettled],
   );
   const readyCount = included.filter((row) => row.status === "ready").length;
+  // Serialised once per change rather than once per render. Unmemoised this ran
+  // on every keystroke and every checkbox tick, and React then rewrote the whole
+  // string onto the DOM node each time.
+  const planJson = useMemo(() => JSON.stringify(included), [included]);
   // From the server's summary: the browser is only sent actionable rows plus a
   // small sample, so counting what is on screen would understate the file.
   const summary = planState.summary;
@@ -470,7 +474,7 @@ export function ImportWorkspace({
           </div>
 
           <form action={applyAction} className="mt-4 flex flex-wrap items-center gap-3">
-            <input type="hidden" name="plan" value={JSON.stringify(included)} />
+            <input type="hidden" name="plan" value={planJson} />
             {/* Carried through so the run is identifiable on the undo list --
                 "roster.xlsm · The Voice · 111 changes" rather than a bare id. */}
             <input type="hidden" name="fileName" value={planState.fileName ?? ""} />
