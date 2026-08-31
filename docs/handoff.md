@@ -443,7 +443,10 @@ Both are worth knowing because they made that pass weaker than it looked.
     "about 40 additions and 25 removals" was measured on truncated zones 1 and 2
     and is **invalidated**. Without them removals rise to 26, still under the
     guard's limit of 55.
-  - **9 of the 12 addition addresses are odd-side Pine St (151–233)**, where all
+  - **9 of the 12 addition ADDRESSES are odd-side Pine St (151–233)** — twelve,
+    not fifty-seven, because most additions attach the publication to a stop we
+    already hold rather than creating one; only 18 lines at 12 addresses are new
+    doors. All
     21 of our Pine St stops are even (150–270); same shape for `7 Chelsea Ct`
     against our even 2–20. That is a new side of a street, not infill, and the
     range check passed it only because 151–233 sits inside 150–270.

@@ -168,3 +168,53 @@ test("more rows than the server counted throws rather than being handed back", a
     /3 rows arrived but the server counted 2/,
   );
 });
+
+test("a read of more than four pages is still read whole", async () => {
+  // The suite's largest read was three pages, so an early return keyed on page
+  // number >= 4 would have survived every other test here. stops sit at 2,427
+  // of the 3,000 that would need a fourth page, so this is not far off.
+  const t = table(PAGE_SIZE * 4 + 137);
+  const got = await fetchAllPages("addresses", t.page);
+  assert.equal(got.length, PAGE_SIZE * 4 + 137);
+  assert.deepEqual(got.map((r) => r.id), t.rows.map((r) => r.id));
+  assert.equal(t.calls.length, 5);
+});
+
+test("a range error is translated out of PostgREST's words", async () => {
+  // Reachable only if another session shrinks the set between pages. Everything
+  // else on the import screen is written for non-technical readers; a raw
+  // "PGRST103 Requested range not satisfiable" should not be the exception.
+  await assert.rejects(
+    () =>
+      fetchAllPages("addresses", () =>
+        Promise.resolve({
+          data: null,
+          error: { message: "Requested range not satisfiable" },
+          count: null,
+        }),
+      ),
+    (err: Error) => {
+      assert.match(err.message, /changed while it was being read/);
+      assert.match(err.message, /Nothing was changed/);
+      assert.doesNotMatch(err.message, /PGRST103|satisfiable/);
+      return true;
+    },
+  );
+});
+
+test("a response with no count key at all throws, rather than dying on undefined", async () => {
+  // `count === null` does not catch undefined, so a callback missing the key
+  // walked past the guard and died on `.toLocaleString()` -- and planImport
+  // hands that TypeError to the screen verbatim.
+  await assert.rejects(
+    () =>
+      fetchAllPages("addresses", () =>
+        Promise.resolve({ data: [{ id: 1 }], error: null } as unknown as {
+          data: { id: number }[] | null;
+          error: { message: string } | null;
+          count: number | null;
+        }),
+      ),
+    /did not say how many rows there are/,
+  );
+});

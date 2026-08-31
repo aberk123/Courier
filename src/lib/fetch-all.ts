@@ -33,18 +33,39 @@
  *     count (`200 []`) and FATAL with one (`416 PGRST103`, "Requested range not
  *     satisfiable"), so a loop that advanced by a constant would throw on any
  *     table whose size is an exact multiple of the page size. Zone 2 is 735
- *     route entries and growing; stops are 2,427.
+ *     route entries and growing; stops are 2,427. An EMPTY result at offset 0 is
+ *     fine either way -- measured, `200 []`, with the content-range
+ *     reporting a total of 0 -- so a
+ *     publication-scoped user who can see no stops gets an empty list, not a
+ *     dead screen.
+ *
+ * That last guarantee holds while the count is STABLE. If another session shrinks
+ * the matching set between pages -- an undo retiring addresses, say, since
+ * loadContext filters on `active` -- an offset already chosen can land past the
+ * new end and PostgREST answers 416. That fails safe: a loud error, no bad data,
+ * nothing written. The message is translated below rather than shown raw.
  *
  * The `page` callback must apply a stable, UNIQUE `.order(...)`. Without one,
  * pages overlap and skip. `created_at` is not unique in this schema -- pair it
  * with `.order("id")` before paging anything ordered by it.
  *
  * Known limit, stated so nobody trusts this further than it goes: this is
- * offset paging. A row deleted by someone else mid-read shifts the pages under
- * us and can lose a live row while the totals still reconcile. Keyset paging is
- * the fix if that ever shows up in a real import diff; both callers already
- * order on a unique column, so the change would be mechanical. The count check
- * does not cover it.
+ * offset paging, and the count check does not cover it. A concurrent write
+ * mid-read shifts the pages under us and can lose a live row while the totals
+ * still reconcile -- verified: delete one row after page 1 of 2,427 and this
+ * returns 2,426 with one live row never seen and no error. `loadContext` orders
+ * on `id`, a random uuid rather than a monotonic key, so an INSERT shifts pages
+ * too, not only a delete.
+ *
+ * What that costs, specifically: a stop missing from `existing` matches nothing,
+ * so the roster row for that address is planned as new and `create_stop_in_route`
+ * runs -- a second paper and a second booklet line on a door already served. Same
+ * harm as the 1,000-row truncation, much smaller scale. The removal direction is
+ * safe (a stop never seen is never proposed for removal).
+ *
+ * Keyset paging (`.gt("id", last)`) removes this and the 416 above together, and
+ * both callers already order on a unique column. Worth doing the next time this
+ * file is opened.
  */
 
 /** The page size we ask for. Deliberately NOT a completeness signal -- see above. */
@@ -76,11 +97,25 @@ export async function fetchAllPages<T>(label: string, page: (from: number, to: n
     const from = all.length;
     const { data, error, count } = await page(from, from + PAGE_SIZE - 1);
 
-    if (error) throw new Error(`Could not read ${label}: ${error.message}`);
+    if (error) {
+      // The one reachable PostgREST error with a cause worth naming: the set
+      // shrank under us between pages. Everything else on this screen is
+      // written for non-technical readers, so it should not be the exception.
+      if (/range not satisfiable|PGRST103/i.test(error.message)) {
+        throw new Error(
+          `The ${label} list changed while it was being read. Nothing was changed — try again.`,
+        );
+      }
+      throw new Error(`Could not read ${label}: ${error.message}`);
+    }
     if (data === null) {
       throw new Error(`Could not read ${label}: the server returned no rows and no error.`);
     }
-    if (count === null || Number.isNaN(count)) {
+    // `== null` on purpose: it catches undefined as well, which `=== null`
+    // does not. A callback with no `count` key otherwise walks past this, past
+    // the NaN comparison below, and dies on `.toLocaleString()` -- and
+    // planImport hands that TypeError straight to the screen.
+    if (count == null || Number.isNaN(count)) {
       // The caller forgot `{ count: "exact" }`, or something stripped the
       // content-range header. Either way completeness cannot be established,
       // and a short read here becomes a cancelled subscriber.
