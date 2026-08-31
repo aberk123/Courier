@@ -16,6 +16,7 @@ import {
   ruleStreetVariants,
   listedUnderAnySpelling,
   planRosterRemovals,
+  additionsLookWrong,
   removalsLookWrong,
   planRow,
   buildStreetZoneMap,
@@ -824,4 +825,35 @@ test("three households at a door we deliver to none of is a question", () => {
     { fileRows, index: 0 });
   assert.equal(p.status, "needs_choice");
   assert.match(p.message, /3 households at this address and we deliver to none/);
+});
+
+test("a doubled upload trips the addition guard, which the removal side always had", () => {
+  // The 27 Aug roster produces 41 ready rows against 1,102 Voice addresses, so
+  // the floor sits above a normal first run. Deliberately looser than the removal
+  // guard: a wrong addition wastes a paper, a wrong deletion loses a subscriber.
+  assert.equal(additionsLookWrong(41, 1102).tripped, false);
+  assert.equal(additionsLookWrong(41, 1102).limit, 165);
+  // A file pasted together with itself.
+  assert.equal(additionsLookWrong(600, 1102).tripped, true);
+  // And a small publication is not held to a proportional limit that rounds to
+  // nothing -- the floor is 40.
+  assert.equal(additionsLookWrong(30, 20).tripped, false);
+  assert.equal(additionsLookWrong(41, 20).tripped, true);
+});
+
+test("a create carries the line count it was planned against", () => {
+  // applyImport compares this against the list it re-reads, so an address added
+  // by hand between Review and Apply is not created twice. A create has no id to
+  // validate -- the address simply exists now and did not before.
+  const stops: ExistingStop[] = [
+    { id: "s-up", zoneId: "z2", zoneNumber: 2, recipientName: "Neumann", houseNumber: "39",
+      street: "RENA LN", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const fileRows = [
+    { floorSide: "Basement", name: "Family Strickman" },
+    { floorSide: "Upstairs", name: "Family Neumann" },
+  ];
+  const p = planRow(rosterRow("Family Strickman", "39 Rena Ln"), stops, PUBS,
+    buildStreetZoneMap(stops), new Map(), buildStopIndex(stops), { fileRows, index: 0 });
+  assert.equal(p.newStop?.linesAtPlanTime, 1);
 });

@@ -13,6 +13,7 @@ import {
   normalizeStreet,
   planRosterRemovals,
   planRow,
+  additionsLookWrong,
   removalsLookWrong,
   ruleStreetVariants,
   type ExistingStop,
@@ -308,6 +309,31 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
     rows.push(...removals);
   }
 
+  // The tripwire the removal side has always had, now on both sides. A doubled
+  // or concatenated upload is the case it exists for.
+  if (rosterPublication) {
+    const chosen = publications.find((pub) => pub.id === rosterPublication)!;
+    const addresses = new Set(
+      existing
+        .filter((stop) => stop.publicationIds.includes(chosen.id))
+        .map((stop) => `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`),
+    ).size;
+    const adding = rows.filter((row) => row.status === "ready" && row.action === "add").length;
+    const check = additionsLookWrong(adding, addresses);
+    if (check.tripped) {
+      return {
+        error:
+          `That list would add ${adding} deliveries to ${chosen.name}, well past the ` +
+          `${check.limit} a normal week reaches. That is usually the same file twice, or two ` +
+          `exports pasted together, not ${adding} new subscribers. Nothing has been changed — ` +
+          `check the file and re-upload.`,
+        rows: null,
+        fileName: file.name,
+        summary: null,
+      };
+    }
+  }
+
   const summary: PlanSummary = {
     total: rows.length,
     ready: rows.filter((row) => row.status === "ready").length,
@@ -381,6 +407,25 @@ export async function applyImport(_prev: ApplyState, formData: FormData): Promis
   const validPublicationIds = new Set(publications.map((pub) => pub.id));
   const validZoneIds = new Set(zones.map((zone) => zone.id));
 
+  // The plan is a photograph of the address list at Review time, and this list
+  // was just re-read. Between the two, a CSR can take the same phone call the
+  // roster is reporting and add the address by hand -- docs/domain-notes.md
+  // requires both paths stay open, so this is the ordinary case, not an exotic
+  // one. Validating ids does not catch it, because a "create" row has no id to
+  // validate: the address simply exists now and did not before.
+  //
+  // So the premise is re-checked for every create: how many lines the address
+  // already has with this publication. If that has changed since the plan was
+  // built, the row is skipped rather than applied. Two office staff each
+  // uploading the same roster is the same shape.
+  const linesWithPub = new Map<string, number>();
+  for (const stop of existing) {
+    const key = `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`;
+    linesWithPub.set(key, (linesWithPub.get(key) ?? 0) + 1);
+  }
+  /** Creates already made by THIS apply, so two rows for one address still both land. */
+  const createdHere = new Map<string, number>();
+
   let applied = 0;
   let skipped = 0;
 
@@ -410,6 +455,15 @@ export async function applyImport(_prev: ApplyState, formData: FormData): Promis
           skipped += 1;
           continue;
         }
+        // Was this address created or extended since the plan was built?
+        const key = `${normalizeStreet(row.newStop.street)}|${normalizeHouseNumber(row.newStop.houseNumber)}`;
+        const now = linesWithPub.get(key) ?? 0;
+        const planned = row.newStop.linesAtPlanTime ?? now;
+        if (now > planned + (createdHere.get(key) ?? 0)) {
+          skipped += 1;
+          continue;
+        }
+        createdHere.set(key, (createdHere.get(key) ?? 0) + 1);
         const { error } = await supabase.rpc("create_stop_in_route", {
           p_zone_id: row.newStop.zoneId,
           p_recipient_name: row.newStop.recipientName,

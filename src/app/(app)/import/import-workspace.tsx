@@ -416,7 +416,7 @@ export function ImportWorkspace({
                         {row.publicationName ?? "—"}
                       </td>
                       <td className="px-3 py-2 align-top">
-                        <StatusPill status={row.status} />
+                        <StatusPill row={row} />
                         <span className="ml-2">{row.message}</span>
 
                         {/* A row that needs a choice must always offer one. It
@@ -524,7 +524,18 @@ export function ImportWorkspace({
   );
 }
 
-function StatusPill({ status }: { status: PlanRow["status"] }) {
+function StatusPill({ row }: { row: PlanRow }) {
+  // An unreadable address is a `blocked` row, but "Not on our routes" is a false
+  // statement about it: we do not know where it is, because the cell could not be
+  // read. It is also the one kind of blocked row the office can fix.
+  if (row.unreadable) {
+    return (
+      <span className="rounded-full border border-black/20 px-2 py-0.5 text-xs font-medium text-black/50 dark:border-white/25 dark:text-white/50">
+        Could not read
+      </span>
+    );
+  }
+  const status = row.status;
   const styles: Record<PlanRow["status"], string> = {
     ready: "border-green-600/40 text-green-700 dark:text-green-300",
     needs_choice: "border-amber-500/50 text-amber-700 dark:text-amber-300",
