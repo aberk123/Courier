@@ -468,6 +468,12 @@ export function settleAddress(
     .sort((x, y) =>
       (doorOf(fileRows[x].floorSide) ?? "~").localeCompare(doorOf(fileRows[y].floorSide) ?? "~") ||
       (fileRows[x].name ?? "").localeCompare(fileRows[y].name ?? "") ||
+      // The subscriber id before the index, so rows that are identical in door
+      // and name still sort by something in the DATA. Without it, three rows at
+      // one address -- two sharing an id, one without -- gave a different row the
+      // "nothing to do" outcome depending on which order the export emitted, and
+      // the questions the other two got were worded differently as a result.
+      (fileRows[x].externalId ?? "").localeCompare(fileRows[y].externalId ?? "") ||
       x - y,
     );
 
@@ -490,12 +496,23 @@ export function settleAddress(
    * one thing and the post-pass overwrote it with another.
    */
   const dup = new Map<number, string>();
+
+  /**
+   * An id we will not let decide anything. 71 rows at the tail of the 27 Aug
+   * file carry `Zone1_1`…`zone2_8` instead of a subscriber id -- synthetic,
+   * zone-prefixed and sequence-numbered, and docs/domain-notes.md says no number
+   * from those rows should reach a driver until their provenance is known. 65 of
+   * them land on an address we already hold, so without this they would settle
+   * household identity for 65 real doors.
+   */
+  const usableId = (value: string | null | undefined) =>
+    value && !/^zone\d*_/i.test(value) ? value : null;
   const SAME_ID = "the list carries this subscription more than once at this address — two copies, or the same row twice?";
   const SAME_NAME = "the list may name this household twice at this address — one paper or two?";
   for (let i = 0; i < fileRows.length; i++) {
     for (let j = i + 1; j < fileRows.length; j++) {
-      const idI = fileRows[i].externalId;
-      const idJ = fileRows[j].externalId;
+      const idI = usableId(fileRows[i].externalId);
+      const idJ = usableId(fileRows[j].externalId);
       if (idI && idJ) {
         // The publication's own subscriber ids settle it, and they are the only
         // thing that can. DIFFERENT ids are two subscriptions -- "Minna
@@ -525,8 +542,12 @@ export function settleAddress(
       const di = doorOf(fileRows[i].floorSide);
       const dj = doorOf(fileRows[j].floorSide);
       if (di && dj && di !== dj) continue;
-      dup.set(i, SAME_NAME);
-      dup.set(j, SAME_NAME);
+      // Never overwrite a SAME_ID reason with the weaker surname one: whichever
+      // pair was visited last would otherwise win, making the wording depend on
+      // row order. The kind is `ask` either way, but this function's own history
+      // is order-dependence, so it does not get to creep back in as wording.
+      if (!dup.has(i)) dup.set(i, SAME_NAME);
+      if (!dup.has(j)) dup.set(j, SAME_NAME);
     }
   }
 
@@ -923,7 +944,7 @@ export function planRow(
           zoneNumber: line.zoneNumber,
         })),
         newStop: {
-          ...newStopFrom(row, base, streetZones.get(street) ?? []),
+          ...newStopFrom(row, base, streetZones.get(street) ?? [], atAddress.length),
           zoneId: atAddress[0].zoneId,
           zoneNumber: atAddress[0].zoneNumber,
           floorSide: outcome.floorSide,
@@ -944,7 +965,11 @@ export function planRow(
         zoneNumber: line.zoneNumber,
       })),
       message: outcome.reason,
-      newStop: newStopFrom(row, base, streetZones.get(street) ?? []),
+      // atAddress.length, not 0: if the office answers this question by picking
+      // "Add as a new address", applyImport compares the live line count against
+      // this. Hardcoded 0 made it decide the premise had moved and skip the row
+      // -- silently discarding the answer it had just asked for.
+      newStop: newStopFrom(row, base, streetZones.get(street) ?? [], atAddress.length),
     };
   }
 
@@ -1117,6 +1142,14 @@ function newStopFrom(
   row: ParsedRow,
   base: PlanRow,
   zoneCandidates: { zoneId: string; zoneNumber: number }[],
+  /**
+   * Lines already at this address when the plan was built. MUST be passed
+   * wherever we hold lines there, or applyImport's staleness check compares the
+   * live count against 0 and silently skips the row -- which is what happened to
+   * every question that offered "Add as a new address" at an address we already
+   * serve: the office answered, the answer was discarded, and nothing said so.
+   */
+  linesAtPlanTime = 0,
 ): NonNullable<PlanRow["newStop"]> {
   return {
     zoneId: zoneCandidates.length === 1 ? zoneCandidates[0].zoneId : null,
@@ -1127,7 +1160,7 @@ function newStopFrom(
     street: row.street,
     floorSide: base.floorSide,
     instructions: row.instructions,
-    linesAtPlanTime: 0,
+    linesAtPlanTime,
   };
 }
 

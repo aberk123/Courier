@@ -59,7 +59,14 @@ const FLOOR_SIDE_ALT = [
 
 /** A first-name column, joined to the surname when both are present. */
 const FIRST_NAME = ["firstname", "customersfirstname", "customerfirstname", "givenname"];
-const EXTERNAL_ID = ["customersid", "customerid", "subscriberid", "accountid", "id"];
+/**
+ * The publication's subscriber id, most specific alias first. Resolved by
+ * SPECIFICITY, not by column position: a file with both `ID` (a row counter) and
+ * `customers.id` used to take whichever came first, so a counter could decide
+ * whether a household gets one paper or two. A bare "id" is not on the list at
+ * all for the same reason -- it is the commonest name for a row number.
+ */
+const EXTERNAL_ID = ["customersid", "customerid", "subscriberid", "accountid"];
 
 const ACTION_ALIASES: Record<ParsedRow["action"], string[]> = {
   add: ["add", "added", "addition", "new", "a", "+"],
@@ -85,7 +92,14 @@ function buildHeaderMap(headers: string[]) {
   );
   const altFloorIndex = headers.findIndex((header) => FLOOR_SIDE_ALT.includes(norm(header)));
   const firstNameIndex = headers.findIndex((header) => FIRST_NAME.includes(norm(header)));
-  const externalIdIndex = headers.findIndex((header) => EXTERNAL_ID.includes(norm(header)));
+  let externalIdIndex = -1;
+  for (const alias of EXTERNAL_ID) {
+    const found = headers.findIndex((header) => norm(header) === alias);
+    if (found !== -1) {
+      externalIdIndex = found;
+      break;
+    }
+  }
   return { map, actionIndex, altFloorIndex, firstNameIndex, externalIdIndex };
 }
 

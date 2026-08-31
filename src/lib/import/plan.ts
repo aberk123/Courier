@@ -96,12 +96,16 @@ export function planRoster(
   // Built once, not once per row -- see buildStopIndex.
   const stopIndex = buildStopIndex(existing);
 
+  // Normalising once per row here rather than three times: this file's history
+  // includes a measured 58-second matching incident.
+  //
   // Keyed on OUR address, not the file's spelling. ruleStreetVariants can rule
   // two spellings the same street -- "6 Shenandoah" and "6 Shenandoah Dr" both
   // resolve to SHENANDOAH DR -- but keying on the raw spelling put them in two
   // groups of one, so each counted alone and both read "already gets it" while
   // the second household got no paper. Invisible, because no_change rows are not
-  // even shipped to the browser.
+  // even shipped to the browser. Eight of our addresses are reached under more
+  // than one spelling in the 27 Aug file.
   const rowKeys: (string | null)[] = parsed.map((row) => {
     if (!row.street || !row.houseNumber) return null;
     const own = normalizeStreet(row.street);
@@ -199,7 +203,20 @@ export function planRoster(
 
   // Everything actionable, plus a handful of the rest so the office can spot
   // check that "not on our routes" really means that.
-  if (options.keepAll) return { error: null, rows, summary };
+  //
+  // This trim is not cosmetic. The whole plan is 5.4 MB of JSON, it was held in a
+  // hidden field and posted back on Apply, and Next.js caps a Server Action body
+  // at 6 MB -- rejecting it BEFORE the action runs, so it cannot be caught and
+  // turned into a message. The office would have clicked Apply and watched
+  // nothing happen. It was also 19,600 rows in the DOM, which locked the page up
+  // for a minute.
+  if (options.keepAll) {
+    // `rows` carries everything here, so "sampled" is not 40 examples -- it is
+    // the whole non-actionable remainder. Reporting 0 would have made a harness
+    // read the summary as if it were the screen's.
+    summary.sampled = rows.length - summary.ready - summary.needsChoice;
+    return { error: null, rows, summary };
+  }
 
   const actionable = rows.filter((row) => row.status === "ready" || row.status === "needs_choice");
   const sample = rows.filter((row) => row.status !== "ready" && row.status !== "needs_choice").slice(0, 40);

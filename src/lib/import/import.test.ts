@@ -913,3 +913,79 @@ test("the parser keeps the publication's own subscriber id", () => {
   );
   assert.equal(rows[0].externalId, "16BhJEV75Wr9g8KNt");
 });
+
+test("a row counter named ID cannot stand in for the subscriber id", () => {
+  // Resolved by specificity, not by column position: a file carrying both `ID`
+  // (a counter) and `customers.id` used to take whichever came first, so a
+  // counter could decide whether a household gets one paper or two.
+  const rows = rowsFromGrid(
+    [["ID", "customers.id", "customers.last_name", "addresses.addr"],
+     ["41", "16CY4gUP", "Klein", "12 Juniper Ln"]],
+    { defaultAction: "add" },
+  );
+  assert.equal(rows[0].externalId, "16CY4gUP");
+  // And a bare "id" alone is not treated as a subscriber id at all.
+  const counterOnly = rowsFromGrid(
+    [["ID", "customers.last_name", "addresses.addr"], ["41", "Klein", "12 Juniper Ln"]],
+    { defaultAction: "add" },
+  );
+  assert.equal(counterOnly[0].externalId, null);
+});
+
+test("the file's fabricated tail ids do not settle household identity", () => {
+  // 71 rows at the tail of the 27 Aug file carry Zone1_1…zone2_8 instead of a
+  // subscriber id, and 65 of them land on an address we already hold.
+  // docs/domain-notes.md: no number from those rows reaches a driver until their
+  // provenance is known.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "12",
+      street: "JUNIPER LN", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "12",
+      street: "JUNIPER LN", floorSide: "basement", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Family Klein", externalId: "16CY4gUP" },
+    { floorSide: null, name: "Family Klein", externalId: "zone1_7" },
+  ], "pub-v");
+  // With the synthetic id ignored, the surname fallback applies and it asks
+  // rather than silently attaching a second paper.
+  assert.ok(settled.some((o) => o.kind === "ask"));
+  assert.equal(settled.filter((o) => o.kind === "attach" || o.kind === "create").length, 0);
+});
+
+test("a question that offers a new address carries the address's real line count", () => {
+  // The ask branch built its newStop with linesAtPlanTime hardcoded to 0, so if
+  // the office answered by picking "Add as a new address", applyImport compared
+  // the live count against 0, decided the premise had moved, and skipped the row
+  // -- silently. 41 of the 187 rows offering that choice were in this state.
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z4", zoneNumber: 4, recipientName: "Olsberg", houseNumber: "142",
+      street: "CHATEAU DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const p = planRow(rosterRow("Rochel Neiman", "142 Chateau Dr"), stops, PUBS,
+    buildStreetZoneMap(stops), new Map(), buildStopIndex(stops),
+    { fileRows: [{ floorSide: "Basement", name: "Rochel Neiman" }], index: 0 });
+  assert.equal(p.status, "needs_choice");
+  assert.equal(p.newStop?.linesAtPlanTime, 1, "not 0 — the address holds one line");
+});
+
+test("the duplicate reason does not depend on which pair is visited last", () => {
+  // Three rows, all surname Klein, two sharing an id. The weaker surname
+  // evidence used to overwrite the stronger same-id reason whenever it was
+  // visited last, so the wording depended on row order.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "3",
+      street: "MAPLEHURST AVE", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const rows = [
+    { floorSide: null, name: "Family Klein", externalId: "X1" },
+    { floorSide: null, name: "Family Klein", externalId: "X1" },
+    { floorSide: null, name: "Family Klein" },
+  ];
+  const reasons = (r: typeof rows) =>
+    settleAddress(stops, r, "pub-v")
+      .filter((o) => o.kind === "ask")
+      .map((o) => (o.kind === "ask" ? o.reason : ""))
+      .sort();
+  assert.deepEqual(reasons(rows), reasons([rows[2], rows[0], rows[1]]));
+});
