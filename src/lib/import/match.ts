@@ -455,13 +455,24 @@ export function planRow(
       matches = onOur(ruled.ourStreet);
       if (matches.length) needsPerson = ruled.why;
     } else {
-      // No ruling at all: the base word itself differs, so this is a typo
-      // ("SHENENDOAH DR"). Still worth surfacing, never worth auto-applying.
+      // No ruling at all: the base word itself differs. That is sometimes a typo
+      // ("SHENENDOAH DR" for SHENANDOAH DR) and sometimes a real road we simply
+      // do not deliver -- and two edits cannot tell them apart. Measured on the
+      // real Voice roster, all three of CHERRY ST, TEABERRY CT and WALTER DR
+      // land here, matching HENRY ST, NEWBERRY CT and WALKER DR; WALTER/WALKER
+      // is a single letter. So the message states what was found and asks,
+      // rather than asserting the two are one street. Never auto-applied.
       // Compared against the 71 distinct street names, not every stop.
       matches = index.streets
         .filter((candidate) => editDistance(candidate, street) <= 2)
         .flatMap((candidate) => index.byStreetAndHouse.get(`${candidate}|${house}`) ?? []);
-      if (matches.length) needsPerson = `the street is spelled differently from ours`;
+      if (matches.length) {
+        const near = [...new Set(matches.map((stop) => stop.street.toUpperCase()))];
+        needsPerson =
+          `${row.street.toUpperCase()} is not one of our streets. ` +
+          `The closest we deliver is ${near.join(" or ")} — the same street written ` +
+          `differently, or a different road?`;
+      }
     }
   }
 
