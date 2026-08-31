@@ -399,7 +399,12 @@ export function buildStopIndex(stops: ExistingStop[]): StopIndex {
  */
 const BLOCK_GAP = 12;
 
-export type RosterFileRow = { floorSide: string | null; name: string | null };
+export type RosterFileRow = {
+  floorSide: string | null;
+  name: string | null;
+  /** The publication's own subscriber id, when the file carries one. */
+  externalId?: string | null;
+};
 
 /** What settleAddress decided for one roster row. */
 export type AddressOutcome =
@@ -479,21 +484,49 @@ export function settleAddress(
   // with nothing to tell them apart is exactly that ambiguity, so it is asked
   // rather than answered. Two rows naming DIFFERENT doors are distinguishable and
   // are two households.
-  const dup = new Set<number>();
+  /**
+   * Rows whose identity the list repeats, with the reason -- carried together so
+   * the two places that emit it cannot drift apart, which they did: pass 3 said
+   * one thing and the post-pass overwrote it with another.
+   */
+  const dup = new Map<number, string>();
+  const SAME_ID = "the list carries this subscription more than once at this address — two copies, or the same row twice?";
+  const SAME_NAME = "the list may name this household twice at this address — one paper or two?";
   for (let i = 0; i < fileRows.length; i++) {
     for (let j = i + 1; j < fileRows.length; j++) {
+      const idI = fileRows[i].externalId;
+      const idJ = fileRows[j].externalId;
+      if (idI && idJ) {
+        // The publication's own subscriber ids settle it, and they are the only
+        // thing that can. DIFFERENT ids are two subscriptions -- "Minna
+        // Goldstone" and "Ari Goldstone" at 2 Shenandoah Drive, sequential ids
+        // for the two Teitelbaums at 67 Finchley Blvd. Measured on the 27 Aug
+        // roster: of 32 pairs sharing a surname at one of our addresses, all 32
+        // carry different ids, so all 20 questions this used to raise were
+        // wrong.
+        //
+        // The SAME id twice is genuinely ambiguous: either the household takes
+        // two copies (docs/domain-notes.md: 25 ids repeat across 53 rows, and
+        // where the file also states a count in text the two agree, so the
+        // repeats ARE the copies) or the export was pasted together with itself.
+        // Asked, not guessed.
+        if (idI !== idJ) continue;
+        dup.set(i, SAME_ID);
+        dup.set(j, SAME_ID);
+        continue;
+      }
+      // No ids in the file: fall back to the surname, which is weaker and errs
+      // toward asking. Only two rows that BOTH name a door, and name different
+      // ones, are distinguishable -- testing one row's door made this asymmetric
+      // in i and j, which flipped six rows on the real roster between a question
+      // and silently adding a line.
       const surname = surnameOf(fileRows[i].name);
       if (!surname || surname !== surnameOf(fileRows[j].name)) continue;
-      // Only two rows that BOTH name a door, and name different ones, are
-      // distinguishable. Testing one row's door made this asymmetric in i and j:
-      // "(none) · Ellenbogen" beside "upstairs · Family Ellenbogen" read as one
-      // household in file order and as two reversed, which flipped six rows on
-      // the real roster between a question and silently adding a line.
       const di = doorOf(fileRows[i].floorSide);
       const dj = doorOf(fileRows[j].floorSide);
       if (di && dj && di !== dj) continue;
-      dup.add(i);
-      dup.add(j);
+      dup.set(i, SAME_NAME);
+      dup.set(j, SAME_NAME);
     }
   }
 
@@ -583,10 +616,7 @@ export function settleAddress(
   for (const i of order) {
     if (out[i]) continue;
     if (dup.has(i)) {
-      out[i] = {
-        kind: "ask",
-        reason: `the list names this household more than once at this address — one paper or two?`,
-      };
+      out[i] = { kind: "ask", reason: dup.get(i)! };
     } else if (fileRows.length > capacity) {
       out[i] = {
         kind: "ask",
@@ -620,12 +650,9 @@ export function settleAddress(
   // that made six rows on the real roster flip between "one paper or two?" and
   // silently adding a line, depending on which of the two the export emitted
   // first.
-  for (const i of dup) {
+  for (const [i, reason] of dup) {
     if (out[i].kind === "no_change") continue;
-    out[i] = {
-      kind: "ask",
-      reason: `the list names this household more than once at this address — one paper or two?`,
-    };
+    out[i] = { kind: "ask", reason };
   }
   return out;
 }

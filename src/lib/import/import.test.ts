@@ -631,7 +631,7 @@ test("the list naming one household twice is asked about, not counted as two", (
     { floorSide: null, name: "Ellenbogen" },
     { floorSide: null, name: "Family Ellenbogen" },
   ], "pub-v");
-  assert.ok(settled.some((o) => o.kind === "ask" && /more than once/.test(o.reason)));
+  assert.ok(settled.some((o) => o.kind === "ask" && /may name this household twice/.test(o.reason)));
   assert.equal(settled.filter((o) => o.kind === "create").length, 0, "no line is created on a surname match");
 });
 
@@ -856,4 +856,60 @@ test("a create carries the line count it was planned against", () => {
   const p = planRow(rosterRow("Family Strickman", "39 Rena Ln"), stops, PUBS,
     buildStreetZoneMap(stops), new Map(), buildStopIndex(stops), { fileRows, index: 0 });
   assert.equal(p.newStop?.linesAtPlanTime, 1);
+});
+
+test("two subscriptions sharing a surname at one address are two households, not a duplicate", () => {
+  // 2 Shenandoah Drive lists "Minna Goldstone" and "Ari Goldstone"; 67 Finchley
+  // Blvd lists two Teitelbaums with sequential ids. Measured on the 27 Aug
+  // roster: of 32 pairs sharing a surname at one of our addresses, ALL 32 carry
+  // different customer ids. The surname guess asked 20 questions that had an
+  // answer sitting in a column the parser was discarding.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Goldstone", houseNumber: "2",
+      street: "SHENANDOAH DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Goldstone", houseNumber: "2",
+      street: "SHENANDOAH DR", floorSide: "basement", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Minna Goldstone", externalId: "169xltUF" },
+    { floorSide: null, name: "Ari Goldstone", externalId: "16BVFMUN" },
+  ], "pub-v");
+  assert.deepEqual(settled.map((o) => o.kind).sort(), ["attach", "no_change"]);
+});
+
+test("the SAME subscription listed twice is still asked about", () => {
+  // Either the household takes two copies -- 25 ids repeat across 53 rows in the
+  // real file, and where it also states a count in text the two agree -- or the
+  // export was pasted together with itself. Not guessable.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "3",
+      street: "MAPLEHURST AVE", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Family Klein", externalId: "16CY4gUP" },
+    { floorSide: null, name: "Family Klein", externalId: "16CY4gUP" },
+  ], "pub-v");
+  assert.ok(settled.some((o) => o.kind === "ask" && /two copies, or the same row twice/.test(o.reason)));
+  assert.equal(settled.filter((o) => o.kind === "create").length, 0);
+});
+
+test("with no id column at all, the surname fallback still asks", () => {
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Ellenbogen", houseNumber: "8",
+      street: "SHENANDOAH DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Ellenbogen" },
+    { floorSide: "Upstairs", name: "Family Ellenbogen" },
+  ], "pub-v");
+  assert.ok(settled.some((o) => o.kind === "ask"));
+});
+
+test("the parser keeps the publication's own subscriber id", () => {
+  const rows = rowsFromGrid(
+    [["customers.id", "customers.last_name", "addresses.addr"],
+     ["16BhJEV75Wr9g8KNt", "Klein", "12 Juniper Ln"]],
+    { defaultAction: "add" },
+  );
+  assert.equal(rows[0].externalId, "16BhJEV75Wr9g8KNt");
 });

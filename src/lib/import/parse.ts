@@ -16,6 +16,15 @@ export type ParsedRow = {
    * at the same door. See docs/domain-notes.md.
    */
   floorSideAlt: string | null;
+  /**
+   * The publication's own subscriber id (`customers.id`), when the file carries
+   * one. This is the evidence that tells two households apart from one household
+   * listed twice, and it was being discarded -- so a surname comparison stood in
+   * for it and asked 20 unnecessary questions on the real roster. Measured on
+   * that file: of 32 pairs of rows sharing a surname at one of our addresses,
+   * ALL 32 carry different ids, i.e. two separate subscriptions.
+   */
+  externalId?: string | null;
   instructions: string | null;
   problem?: string;
 };
@@ -23,7 +32,7 @@ export type ParsedRow = {
 // Header aliases, so the office does not have to match our column names
 // exactly. Everything is compared lowercased with non-letters stripped.
 const FIELD_ALIASES: Record<
-  keyof Omit<ParsedRow, "rowNumber" | "action" | "problem" | "floorSideAlt">,
+  keyof Omit<ParsedRow, "rowNumber" | "action" | "problem" | "floorSideAlt" | "externalId">,
   string[]
 > = {
   name: [
@@ -50,6 +59,7 @@ const FLOOR_SIDE_ALT = [
 
 /** A first-name column, joined to the surname when both are present. */
 const FIRST_NAME = ["firstname", "customersfirstname", "customerfirstname", "givenname"];
+const EXTERNAL_ID = ["customersid", "customerid", "subscriberid", "accountid", "id"];
 
 const ACTION_ALIASES: Record<ParsedRow["action"], string[]> = {
   add: ["add", "added", "addition", "new", "a", "+"],
@@ -75,7 +85,8 @@ function buildHeaderMap(headers: string[]) {
   );
   const altFloorIndex = headers.findIndex((header) => FLOOR_SIDE_ALT.includes(norm(header)));
   const firstNameIndex = headers.findIndex((header) => FIRST_NAME.includes(norm(header)));
-  return { map, actionIndex, altFloorIndex, firstNameIndex };
+  const externalIdIndex = headers.findIndex((header) => EXTERNAL_ID.includes(norm(header)));
+  return { map, actionIndex, altFloorIndex, firstNameIndex, externalIdIndex };
 }
 
 /**
@@ -156,7 +167,7 @@ export type GridOptions = {
 export function rowsFromGrid(grid: string[][], options: GridOptions = {}): ParsedRow[] {
   if (!grid.length) return [];
   const [headers, ...body] = grid;
-  const { map, actionIndex, altFloorIndex, firstNameIndex } = buildHeaderMap(headers);
+  const { map, actionIndex, altFloorIndex, firstNameIndex, externalIdIndex } = buildHeaderMap(headers);
 
   const cell = (row: string[], index: number | undefined) =>
     index === undefined || index < 0 ? "" : (row[index] ?? "").trim();
@@ -199,6 +210,7 @@ export function rowsFromGrid(grid: string[][], options: GridOptions = {}): Parse
       publication: cell(row, map.publication) || null,
       floorSide: cell(row, map.floorSide) || null,
       floorSideAlt: cell(row, altFloorIndex) || null,
+      externalId: cell(row, externalIdIndex) || null,
       instructions: cell(row, map.instructions) || null,
       problem: problems.length ? problems.join(", ") : undefined,
     };
