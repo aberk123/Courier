@@ -23,6 +23,7 @@ import {
   normalizeStreet,
   normalizeHouseNumber,
   buildStopIndex,
+  buildRulingIndex,
   settleAddress,
   type ExistingStop,
 } from "./match.ts";
@@ -1102,4 +1103,121 @@ test("where nothing else distinguishes them, the line carrying the row's surname
   ];
   const settled = settleAddress(stops, [{ floorSide: null, name: "Refoel & Karmit BADOUCH" }], "pub-v");
   assert.deepEqual(settled, [{ kind: "attach", stopId: "up" }]);
+});
+
+// --- Answers the office has already given ---------------------------------
+//
+// Ari, 2026-08-31: "it does make sense to build something to record decisions
+// about specific addresses so that we don't have to answer the same questions
+// every week." 55 of the questions on the 27 Aug master list were "this house
+// number is outside the stretch we cover" -- a fact about geography, re-answered
+// weekly because there was nowhere to put it.
+
+const rulingRow = (house: string, street: string) => {
+  const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Ort", `${house} ${street}`]],
+    { defaultAction: "add" })[0];
+  r.publication = "voice";
+  return r;
+};
+const oakStops = (): ExistingStop[] => ["26", "28", "60", "66", "110"].map((h) => ({
+  id: `o${h}`, zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: h,
+  street: "OAK ST", floorSide: null, publicationIds: [],
+}));
+
+test("a street the office has ruled not ours stops being a question", () => {
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const rulings = buildRulingIndex([
+    { street: "Bruce St", houseNumber: null, publicationId: null, ruling: "not_ours",
+      note: "real street, not on our round" },
+  ]);
+  const p = planRow(rulingRow("12", "Bruce St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(p.status, "blocked");
+  assert.match(p.message, /you told us so/);
+  assert.match(p.message, /real street, not on our round/);
+});
+
+test("a ruling is stored normalised, so next week's spelling still matches", () => {
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const rulings = buildRulingIndex([
+    { street: "BRUCE STREET", houseNumber: null, publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const p = planRow(rulingRow("12", "Bruce St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(p.status, "blocked");
+});
+
+test("an address ruled OURS stops being asked about as out of area", () => {
+  // 1471 OAK ST against our 26-110 asks every week. Once the office says it is on
+  // the route, it is an ordinary new address.
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const before = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops));
+  assert.match(before.message, /outside the 26–110 stretch/);
+
+  const rulings = buildRulingIndex([
+    { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "ours", note: null },
+  ]);
+  const after = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.doesNotMatch(after.message, /outside the 26–110 stretch/);
+});
+
+test("a ruling for one address does not silence the rest of the street", () => {
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const rulings = buildRulingIndex([
+    { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const ruled = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(ruled.status, "blocked");
+  const other = planRow(rulingRow("1490", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(other.status, "needs_choice");
+});
+
+test("a publication-specific ruling wins over one that applies to all", () => {
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const rulings = buildRulingIndex([
+    { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "not_ours", note: "nobody" },
+    { street: "OAK ST", houseNumber: "1471", publicationId: "pub-v", ruling: "ours", note: "Voice does" },
+  ]);
+  const p = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.notEqual(p.status, "blocked");
+});
+
+test("a whole-street ruling cannot blank a street we actually deliver on", () => {
+  // 106 VINE AVENUE is outside our 550-736 stretch and asks every week. Ruling
+  // the whole of VINE AVE "not ours" would also blank the twenty-four Vine Ave
+  // addresses we do serve. Only an address-level ruling speaks for a street we
+  // are on.
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const streetWide = buildRulingIndex([
+    { street: "OAK ST", houseNumber: null, publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const onOurStreet = planRow(rulingRow("26", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, streetWide);
+  assert.notEqual(onOurStreet.status, "blocked", "26 Oak St is ours and must survive");
+
+  // The same ruling on a street we hold nothing on does apply.
+  const elsewhere = buildRulingIndex([
+    { street: "BRUCE ST", houseNumber: null, publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const off = planRow(rulingRow("12", "Bruce St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, elsewhere);
+  assert.equal(off.status, "blocked");
+
+  // And an ADDRESS-level ruling still works on a street we are on.
+  const oneAddress = buildRulingIndex([
+    { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const single = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, oneAddress);
+  assert.equal(single.status, "blocked");
 });

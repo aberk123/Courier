@@ -6,6 +6,7 @@ import type { PlanRow } from "@/lib/import/match";
 import {
   applyImport,
   planImport,
+  recordRuling,
   undoImport,
   type ApplyState,
   type PlanState,
@@ -66,6 +67,11 @@ export function ImportWorkspace({
   const [rosterPublicationId, setRosterPublicationId] = useState("");
   const [excluded, setExcluded] = useState<number[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
+  // Answers the office records so the same question is not asked next week.
+  const [rulingState, rulingAction, rulingPending] = useActionState(recordRuling, {
+    error: null as string | null,
+    saved: null as string | null,
+  });
 
   // Reset the review table during render rather than in an effect: a fresh plan
   // replaces whatever was on screen (including choices made against the
@@ -330,6 +336,14 @@ export function ImportWorkspace({
         </p>
       ) : null}
 
+      {rulingState.saved || rulingState.error ? (
+        <p
+          className={`mt-4 text-sm ${rulingState.error ? "text-red-700 dark:text-red-300" : "text-green-700 dark:text-green-300"}`}
+        >
+          {rulingState.error ?? rulingState.saved}
+        </p>
+      ) : null}
+
       {rows.length ? (
         <>
           <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
@@ -474,6 +488,31 @@ export function ImportWorkspace({
                         ) : null}
                       </td>
                       <td className="px-3 py-2 align-top">
+                        {/* Only on the questions that are about geography rather
+                            than about this week's roster -- those are the ones
+                            whose answer is the same every week. A question about
+                            a household ("has this one moved?") must not be
+                            answerable once and forever. */}
+                        {row.status === "needs_choice" && row.newStop && RECURRING.test(row.message) ? (
+                          <form action={rulingAction} className="mb-2">
+                            <input type="hidden" name="street" value={row.newStop.street} />
+                            <input type="hidden" name="houseNumber" value={row.newStop.houseNumber} />
+                            <input type="hidden" name="ruling" value="not_ours" />
+                            {/* Always one address. A whole-street answer would
+                                blank the addresses we DO serve on that street --
+                                106 Vine Avenue is outside our stretch, but we
+                                deliver to twenty-four Vine Ave doors. */}
+                            <input type="hidden" name="scope" value="address" />
+                            <input type="hidden" name="publicationId" value={rosterPublicationId} />
+                            <button
+                              type="submit"
+                              disabled={rulingPending}
+                              className="whitespace-nowrap rounded-lg border border-black/15 px-2 py-1 text-xs hover:bg-black/5 disabled:opacity-50 dark:border-white/20 dark:hover:bg-white/10"
+                            >
+                              Not ours — stop asking
+                            </button>
+                          </form>
+                        ) : null}
                         <input
                           type="checkbox"
                           checked={!isExcluded}
@@ -523,6 +562,13 @@ export function ImportWorkspace({
     </div>
   );
 }
+
+/**
+ * Questions whose answer is a fact about geography, not about this week's roster:
+ * the same address will ask again next week and the week after. These are the only
+ * ones the office can answer once and for all.
+ */
+const RECURRING = /is outside the .* stretch|number we deliver is (even|odd)|falls in the gap between/;
 
 function StatusPill({ row }: { row: PlanRow }) {
   // An unreadable address is a `blocked` row, but "Not on our routes" is a false

@@ -399,6 +399,55 @@ export function buildStopIndex(stops: ExistingStop[]): StopIndex {
  */
 const BLOCK_GAP = 12;
 
+/**
+ * An answer the office has already given about an address or a street.
+ *
+ * `houseNumber` null means the whole street; `publicationId` null means every
+ * publication. Both are normalised the way the matcher normalises, so a ruling
+ * recorded against "Bruce St" also answers "BRUCE STREET".
+ */
+export type AddressRuling = {
+  street: string;
+  houseNumber: string | null;
+  publicationId: string | null;
+  ruling: "not_ours" | "ours";
+  note: string | null;
+};
+
+/** Indexed once per upload; a plain array would be scanned 19,600 times. */
+export type RulingIndex = Map<string, AddressRuling>;
+
+export function buildRulingIndex(rulings: AddressRuling[]): RulingIndex {
+  const map: RulingIndex = new Map();
+  for (const r of rulings) {
+    const street = normalizeStreet(r.street);
+    const house = r.houseNumber ? normalizeHouseNumber(r.houseNumber) : "";
+    map.set(`${r.publicationId ?? ""}|${street}|${house}`, r);
+  }
+  return map;
+}
+
+/**
+ * The office's answer for this address, if they have given one. An address-level
+ * ruling wins over a street-level one, and a publication-specific ruling wins
+ * over one that applies to every publication.
+ */
+export function rulingFor(
+  index: RulingIndex,
+  street: string,
+  house: string,
+  publicationId: string | null,
+): AddressRuling | undefined {
+  const st = normalizeStreet(street);
+  const hn = normalizeHouseNumber(house);
+  return (
+    index.get(`${publicationId ?? ""}|${st}|${hn}`) ??
+    index.get(`|${st}|${hn}`) ??
+    (publicationId ? index.get(`${publicationId}|${st}|`) : undefined) ??
+    index.get(`|${st}|`)
+  );
+}
+
 export type RosterFileRow = {
   floorSide: string | null;
   name: string | null;
@@ -758,6 +807,8 @@ export function planRow(
    * settled as a group rather than one row at a time. See settleAddress.
    */
   rosterGroup?: RosterGroup,
+  /** Answers the office has already given. See AddressRuling. */
+  rulings: RulingIndex = new Map(),
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -797,6 +848,28 @@ export function planRow(
 
   const street = normalizeStreet(row.street);
   const house = normalizeHouseNumber(row.houseNumber);
+
+  // An answer the office has already given comes first. This is the whole point
+  // of the rulings table: 55 of the questions on the 27 Aug master list are "this
+  // house number is outside the stretch we cover", and the answer is a fact about
+  // geography that does not change week to week.
+  const ruled = rulingFor(rulings, row.street, row.houseNumber, publication?.id ?? null);
+  // A WHOLE-STREET "not ours" must never apply to a street we actually deliver
+  // on: VINE AVENUE 106 is outside our 550-736 stretch, but ruling the street out
+  // would blank the twenty-four Vine Ave addresses we do serve. Only an
+  // address-level ruling can speak for a street we are on.
+  const streetIsOurs = (index.byStreet.get(street) ?? []).length > 0;
+  const applies = ruled ? Boolean(ruled.houseNumber) || !streetIsOurs : false;
+  if (applies && ruled?.ruling === "not_ours") {
+    return {
+      ...base,
+      status: "blocked",
+      message:
+        `${row.street.toUpperCase()} is not on any of our routes` +
+        (ruled.houseNumber ? ` at ${ruled.houseNumber}` : "") +
+        ` — you told us so${ruled.note ? `: ${ruled.note}` : ""}`,
+    };
+  }
 
   let matches = index.byStreetAndHouse.get(`${street}|${house}`) ?? [];
 
@@ -1130,7 +1203,10 @@ export function planRow(
   if (numbersOnStreet.length && Number.isFinite(asNumber) && asNumber > 0) {
     const lo = Math.min(...numbersOnStreet);
     const hi = Math.max(...numbersOnStreet);
-    if (asNumber < lo || asNumber > hi) {
+    // `ours` means the office has already confirmed this address is on the route,
+    // so the geography questions below have been answered and must not recur.
+    const confirmedOurs = applies && ruled?.ruling === "ours";
+    if (!confirmedOurs && (asNumber < lo || asNumber > hi)) {
       return {
         ...base,
         status: "needs_choice",
@@ -1152,7 +1228,7 @@ export function planRow(
     // One side of the street. Every number we deliver shares a parity and this
     // one does not -- a new side, not infill.
     const parities = new Set(sorted.map((n) => n % 2));
-    if (parities.size === 1 && !parities.has(asNumber % 2)) {
+    if (!confirmedOurs && parities.size === 1 && !parities.has(asNumber % 2)) {
       return {
         ...base,
         status: "needs_choice",
@@ -1168,7 +1244,7 @@ export function planRow(
     // slot it beside.
     const below = sorted.filter((n) => n < asNumber).pop();
     const above = sorted.find((n) => n > asNumber);
-    if (below !== undefined && above !== undefined && above - below > BLOCK_GAP) {
+    if (!confirmedOurs && below !== undefined && above !== undefined && above - below > BLOCK_GAP) {
       return {
         ...base,
         status: "needs_choice",

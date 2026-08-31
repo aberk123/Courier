@@ -838,6 +838,58 @@ Two clarifications the original wording needed:
 Confirmed still working: `207 CAROL ST` is not suppressed by `207 CAREY ST` —
 five-character base, two edits, below the eight-character threshold.
 
+### Terminology (Ari, 2026-08-31)
+
+- **The master list** is the spreadsheet The Voice sends, uploaded weekly and
+  compared against what we hold.
+- **The zones** are what is in the system — the five routes and their addresses.
+
+Use these two words. Earlier notes say "roster" and "the file" for the master
+list; they mean the same thing.
+
+### Answers the office has given are recorded, not re-asked (Ari, 2026-08-31)
+
+*"It does make sense to build something to record decisions about specific
+addresses so that we don't have to answer the same questions every week."*
+
+`address_rulings` holds them. A ruling is about an ADDRESS or a STREET, never
+about a subscriber: subscribers come and go, but "106 Vine Avenue is outside the
+stretch we walk" does not. `not_ours` stops the address being proposed; `ours`
+confirms it is on the route, which silences the out-of-stretch, wrong-side and
+between-blocks questions for it.
+
+Measured on the 27 Aug master list: 55 of the 179 questions are "this house
+number is outside the stretch of that street our routes cover", and answering
+them once takes the weekly total to **124**.
+
+**A whole-street ruling can only apply to a street we hold nothing on.** Ruling
+the whole of VINE AVE "not ours" — because `106 Vine Avenue` is outside our
+550–736 stretch — would blank the twenty-four Vine Ave doors we do serve. Only an
+address-level ruling speaks for a street we are on, and the code enforces that
+rather than trusting the office to notice.
+
+Rulings are stored normalised, so one recorded against "Bruce St" also answers
+"BRUCE STREET" next week. A publication-specific ruling beats one that applies to
+every publication, and an address-level one beats a street-level one.
+
+### River Ave is a commercial road (Ari, 2026-08-31)
+
+*"River Avenue is a commercial road, so it makes sense that you don't have many
+addresses there."*
+
+So the master list carrying one River Ave row out of 19,621 is **expected**, not a
+coverage failure — an earlier note in this file called it one and was wrong. Of
+our 7 River Ave addresses, 6 are businesses (Leisure Chateau, Silvino's Auto,
+Lipa's Auto Service, Ocean Dental, Styled Child, Wig Authorities, Princeton
+Dineros) and one is residential (`809 River Ave · Preschel`).
+
+This sits against the 2026-08-30 ruling that commercial drops are cancelled like
+anyone else, and the two need reconciling before the first apply: under that
+ruling the six businesses should be cancelled, and `covered()` currently prevents
+it because the master list names none of our River Ave addresses. **Open — Ari
+has not been asked which he wants.** The `address_rulings` table is where the
+answer belongs once he gives it.
+
 ### A street in the file is that street, unless something says otherwise (Ari, 2026-08-31)
 
 Ari, on being shown questions offering `SPRUCE ST` for the file's `BRUCE ST` and

@@ -11,6 +11,7 @@ import {
   normalizeHouseNumber,
   normalizeStreet,
   type ExistingStop,
+  type AddressRuling,
   type PlanRow,
 } from "@/lib/import/match";
 
@@ -39,7 +40,7 @@ async function loadContext() {
   // against the first 1,000 of 2,427 addresses -- see src/lib/fetch-all.ts for
   // what that did to the numbers. `.order("id")` is what makes the pages line
   // up; without a stable order they overlap and skip.
-  const [stops, { data: publications, error: pubError }, { data: zones, error: zoneError }] = await Promise.all([
+  const [stops, { data: publications, error: pubError }, { data: zones, error: zoneError }, { data: rulings }] = await Promise.all([
     fetchAllPages("addresses", (from, to) =>
       supabase
         .from("stops")
@@ -56,6 +57,11 @@ async function loadContext() {
     ),
     supabase.from("publications").select("id, code, name").eq("active", true).order("name"),
     supabase.from("zones").select("id, number").order("number"),
+    // Answers the office has already given, so the same question is not asked
+    // every week. Courier-office only by RLS; a scoped staffer simply gets none.
+    supabase
+      .from("address_rulings")
+      .select("street, house_number, publication_id, ruling, note"),
   ]);
 
   if (pubError) throw new Error(`Could not read the publication list: ${pubError.message}`);
@@ -73,7 +79,15 @@ async function loadContext() {
     publicationIds: stop.stop_publications.map((sp) => sp.publication_id),
   }));
 
-  return { supabase, existing, publications: publications ?? [], zones: zones ?? [] };
+  const addressRulings: AddressRuling[] = (rulings ?? []).map((r) => ({
+    street: r.street,
+    houseNumber: r.house_number,
+    publicationId: r.publication_id,
+    ruling: r.ruling as AddressRuling["ruling"],
+    note: r.note,
+  }));
+
+  return { supabase, existing, publications: publications ?? [], zones: zones ?? [], addressRulings };
 }
 
 async function gridFromFile(file: File): Promise<string[][]> {
@@ -154,8 +168,9 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   // cancellation, and everything already on the route looks new.
   let existing: ExistingStop[];
   let publications: { id: string; code: string; name: string }[];
+  let addressRulings: AddressRuling[];
   try {
-    ({ existing, publications } = await loadContext());
+    ({ existing, publications, addressRulings } = await loadContext());
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Could not read the current address list.",
@@ -169,7 +184,7 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   // src/lib/import/plan.ts -- this used to be 150 lines inline, which meant the
   // only way to measure it was to reimplement it, and the reimplementation
   // drifted six rows away from what the screen showed.
-  const outcome = planRoster(parsed, existing, publications, rosterPublication || null);
+  const outcome = planRoster(parsed, existing, publications, rosterPublication || null, addressRulings);
   if (outcome.error) {
     return { error: outcome.error, rows: null, fileName: file.name, summary: null };
   }
@@ -396,5 +411,65 @@ export async function undoImport(_prev: UndoState, formData: FormData): Promise<
   return {
     error: null,
     message: `Import undone — ${parts.length ? parts.join(", ") : "nothing to reverse"}.${kept}`,
+  };
+}
+
+/**
+ * Records an answer the office has given about an address or a street, so the
+ * weekly import stops asking it.
+ *
+ * Ari, 2026-08-31: "it does make sense to build something to record decisions
+ * about specific addresses so that we don't have to answer the same questions
+ * every week." Measured on the 27 Aug master list, 55 questions were "this house
+ * number is outside the stretch of that street our routes cover" -- a fact about
+ * geography, re-answered every week because there was nowhere to put it.
+ *
+ * Scoped to the whole street when no house number is given, which is usually what
+ * the office means: BRUCE ST is a real Lakewood street we do not deliver, and
+ * that is true of every number on it.
+ */
+export async function recordRuling(_prev: { error: string | null; saved: string | null }, formData: FormData) {
+  const street = String(formData.get("street") ?? "").trim();
+  const houseNumber = String(formData.get("houseNumber") ?? "").trim();
+  const ruling = String(formData.get("ruling") ?? "");
+  const scope = String(formData.get("scope") ?? "address");
+  const publicationId = String(formData.get("publicationId") ?? "").trim();
+
+  if (!street) return { error: "That row has no street to record.", saved: null };
+  if (ruling !== "not_ours" && ruling !== "ours") {
+    return { error: "Unrecognised answer.", saved: null };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sign in again — your session expired.", saved: null };
+
+  const { error } = await supabase.from("address_rulings").insert({
+    created_by: user.id,
+    // Stored normalised, so a ruling recorded against "Bruce St" also answers
+    // "BRUCE STREET" next week.
+    street: normalizeStreet(street),
+    house_number: scope === "street" ? null : normalizeHouseNumber(houseNumber),
+    publication_id: publicationId || null,
+    ruling,
+    note: String(formData.get("note") ?? "").trim() || null,
+  });
+  if (error) {
+    // A repeat of an answer already given is not a failure.
+    if (error.code === "23505") {
+      return { error: null, saved: `Already recorded for ${street.toUpperCase()}.` };
+    }
+    return { error: `Could not record that: ${error.message}`, saved: null };
+  }
+
+  revalidatePath("/import");
+  return {
+    error: null,
+    saved:
+      ruling === "not_ours"
+        ? `${scope === "street" ? street.toUpperCase() : `${houseNumber} ${street.toUpperCase()}`} recorded as not on our routes — we will stop asking.`
+        : `${houseNumber} ${street.toUpperCase()} recorded as on our routes.`,
   };
 }

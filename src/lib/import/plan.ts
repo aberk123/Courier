@@ -22,7 +22,9 @@ import {
   planRosterRemovals,
   planRow,
   removalsLookWrong,
+  buildRulingIndex,
   ruleStreetVariants,
+  type AddressRuling,
   type ExistingStop,
   type PlanRow,
   type RosterFileRow,
@@ -54,6 +56,8 @@ export function planRoster(
   existing: ExistingStop[],
   publications: { id: string; code: string; name: string }[],
   rosterPublicationId: string | null,
+  /** Answers the office has already given about an address or a street. */
+  rulings: AddressRuling[] = [],
   /**
    * `keepAll` skips the trim that keeps the browser payload small. A harness
    * wants every row; the screen only needs the actionable ones plus a sample.
@@ -95,6 +99,7 @@ export function planRoster(
 
   // Built once, not once per row -- see buildStopIndex.
   const stopIndex = buildStopIndex(existing);
+  const rulingIndex = buildRulingIndex(rulings);
 
   // Normalising once per row here rather than three times: this file's history
   // includes a measured 58-second matching incident.
@@ -139,7 +144,7 @@ export function planRoster(
       seenAtAddress.set(key, index + 1);
       rosterGroup = { fileRows: groups.get(key) ?? [], index };
     }
-    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup);
+    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex);
   });
 
   if (chosen) {
