@@ -406,9 +406,17 @@ Both are worth knowing because they made that pass weaker than it looked.
 
 - **The 27 Aug roster still needs re-planning after the paging fix.** Every count
   produced before 2026-08-28 came off a 1,000-address list and is wrong — the
-  "42 ready / 392 need a choice" numbers included. Expect roughly 61 ready, 582
-  needing a choice, 881 already correct, 18,101 out of area. Re-upload and read
-  the screen; do not carry the old figures forward.
+  "42 ready / 392 need a choice" numbers included. The deployed screen now reads
+  **73 to apply, 582 need a choice, 881 already correct, 18,101 not on our
+  routes** — confirmed 2026-08-30 by an independent recomputation that matches
+  the app exactly. `73 = 57 plan rows + 16 roster removals`, because `planImport`
+  pushes the removals into `rows` before computing `summary.ready`.
+
+  An earlier draft of this line predicted "roughly 61", and the way it went wrong
+  is worth keeping: its other three figures were exactly right, so the full list
+  was in hand for the plan rows (57). The 61 is `57 + 4` — the **truncated**
+  removal count carried across instead of the real 16. A stale component inside
+  an otherwise correct calculation, which is harder to spot than a wrong method.
 
 - **The >1 MB import post-deploy check.** Upload and review only, do not apply.
   Needs a signed-in production session. Last item from `SETUP.md`.
@@ -419,13 +427,35 @@ Both are worth knowing because they made that pass weaker than it looked.
   office-only sheet. As of 2026-08-26 this has **49 concrete rows** attached to it
   from the real Voice roster — see `docs/domain-notes.md`. `grep -rn "unplaced" src/`
   is still empty, so there is no implementation to put them in.
-- **The 27 Aug Voice roster has not been applied.** The run is computed and
-  verified — 111 additions, 16 removals, 68 needing a choice — but two things
-  are unresolved. Seven of the sixteen removals are the whole of River Ave
-  (203–962), and an entire street going at once is not churn; and 71 rows at the
-  tail of that file carry ids `Zone1_1`…`zone2_8` instead of customer ids, which
-  move the result by about 40 additions and 25 removals on their own. Both are
-  questions for Ari and Amrom, not for the code.
+- **The 27 Aug Voice roster has not been applied.** Re-derived 2026-08-30 against
+  the whole address list: **57 additions, 16 removals, 582 needing a choice**.
+  The older "111 additions / 68 needing a choice" is invalidated and not
+  recoverable — see `docs/domain-notes.md`. Three things are unresolved:
+
+  - **River Ave is a coverage failure, not churn.** The file contains exactly
+    **one** River Ave row in 19,621 — `611 River Ave` — while we hold 7 River Ave
+    addresses across 15 stops. `covered()` passes on that single row, so all 7
+    become removals, including the residential `809 River Ave · Preschel`. A main
+    Lakewood artery represented by one row means the publication did not send us
+    that street. Do not apply.
+  - **The 71 tail rows** (`Zone1_1`…`zone2_8`, grid rows 19552–19622) move the
+    result by **+6 additions, −10 removals, +16 needing a choice**. The earlier
+    "about 40 additions and 25 removals" was measured on truncated zones 1 and 2
+    and is **invalidated**. Without them removals rise to 26, still under the
+    guard's limit of 55.
+  - **9 of the 12 addition ADDRESSES are odd-side Pine St (151–233)** — twelve,
+    not fifty-seven, because most additions attach the publication to a stop we
+    already hold rather than creating one; only 18 lines at 12 addresses are new
+    doors. All
+    21 of our Pine St stops are even (150–270); same shape for `7 Chelsea Ct`
+    against our even 2–20. That is a new side of a street, not infill, and the
+    range check passed it only because 151–233 sits inside 150–270.
+    `lakewood-courier-routing` should place these before any are created.
+
+  For the record, the guard does **not** stop this run: `removalsLookWrong(16,
+  1102)` gives a limit of 55 and does not trip, with 39 of headroom. An earlier
+  claim in this session that it would trip was wrong — the guard only ever sees
+  `planRosterRemovals`' whole-address count.
 - **Two corrupted rows in zone 2's production route.** `I STEIN BOYS V S 545
   HOWARD DR` and `I V 545 HOWARD DR` are stored as `direction` rows but are
   clearly address rows. They print as loud driving instructions, and because

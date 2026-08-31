@@ -57,6 +57,10 @@ async function loadContext() {
         .from("stops")
         .select(
           "id, zone_id, recipient_name, house_number, street, floor_side, roster_managed, stop_publications(publication_id), zones!inner(number)",
+          // Measured against a live server: this is the TOTAL matching the
+          // filter, not the size of the window, and it is correct alongside the
+          // zones!inner embed. fetchAllPages pages until it reaches it.
+          { count: "exact" },
         )
         .eq("active", true)
         .order("id")
@@ -127,8 +131,11 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   }
 
   // A file with no action column is a publication's own roster -- a list of who
-  // should be receiving it -- so each row is an "add". Removals are deliberately
-  // NOT inferred from absence: see "Whose list wins" in docs/domain-notes.md.
+  // should be receiving it -- so each row is an "add". Absence IS meaningful
+  // too: Ari settled "whose list wins" on 2026-08-27 in the publication's
+  // favour, so an address the roster no longer carries becomes a removal. That
+  // is planRosterRemovals below, guarded by removalsLookWrong. (This comment
+  // used to say the opposite; it predated the decision.)
   const rosterPublication = String(formData.get("rosterPublication") ?? "").trim();
 
   let parsed: ParsedRow[];

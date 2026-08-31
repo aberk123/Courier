@@ -764,7 +764,11 @@ Two consequences worth holding on to:
 
 - **The first run is the risky one.** It is a one-time reconciliation between the
   publication's billing view and Amrom's hand-maintained route sheets, which have
-  never been reconciled — 111 additions and 16 removals on the 27 Aug file. Every
+  never been reconciled — 16 removals on the 27 Aug file. (An earlier "111
+  additions" here is **invalidated**: re-derived 2026-08-30 the figure is 57, and
+  111 cannot be reproduced by any run, truncated or whole — it predates the
+  out-of-covered-stretch branch and other matcher changes, so it measured
+  something today's code no longer computes. The 16 removals do reproduce.) Every
   run after it is a week of real churn, which `docs/handoff.md` records as a
   handful of addresses.
 - **From week two the file-to-file control comes for free.** The reconciliation
@@ -810,8 +814,66 @@ real file actually contains:
 - The unit letter in either direction: we hold `105A`, the upload writes `105`.
 
 Measured on the 27 Aug Voice roster, this took candidate removals from 65 raw to
-**16**, and every one it suppressed was checked to be a real household present in
-the file under a variant spelling.
+**16**. Re-derived 2026-08-30 against the whole 2,427-address list, both numbers
+reproduce exactly, so this measurement was NOT one of the ones the 1,000-row
+truncation invalidated — it was taken from a standalone dump, not through the
+app's PostgREST path. (Under truncation it would have read 34 raw to 4.)
+
+Two clarifications the original wording needed:
+
+- **"Raw" means candidates matched on exact street AND exact house number** —
+  1,102 Voice addresses, of which 65 have no exactly-matching file row. Without
+  that definition the claim is not reproducible; only this one reading gives 65.
+- **49 rows are suppressed, and the check on them is address-level, not
+  household-level.** All 49 do have a file row at the same house number — 20 via
+  a street-spelling variant (`10 Shenendoah Dr`, `4 Hazelwood Court`,
+  `580 VINE ST`, `139 CLEARMONT CT`), 29 via the unit letter alone (`105A CANARY
+  DR` against the file's `105`, and nineteen Rena Ln basements). But **26 of the
+  49 carry a different surname** — our `26A EAGLE LN GOLDNER` against the file's
+  `26 Eagle Ln Daniel h Miara`, our `55A CANARY DR Pruzansky` against
+  `55 CANARY DR Family Rubin`. Under Ari's address-only rule suppressing them is
+  correct behaviour, but "every one was checked to be a real household" was never
+  established for those 26. What was verified is that the address appears.
+
+Confirmed still working: `207 CAROL ST` is not suppressed by `207 CAREY ST` —
+five-character base, two edits, below the eight-character threshold.
+
+### Commercial drops are cancelled like anyone else (Ari, 2026-08-30)
+
+Asked directly whether the businesses on the round should be protected from a
+roster import, Ari: *"the commercial stops should get cancelled if they're not
+listed"*. The publication's list wins here too — a business absent from The
+Voice's roster stops getting The Voice, exactly as a household would.
+
+**This reverses the premise `roster_managed` was added on.** The column and its
+comment in `20260827030000_undoable_imports.sql` argue the opposite — that a
+subscriber export will never name Silvino's Auto or Leisure Chateau, so reading
+their absence as a cancellation is the silent-deletion failure the import path
+exists to prevent. That reasoning is superseded. Do not "fix" the guard back on.
+
+Nothing needs building: `roster_managed` is `true` on all 2,623 stops, so
+`planRosterRemovals`' `if (stop.rosterManaged === false) continue` never fires
+and the behaviour is already what Ari wants. Leave the column in place — it is a
+per-stop override for a drop that genuinely must survive a roster, and there is
+no such drop today.
+
+The 14 commercial-looking stops, checked 2026-08-30: `109 CLAIRE DR` (YESHIVA),
+`107` and `109 HADASSAH LN` (Yeshiva Gedola of Monmouth, no Voice), and eight on
+River Ave — Leisure Chateau ×5 at 962, Styled Child and Wig Authorities at 916,
+Princeton Dineros at 900, Ocean Dental at 838, Lipa's Auto at 227, Silvino's Auto
+at 203. Removal is per-publication, so a Voice import leaves their BP, Shopper
+and Lakewood Courier deliveries untouched.
+
+**But a whole-address removal only stops one line of several.**
+`planRosterRemovals` dedupes on `street|houseNumber` (`seen.add(key)`) and sets
+`stopId` to the first stop it met at that address, so an address holding several
+lines yields one removal row. Measured on the six commercial addresses the 27 Aug
+roster does not list: 11 Voice lines exist, 6 would be removed, **5 keep
+delivering** — four of Leisure Chateau's five copies, and one of the two
+businesses at 916 River Ave. Ari's rule means all copies, so this needs fixing
+before a roster removal is trusted to cancel anything. It is not specific to
+commercial stops: any address with two households absent from the file loses
+only one of them.
 
 ### Three runs a week, each with a different mix (Ari, 2026-08-28)
 
