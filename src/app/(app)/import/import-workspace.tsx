@@ -98,6 +98,10 @@ export function ImportWorkspace({
     [rows, showSettled],
   );
   const readyCount = included.filter((row) => row.status === "ready").length;
+  // Serialised once per change rather than once per render. Unmemoised this ran
+  // on every keystroke and every checkbox tick, and React then rewrote the whole
+  // string onto the DOM node each time.
+  const planJson = useMemo(() => JSON.stringify(included), [included]);
   // From the server's summary: the browser is only sent actionable rows plus a
   // small sample, so counting what is on screen would understate the file.
   const summary = planState.summary;
@@ -405,10 +409,22 @@ export function ImportWorkspace({
                         <StatusPill status={row.status} />
                         <span className="ml-2">{row.message}</span>
 
+                        {/* A row that needs a choice must always offer one. It
+                            used to render this only for two or more candidates,
+                            so the 28 rows reading "the street is spelled
+                            differently" showed an amber "Needs a choice", no
+                            dropdown, and a disabled checkbox -- a dead end the
+                            office could only scroll past. A single candidate is
+                            still a decision: is this our street or not? */}
                         {row.candidates.length > 1 ||
-                        (row.candidates.length > 0 && row.newStop) ? (
+                        (row.candidates.length > 0 &&
+                          (row.newStop || row.status === "needs_choice")) ? (
                           <select
-                            value={row.stopId ?? (row.status === "needs_choice" ? "" : "new")}
+                            value={
+                              row.status === "needs_choice"
+                                ? ""
+                                : (row.stopId ?? "new")
+                            }
                             onChange={(event) => chooseTarget(row, event.target.value)}
                             className="mt-2 block w-full rounded-lg border border-black/15 px-2 py-1 text-sm dark:border-white/20 dark:bg-black"
                           >
@@ -470,7 +486,7 @@ export function ImportWorkspace({
           </div>
 
           <form action={applyAction} className="mt-4 flex flex-wrap items-center gap-3">
-            <input type="hidden" name="plan" value={JSON.stringify(included)} />
+            <input type="hidden" name="plan" value={planJson} />
             {/* Carried through so the run is identifiable on the undo list --
                 "roster.xlsm · The Voice · 111 changes" rather than a bare id. */}
             <input type="hidden" name="fileName" value={planState.fileName ?? ""} />

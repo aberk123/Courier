@@ -21,6 +21,7 @@ import {
   buildStreetZoneMap,
   normalizeStreet,
   normalizeHouseNumber,
+  type ExistingStop,
 } from "./match.ts";
 import { rowsFromGrid, splitAddress } from "./parse.ts";
 
@@ -327,4 +328,33 @@ test("an address that already has the publication reports no change, not a failu
   assert.equal(plan.status, "no_change");
   assert.match(plan.message, /already gets The Voice/);
   assert.equal(plan.stopId, "s1");
+});
+
+test("a street we do not deliver names what it nearly matched, and does not claim they are one street", () => {
+  // Measured on the real Voice roster: CHERRY ST -> HENRY ST, TEABERRY CT ->
+  // NEWBERRY CT, WALTER DR -> WALKER DR. That last pair differs by one letter,
+  // and both are plausible road names. The old wording, "the street is spelled
+  // differently from ours", told the office they were the same street, which
+  // would put a Cherry St subscriber's paper on Henry St and mark the real one
+  // handled. It has to state the finding and ask.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Weiss", houseNumber: "4",
+      street: "WALKER DR", floorSide: null, publicationIds: [] },
+  ];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const row = rowsFromGrid(
+    [["customers.last_name", "addresses.addr"], ["Gittel David", "4 Walter Dr"]],
+    { defaultAction: "add" },
+  )[0];
+  row.publication = "voice";
+  const plan = planRow(row, stops, pubs, buildStreetZoneMap(stops));
+
+  assert.equal(plan.status, "needs_choice");
+  assert.match(plan.message, /WALTER DR is not one of our streets/);
+  assert.match(plan.message, /closest we deliver is WALKER DR/);
+  assert.doesNotMatch(plan.message, /spelled differently from ours/);
+  // And it must still hand over the candidate, or the review screen has nothing
+  // to offer and the row becomes unresolvable.
+  assert.equal(plan.candidates.length, 1);
+  assert.equal(plan.candidates[0].stopId, "s1");
 });
