@@ -764,7 +764,11 @@ Two consequences worth holding on to:
 
 - **The first run is the risky one.** It is a one-time reconciliation between the
   publication's billing view and Amrom's hand-maintained route sheets, which have
-  never been reconciled — 111 additions and 16 removals on the 27 Aug file. Every
+  never been reconciled — 16 removals on the 27 Aug file. (An earlier "111
+  additions" here is **invalidated**: re-derived 2026-08-30 the figure is 57, and
+  111 cannot be reproduced by any run, truncated or whole — it predates the
+  out-of-covered-stretch branch and other matcher changes, so it measured
+  something today's code no longer computes. The 16 removals do reproduce.) Every
   run after it is a week of real churn, which `docs/handoff.md` records as a
   handful of addresses.
 - **From week two the file-to-file control comes for free.** The reconciliation
@@ -810,8 +814,29 @@ real file actually contains:
 - The unit letter in either direction: we hold `105A`, the upload writes `105`.
 
 Measured on the 27 Aug Voice roster, this took candidate removals from 65 raw to
-**16**, and every one it suppressed was checked to be a real household present in
-the file under a variant spelling.
+**16**. Re-derived 2026-08-30 against the whole 2,427-address list, both numbers
+reproduce exactly, so this measurement was NOT one of the ones the 1,000-row
+truncation invalidated — it was taken from a standalone dump, not through the
+app's PostgREST path. (Under truncation it would have read 34 raw to 4.)
+
+Two clarifications the original wording needed:
+
+- **"Raw" means candidates matched on exact street AND exact house number** —
+  1,102 Voice addresses, of which 65 have no exactly-matching file row. Without
+  that definition the claim is not reproducible; only this one reading gives 65.
+- **49 rows are suppressed, and the check on them is address-level, not
+  household-level.** All 49 do have a file row at the same house number — 20 via
+  a street-spelling variant (`10 Shenendoah Dr`, `4 Hazelwood Court`,
+  `580 VINE ST`, `139 CLEARMONT CT`), 29 via the unit letter alone (`105A CANARY
+  DR` against the file's `105`, and nineteen Rena Ln basements). But **26 of the
+  49 carry a different surname** — our `26A EAGLE LN GOLDNER` against the file's
+  `26 Eagle Ln Daniel h Miara`, our `55A CANARY DR Pruzansky` against
+  `55 CANARY DR Family Rubin`. Under Ari's address-only rule suppressing them is
+  correct behaviour, but "every one was checked to be a real household" was never
+  established for those 26. What was verified is that the address appears.
+
+Confirmed still working: `207 CAROL ST` is not suppressed by `207 CAREY ST` —
+five-character base, two edits, below the eight-character threshold.
 
 ### Commercial drops are cancelled like anyone else (Ari, 2026-08-30)
 

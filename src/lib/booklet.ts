@@ -246,6 +246,7 @@ export async function getBooklet(
         .from("route_entries")
         .select(
           "sequence, kind, direction_text, stops(id, house_number, street, floor_side, special_instructions, special_instructions_2, active, stop_publications(publication_id))",
+          { count: "exact" },
         )
         .eq("zone_id", zone.id)
         .order("sequence")

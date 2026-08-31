@@ -57,6 +57,10 @@ async function loadContext() {
         .from("stops")
         .select(
           "id, zone_id, recipient_name, house_number, street, floor_side, roster_managed, stop_publications(publication_id), zones!inner(number)",
+          // Measured against a live server: this is the TOTAL matching the
+          // filter, not the size of the window, and it is correct alongside the
+          // zones!inner embed. fetchAllPages pages until it reaches it.
+          { count: "exact" },
         )
         .eq("active", true)
         .order("id")
