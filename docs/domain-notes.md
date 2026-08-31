@@ -813,6 +813,43 @@ Measured on the 27 Aug Voice roster, this took candidate removals from 65 raw to
 **16**, and every one it suppressed was checked to be a real household present in
 the file under a variant spelling.
 
+### Commercial drops are cancelled like anyone else (Ari, 2026-08-30)
+
+Asked directly whether the businesses on the round should be protected from a
+roster import, Ari: *"the commercial stops should get cancelled if they're not
+listed"*. The publication's list wins here too — a business absent from The
+Voice's roster stops getting The Voice, exactly as a household would.
+
+**This reverses the premise `roster_managed` was added on.** The column and its
+comment in `20260827030000_undoable_imports.sql` argue the opposite — that a
+subscriber export will never name Silvino's Auto or Leisure Chateau, so reading
+their absence as a cancellation is the silent-deletion failure the import path
+exists to prevent. That reasoning is superseded. Do not "fix" the guard back on.
+
+Nothing needs building: `roster_managed` is `true` on all 2,623 stops, so
+`planRosterRemovals`' `if (stop.rosterManaged === false) continue` never fires
+and the behaviour is already what Ari wants. Leave the column in place — it is a
+per-stop override for a drop that genuinely must survive a roster, and there is
+no such drop today.
+
+The 14 commercial-looking stops, checked 2026-08-30: `109 CLAIRE DR` (YESHIVA),
+`107` and `109 HADASSAH LN` (Yeshiva Gedola of Monmouth, no Voice), and eight on
+River Ave — Leisure Chateau ×5 at 962, Styled Child and Wig Authorities at 916,
+Princeton Dineros at 900, Ocean Dental at 838, Lipa's Auto at 227, Silvino's Auto
+at 203. Removal is per-publication, so a Voice import leaves their BP, Shopper
+and Lakewood Courier deliveries untouched.
+
+**But a whole-address removal only stops one line of several.**
+`planRosterRemovals` dedupes on `street|houseNumber` (`seen.add(key)`) and sets
+`stopId` to the first stop it met at that address, so an address holding several
+lines yields one removal row. Measured on the six commercial addresses the 27 Aug
+roster does not list: 11 Voice lines exist, 6 would be removed, **5 keep
+delivering** — four of Leisure Chateau's five copies, and one of the two
+businesses at 916 River Ave. Ari's rule means all copies, so this needs fixing
+before a roster removal is trusted to cancel anything. It is not specific to
+commercial stops: any address with two households absent from the file loses
+only one of them.
+
 ### Three runs a week, each with a different mix (Ari, 2026-08-28)
 
 **The drivers almost never deliver every magazine at once.** They do about three
