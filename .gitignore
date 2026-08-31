@@ -53,3 +53,13 @@ next-env.d.ts
 /.prefix/
 /.fixver/
 /.verify/
+
+# The same reasoning for import-verification harnesses. `planRoster` is pure and
+# takes plain values (src/lib/import/plan.ts), but a harness still has to sit at
+# the repo root to resolve exceljs and the src imports. The existing pattern only
+# covered booklet ones, so every import harness showed up as an untracked file
+# and the temptation was to commit it -- a checked-in harness gets trusted
+# without being re-run, which is exactly how a harness that had drifted six rows
+# from the deployed screen went unnoticed. Any root dotfile .ts/.tsx is scratch.
+/.*.ts
+/.*.tsx
