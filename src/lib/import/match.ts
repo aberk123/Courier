@@ -37,6 +37,14 @@ export type PlanRow = {
    * real Voice roster that is over a thousand rows of success filed as failure.
    */
   status: "ready" | "needs_choice" | "no_change" | "blocked";
+  /**
+   * True when the address cell itself could not be read -- "Meadowood Road 429"
+   * with the number last, a missing house number. Distinct from the rest of
+   * `blocked`, which is "this street is not on our routes", because this one the
+   * office can FIX: it is a cell in the master list, not a fact about geography.
+   * Counting them together hid 13 fixable rows inside 18,101 that are not.
+   */
+  unreadable?: boolean;
   message: string;
   candidates: Candidate[];
   /** Set for ready rows that target an existing stop. */
@@ -374,6 +382,27 @@ export function buildStopIndex(stops: ExistingStop[]): StopIndex {
  * plausible target comes back as needs_choice for the user to resolve, which is
  * what was asked for on the requirements call.
  */
+/**
+ * How many rows the file has at one address, and which of them this row is.
+ *
+ * Reconciliation is a count per address, not an identity match (Ari,
+ * 2026-08-21): *"why do we need to use surname matching? ... just match
+ * addresses. If there are two of the same address, then keep two of the same
+ * thing again in the delivery list as well."* A two-family house where the file
+ * lists one household and we deliver one paper needs no decision, and it does
+ * not matter which unit is which -- so the matcher must not ask.
+ *
+ * Without this, `planRow` sees one row and two candidate stops and can only ask
+ * "pick one". On the real 27 Aug Voice roster that was 486 of the 582 questions
+ * put to the office, none of which had an answer worth giving.
+ */
+export type RosterCount = {
+  /** File rows at this (house number, street). */
+  fileAtAddress: number;
+  /** Which of them this row is, 1-based, in file order. */
+  occurrence: number;
+};
+
 export function planRow(
   row: ParsedRow,
   stops: ExistingStop[],
@@ -387,6 +416,11 @@ export function planRow(
   streetRuling: Map<string, { ourStreet: string; ruling: StreetRuling; why: string }> = new Map(),
   /** Built once per upload by the caller; see buildStopIndex for why. */
   index: StopIndex = buildStopIndex(stops),
+  /**
+   * Set for a roster import, so an address with several households is settled by
+   * counting rather than by asking. See RosterCount.
+   */
+  rosterCount?: RosterCount,
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -403,7 +437,7 @@ export function planRow(
     floorSide: mergeFloorSides(row.floorSide, row.floorSideAlt),
   };
 
-  if (row.problem) return { ...base, message: row.problem };
+  if (row.problem) return { ...base, message: row.problem, unreadable: true };
 
   // Resolve publication (required for add/remove, optional for change)
   let publication: { id: string; code: string; name: string } | undefined;
@@ -550,6 +584,82 @@ export function planRow(
   }
 
   // action === "add"
+
+  // Counting per address, which is what Ari asked for and what the code was not
+  // doing. It applies only when the address is matched CONFIDENTLY -- exact
+  // street and house number, or a street ruling of "same". `needsPerson` means
+  // the identity itself is in doubt (a near-miss street name, a unit letter that
+  // differs, a spelling the ruling could not settle), and counting a household
+  // onto an address we are not sure of is the wrong kind of confidence.
+  if (rosterCount && publication && matches.length && !needsPerson) {
+    const atAddress =
+      index.byStreetAndHouse.get(`${normalizeStreet(matches[0].street)}|${house}`) ?? matches;
+    const withPub = atAddress.filter((stop) => stop.publicationIds.includes(publication.id));
+
+    // A house has two apartments -- an upstairs and a downstairs. More than two
+    // households at one house number is strange and gets flagged rather than
+    // acted on (Ari, 2026-08-30). A real apartment block already holding more
+    // than two lines is not strange, hence the max().
+    const capacity = Math.max(2, atAddress.length);
+    if (rosterCount.fileAtAddress > capacity) {
+      return {
+        ...base,
+        status: "needs_choice",
+        candidates,
+        message:
+          `the list has ${rosterCount.fileAtAddress} households at this address but the ` +
+          `house has ${atAddress.length} — check the list before adding`,
+      };
+    }
+
+    // The first `withPub` rows at this address are already covered. Which unit
+    // each one is does not matter and is never decided.
+    if (rosterCount.occurrence <= withPub.length) {
+      return {
+        ...base,
+        status: "no_change",
+        stopId: atAddress[0].id,
+        message:
+          rosterCount.fileAtAddress > 1
+            ? `${withPub.length} of these already get ${publication.name} — nothing to do`
+            : `already gets ${publication.name} — nothing to do`,
+      };
+    }
+
+    // Beyond that, the file wants more lines here than we deliver. Prefer
+    // attaching to a line at this address that does not yet have the
+    // publication -- that keeps the count right without inventing a door.
+    const spare = atAddress
+      .filter((stop) => !stop.publicationIds.includes(publication.id))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const wanted = rosterCount.occurrence - withPub.length - 1;
+    if (wanted < spare.length) {
+      const stop = spare[wanted];
+      return {
+        ...base,
+        status: "ready",
+        stopId: stop.id,
+        candidates,
+        message: "adding to existing address",
+      };
+    }
+
+    // Nothing spare: the file has a household we hold no line for at all, so a
+    // new line at the same address. The zone comes from the lines already there
+    // rather than from the street, because a street can span two routes.
+    return {
+      ...base,
+      status: "ready",
+      candidates,
+      newStop: {
+        ...newStopFrom(row, base, streetZones.get(street) ?? []),
+        zoneId: atAddress[0].zoneId,
+        zoneNumber: atAddress[0].zoneNumber,
+      },
+      message: `another household at this address — adding a line in zone ${atAddress[0].zoneNumber}`,
+    };
+  }
+
   if (matches.length === 1) {
     const stop = matches[0];
     if (needsPerson) {
@@ -574,11 +684,18 @@ export function planRow(
     };
   }
   if (matches.length > 1) {
+    // Reached under a roster only when `needsPerson` is set -- counting above
+    // handles a confident address match. So the reason the address is in doubt
+    // is the useful half of the message, and it used to be dropped: the office
+    // read "2 addresses match" when the real problem was that the street
+    // spelling or the unit letter could not be settled.
     return {
       ...base,
       status: "needs_choice",
       candidates,
-      message: `${matches.length} addresses match — pick one, or add it as a new address`,
+      message: needsPerson
+        ? `${needsPerson} And ${matches.length} addresses match — pick one, or add it as a new address.`
+        : `${matches.length} addresses match — pick one, or add it as a new address`,
       newStop: newStopFrom(row, base, streetZones.get(street) ?? []),
     };
   }
@@ -699,6 +816,9 @@ export function planRosterRemovals(
   const covered = (street: string) =>
     [...fileStreets.keys()].some((candidate) => sameStreetLoosely(candidate, normalizeStreet(street)));
 
+  /** Addresses already ruled on, so `covered` and the spelling scan run once each. */
+  const decided = new Map<string, boolean>();
+  /** Distinct addresses being stopped -- what removalsLookWrong is calibrated on. */
   const seen = new Set<string>();
   const out: PlanRow[] = [];
   let rowNumber = startingRowNumber;
@@ -709,12 +829,18 @@ export function planRosterRemovals(
     // Leisure Chateau -- that a subscriber export will never list. Without this
     // every roster import would propose cancelling all of them, every week.
     if (stop.rosterManaged === false) continue;
+    // One row PER LINE, not per address (Ari, 2026-08-30): *"if the address is
+    // not listed at all on the master list then all instances of the address
+    // should be removed."* This used to dedupe on the address and set stopId to
+    // the first stop it met, so 962 River Ave -- five Leisure Chateau lines --
+    // produced one removal and left four papers going out every week. `seen` is
+    // kept only to avoid repeating the two street lookups below per line.
     const key = `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`;
-    if (seen.has(key)) continue;
+    if (!decided.has(key)) {
+      decided.set(key, covered(stop.street) && !listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets));
+    }
+    if (!decided.get(key)) continue;
     seen.add(key);
-    if (!covered(stop.street)) continue;
-    if (listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets)) continue;
-
     out.push({
       rowNumber: rowNumber++,
       action: "remove",

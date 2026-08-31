@@ -21,6 +21,7 @@ import {
   buildStreetZoneMap,
   normalizeStreet,
   normalizeHouseNumber,
+  buildStopIndex,
   type ExistingStop,
 } from "./match.ts";
 import { rowsFromGrid, splitAddress } from "./parse.ts";
@@ -357,4 +358,134 @@ test("a street we do not deliver names what it nearly matched, and does not clai
   // to offer and the row becomes unresolvable.
   assert.equal(plan.candidates.length, 1);
   assert.equal(plan.candidates[0].stopId, "s1");
+});
+
+// --- Counting per address (Ari, 2026-08-21) --------------------------------
+//
+// The rule: compare how many households the roster lists at an address against
+// how many lines we deliver there. Equal -> nothing to do. More -> add that
+// many. More than the house can hold -> flag. Never decide which unit is which.
+//
+// Before this, a two-family house produced "2 addresses match -- pick one" and
+// stopped. On the real 27 Aug Voice roster that was 486 of 582 questions.
+
+const twoFamily = (): ExistingStop[] => [
+  { id: "b-upstairs", zoneId: "z1", zoneNumber: 1, recipientName: "KISS", houseNumber: "118",
+    street: "CHATEAU DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  { id: "a-basement", zoneId: "z1", zoneNumber: 1, recipientName: "BEER", houseNumber: "118",
+    street: "CHATEAU DR", floorSide: "basement", publicationIds: ["pub-v"] },
+];
+const PUBS = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+const rosterRow = (name: string, addr: string) => {
+  const row = rowsFromGrid(
+    [["customers.last_name", "addresses.addr"], [name, addr]],
+    { defaultAction: "add" },
+  )[0];
+  row.publication = "voice";
+  return row;
+};
+const plan = (stops: ExistingStop[], addr: string, count: { fileAtAddress: number; occurrence: number }) =>
+  planRow(rosterRow("Family Someone", addr), stops, PUBS, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), count);
+
+test("counting: as many households listed as we deliver is no change, and no question", () => {
+  const stops = twoFamily();
+  for (const occurrence of [1, 2]) {
+    const p = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence });
+    assert.equal(p.status, "no_change", `occurrence ${occurrence}`);
+    assert.doesNotMatch(p.message, /pick one/);
+  }
+});
+
+test("counting: one listed where we deliver two is still no change — never a guess at which", () => {
+  // 118 Chateau Dr holds upstairs KISS and basement BEER. The file naming only
+  // "Family Kiss" does not mean BEER cancelled, and it certainly does not tell
+  // us which line to touch.
+  const p = plan(twoFamily(), "118 Chateau Dr", { fileAtAddress: 1, occurrence: 1 });
+  assert.equal(p.status, "no_change");
+});
+
+test("counting: an extra household attaches to a line we already hold, rather than inventing a door", () => {
+  const stops = twoFamily();
+  stops[1].publicationIds = []; // basement does not get The Voice yet
+  const first = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence: 1 });
+  assert.equal(first.status, "no_change");
+  const second = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence: 2 });
+  assert.equal(second.status, "ready");
+  assert.equal(second.stopId, "a-basement", "attaches to the existing line lacking the publication");
+  assert.equal(second.newStop, null, "and does NOT create a second address record");
+});
+
+test("counting: a second household at a house we hold one line for adds a line in the same zone", () => {
+  const stops = [twoFamily()[0]];
+  const p = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence: 2 });
+  assert.equal(p.status, "ready");
+  assert.equal(p.stopId, null);
+  // The zone comes from the line already there, not inferred from the street --
+  // a street can span two routes.
+  assert.equal(p.newStop?.zoneId, "z1");
+});
+
+test("counting: more households than a house can hold is flagged, not applied (Ari, 2026-08-30)", () => {
+  // 10 Flannery Ave: the file lists three households at a two-apartment house.
+  // "there shouldn't be more than two to one single family house. that should
+  // be flagged."
+  const p = plan(twoFamily(), "118 Chateau Dr", { fileAtAddress: 3, occurrence: 3 });
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /3 households at this address but the house has 2/);
+});
+
+test("counting: a real apartment block holding more than two lines is not strange", () => {
+  const stops: ExistingStop[] = Array.from({ length: 5 }, (_, i) => ({
+    id: `apt${i}`, zoneId: "z5", zoneNumber: 5, recipientName: "LEISURE CHATEAU",
+    houseNumber: "962", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const p = plan(stops, "962 River Ave", { fileAtAddress: 4, occurrence: 4 });
+  assert.equal(p.status, "no_change");
+});
+
+test("counting never fires when the ADDRESS itself is in doubt", () => {
+  // WALTER DR against our WALKER DR is one edit. Counting a household onto an
+  // address we are not sure of is the wrong kind of confidence, so the near-miss
+  // still goes to a person -- and the message keeps the reason.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Weiss", houseNumber: "4",
+      street: "WALKER DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Stern", houseNumber: "4",
+      street: "WALKER DR", floorSide: "basement", publicationIds: ["pub-v"] },
+  ];
+  const p = plan(stops, "4 Walter Dr", { fileAtAddress: 1, occurrence: 1 });
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /WALTER DR is not one of our streets/);
+  assert.match(p.message, /2 addresses match/);
+});
+
+test("an address the master list does not carry loses EVERY line, not one (Ari, 2026-08-30)", () => {
+  // 962 River Ave holds five Leisure Chateau lines. Deduping on the address left
+  // four papers going out every week.
+  const stops: ExistingStop[] = Array.from({ length: 5 }, (_, i) => ({
+    id: `apt${i}`, zoneId: "z5", zoneNumber: 5, recipientName: "LEISURE CHATEAU",
+    houseNumber: "962", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  stops.push({ id: "other", zoneId: "z5", zoneNumber: 5, recipientName: "Preschel",
+    houseNumber: "809", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
+  // The roster covers River Ave, but names neither address.
+  const fileStreets = streets({ "RIVER AVE": ["611"] });
+  const removals = planRosterRemovals(stops, { id: "pub-v", name: "The Voice" }, fileStreets, 100);
+  assert.equal(removals.length, 6, "five lines at 962 plus one at 809");
+  assert.deepEqual(
+    removals.map((r) => r.stopId).sort(),
+    ["apt0", "apt1", "apt2", "apt3", "apt4", "other"],
+  );
+});
+
+test("an address cell we cannot read is marked unreadable, not filed under 'not on our routes'", () => {
+  const row = rowsFromGrid(
+    [["customers.last_name", "addresses.addr"], ["Family Klein", "Meadowood Road 429"]],
+    { defaultAction: "add" },
+  )[0];
+  row.publication = "voice";
+  const p = planRow(row, [], PUBS, new Map());
+  assert.equal(p.status, "blocked");
+  assert.equal(p.unreadable, true);
 });
