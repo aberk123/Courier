@@ -108,6 +108,7 @@ export function ImportWorkspace({
   const choiceCount = summary?.needsChoice ?? 0;
   const noChangeCount = summary?.noChange ?? 0;
   const blockedCount = summary?.blocked ?? 0;
+  const unreadableCount = summary?.unreadable ?? 0;
 
   function patchRow(rowNumber: number, patch: (row: PlanRow) => PlanRow) {
     setRows((current) =>
@@ -336,16 +337,17 @@ export function ImportWorkspace({
             <span className="text-black/60 dark:text-white/60">
               {(summary?.total ?? rows.length).toLocaleString()} rows · {readyCount} to apply
               {choiceCount ? ` · ${choiceCount} need a choice` : ""}
-              {noChangeCount ? ` · ${noChangeCount.toLocaleString()} already correct` : ""}
-              {blockedCount ? ` · ${blockedCount.toLocaleString()} not on our routes` : ""}
+              {unreadableCount ? ` · ${unreadableCount} we could not read` : ""}
             </span>
           </div>
 
-          {/* Says plainly what the big number is, so it does not read as a
-              failure. A publication's roster covers the whole town; we hold five
-              routes of about thirty. */}
-          {blockedCount || noChangeCount ? (
-            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-black/60 dark:text-white/60">
+          {/* The counts that need nothing doing live here rather than in the line
+              above, so they do not compete with the ones that need the office.
+              "Already correct" stays visible because it is the tripwire: while
+              the importer was silently reading 1,000 of 2,427 addresses it read
+              392 instead of 881, and nothing else on the screen looked wrong. */}
+          {blockedCount || noChangeCount || unreadableCount ? (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-black/55 dark:text-white/55">
               <span>
                 {noChangeCount ? (
                   <>
@@ -356,7 +358,15 @@ export function ImportWorkspace({
                 {blockedCount ? (
                   <>
                     {blockedCount.toLocaleString()} are on streets outside your five routes — the
-                    list covers all of Lakewood and you hold five of about thirty rounds.
+                    list covers all of Lakewood and you hold five of about thirty rounds.{" "}
+                  </>
+                ) : null}
+                {unreadableCount ? (
+                  <>
+                    {unreadableCount} have an address this importer cannot read — a house number at
+                    the end rather than the start, or none at all. Those are worth fixing in the
+                    master list; they are counted separately above because unlike the rest, they
+                    are not a fact about geography.
                   </>
                 ) : null}
               </span>

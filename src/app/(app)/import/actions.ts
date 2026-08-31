@@ -7,6 +7,7 @@ import { fetchAllPages } from "@/lib/fetch-all";
 import { parseCsv, rowsFromGrid, type ParsedRow } from "@/lib/import/parse";
 import {
   buildStopIndex,
+  mergeFloorSides,
   buildStreetZoneMap,
   normalizeHouseNumber,
   normalizeStreet,
@@ -16,6 +17,8 @@ import {
   ruleStreetVariants,
   type ExistingStop,
   type PlanRow,
+  type RosterGroup,
+  type RosterFileRow,
 } from "@/lib/import/match";
 
 /**
@@ -32,7 +35,10 @@ export type PlanSummary = {
   ready: number;
   needsChoice: number;
   noChange: number;
+  /** Streets that are not on any of our five routes. */
   blocked: number;
+  /** Address cells the importer could not read -- fixable in the master list. */
+  unreadable: number;
   sampled: number;
 };
 export type PlanState = {
@@ -215,9 +221,40 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
 
   // Built once, not once per row -- see buildStopIndex.
   const stopIndex = buildStopIndex(existing);
-  const rows = parsed.map((row) =>
-    planRow(row, existing, publications, streetZones, streetRuling, stopIndex),
+
+  // Every roster row at each address, grouped, so the address is settled as a
+  // whole rather than one row at a time. Only for a roster: a file with its own
+  // action column says per row what it wants. Normalising once per row here,
+  // rather than three times as before -- this file's history includes a measured
+  // 58-second matching incident.
+  const rowKeys: (string | null)[] = parsed.map((row) =>
+    row.street && row.houseNumber
+      ? `${normalizeStreet(row.street)}|${normalizeHouseNumber(row.houseNumber)}`
+      : null,
   );
+  const groups = new Map<string, RosterFileRow[]>();
+  if (rosterPublication) {
+    parsed.forEach((row, i) => {
+      const key = rowKeys[i];
+      if (!key) return;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push({
+        floorSide: mergeFloorSides(row.floorSide, row.floorSideAlt),
+        name: row.name ?? null,
+      });
+    });
+  }
+  const seenAtAddress = new Map<string, number>();
+  const rows = parsed.map((row, i) => {
+    let rosterGroup: RosterGroup | undefined;
+    const key = rowKeys[i];
+    if (rosterPublication && key) {
+      const index = seenAtAddress.get(key) ?? 0;
+      seenAtAddress.set(key, index + 1);
+      rosterGroup = { fileRows: groups.get(key) ?? [], index };
+    }
+    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup);
+  });
 
   // A roster is the whole truth for its publication, so an address it no longer
   // carries is a cancellation. Nothing in the file says so -- it has to be
@@ -236,13 +273,23 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
         .filter((stop) => stop.publicationIds.includes(chosen.id))
         .map((stop) => `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`),
     ).size;
-    const check = removalsLookWrong(removals.length, addresses);
+    // Removals are one row per LINE now, so the count fed to the guard is the
+    // distinct ADDRESSES behind them -- which is what the 5% threshold was
+    // calibrated against. Counting lines would tighten it silently.
+    const byId = new Map(existing.map((stop) => [stop.id, stop]));
+    const stopping = new Set(
+      removals
+        .map((removal) => (removal.stopId ? byId.get(removal.stopId) : undefined))
+        .filter((stop): stop is ExistingStop => Boolean(stop))
+        .map((stop) => `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`),
+    ).size;
+    const check = removalsLookWrong(stopping, addresses);
     if (check.tripped) {
       return {
         error:
-          `That list would stop ${removals.length} of ${addresses} ${chosen.name} addresses, ` +
+          `That list would stop ${stopping} of ${addresses} ${chosen.name} addresses, ` +
           `well past the ${check.limit} a normal week reaches. That is usually a partial file or ` +
-          `a column that did not line up, not ${removals.length} cancellations. Nothing has been changed — ` +
+          `a column that did not line up, not ${stopping} cancellations. Nothing has been changed — ` +
           `check the file covers all of Lakewood and re-upload.`,
         rows: null,
         fileName: file.name,
@@ -257,7 +304,10 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
     ready: rows.filter((row) => row.status === "ready").length,
     needsChoice: rows.filter((row) => row.status === "needs_choice").length,
     noChange: rows.filter((row) => row.status === "no_change").length,
-    blocked: rows.filter((row) => row.status === "blocked").length,
+    // Split out of `blocked`: an address cell the importer could not read is a
+    // thing the office can fix, unlike a street that is not on our routes.
+    blocked: rows.filter((row) => row.status === "blocked" && !row.unreadable).length,
+    unreadable: rows.filter((row) => row.unreadable).length,
     sampled: 0,
   };
 

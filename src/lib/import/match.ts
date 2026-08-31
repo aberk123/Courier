@@ -37,6 +37,14 @@ export type PlanRow = {
    * real Voice roster that is over a thousand rows of success filed as failure.
    */
   status: "ready" | "needs_choice" | "no_change" | "blocked";
+  /**
+   * True when the address cell itself could not be read -- "Meadowood Road 429"
+   * with the number last, a missing house number. Distinct from the rest of
+   * `blocked`, which is "this street is not on our routes", because this one the
+   * office can FIX: it is a cell in the master list, not a fact about geography.
+   * Counting them together hid 13 fixable rows inside 18,101 that are not.
+   */
+  unreadable?: boolean;
   message: string;
   candidates: Candidate[];
   /** Set for ready rows that target an existing stop. */
@@ -374,6 +382,259 @@ export function buildStopIndex(stops: ExistingStop[]): StopIndex {
  * plausible target comes back as needs_choice for the user to resolve, which is
  * what was asked for on the requirements call.
  */
+/** One roster row at an address, reduced to what settling it needs. */
+export type RosterFileRow = { floorSide: string | null; name: string | null };
+
+/** What settleAddress decided for one roster row. */
+export type AddressOutcome =
+  | { kind: "no_change"; stopId: string }
+  | { kind: "attach"; stopId: string }
+  | { kind: "create"; floorSide: string | null }
+  | { kind: "ask"; reason: string };
+
+/** Compares a floor label from either side on the same footing. */
+const doorOf = (value: string | null) =>
+  normalizeFloorSide(value ?? "") ?? (value ? value.trim().toLowerCase() : null) ?? null;
+
+/** Last alphabetic word of a name, which is the surname in every shape this roster uses. */
+const surnameOf = (name: string | null) => {
+  const words = (name ?? "").toLowerCase().replace(/[^a-z\s]/g, " ").trim().split(/\s+/);
+  const last = words[words.length - 1] ?? "";
+  return last === "family" || last.length < 3 ? "" : last;
+};
+
+/**
+ * Settles every roster row at ONE address together.
+ *
+ * Ari, 2026-08-21: reconciliation is a count per address, not an identity match,
+ * and no unit is ever assigned. Ari, 2026-08-31, on whether the printed floor
+ * label binds the driver: *"if the listed address has a specific door that it
+ * should go to, then the driver follows that. If there are no specific
+ * instructions, then the driver will decide where to throw it."*
+ *
+ * Those two together are the whole design. Counting decides HOW MANY papers the
+ * address gets. The stated door decides WHICH LINE each one lands on -- not as a
+ * guess about identity, but because the label is an instruction the driver obeys.
+ * So a file row naming a door is paired with the line carrying that door before
+ * anything is counted.
+ *
+ * The first version of this got that wrong. It walked rows in file order and took
+ * the first line with the publication missing, sorted by uuid. Measured on the
+ * real 27 Aug roster: ten doors the file names ended up with no paper while
+ * another door at the same house got two -- `5 GRASSMERE ST` basement LAN unserved
+ * with upstairs COHEN served twice -- and twenty new lines duplicated a door
+ * already served instead of creating the one the file asked for. Shuffling rows
+ * within an address changed the created line 94 times over five trials.
+ *
+ * Deliberately NOT decided here: which of two indistinguishable lines gets a
+ * paper. Where neither side states a door, the driver decides, so either is
+ * correct and the choice is arbitrary rather than wrong.
+ */
+export function settleAddress(
+  ourLines: ExistingStop[],
+  fileRows: RosterFileRow[],
+  publicationId: string,
+): AddressOutcome[] {
+  const out: AddressOutcome[] = new Array(fileRows.length);
+  const taken = new Set<string>();
+
+  // Settled in a canonical order, not the file's. Outcomes are written back to
+  // each row's original position, so the caller is unaffected -- but two exports
+  // of the same households in a different order now settle identically. Measured
+  // before this: reversing the file changed 71 rows' status.
+  const order = fileRows
+    .map((_, i) => i)
+    .sort((x, y) =>
+      (doorOf(fileRows[x].floorSide) ?? "~").localeCompare(doorOf(fileRows[y].floorSide) ?? "~") ||
+      (fileRows[x].name ?? "").localeCompare(fileRows[y].name ?? "") ||
+      x - y,
+    );
+
+  // A house has two apartments. More than two lines is either a real block --
+  // 419 CEDAR BRIDGE AVE carries 23 -- or a duplicate in our own records, and
+  // apartment numbers live in the instructions column which this never sees. So
+  // above two lines nothing is WRITTEN: an address already covered still reports
+  // no change, but attaching or creating goes to a person.
+  const crowded = ourLines.length > 2;
+
+  // The list naming one household twice is the unanswered copy-count question in
+  // docs/domain-notes.md -- 25 customer ids repeat across 53 surplus rows, and
+  // the count is also written into the address cell. Two rows sharing a surname
+  // with nothing to tell them apart is exactly that ambiguity, so it is asked
+  // rather than answered. Two rows naming DIFFERENT doors are distinguishable and
+  // are two households.
+  const dup = new Set<number>();
+  for (let i = 0; i < fileRows.length; i++) {
+    for (let j = i + 1; j < fileRows.length; j++) {
+      const surname = surnameOf(fileRows[i].name);
+      if (!surname || surname !== surnameOf(fileRows[j].name)) continue;
+      // Only two rows that BOTH name a door, and name different ones, are
+      // distinguishable. Testing one row's door made this asymmetric in i and j:
+      // "(none) · Ellenbogen" beside "upstairs · Family Ellenbogen" read as one
+      // household in file order and as two reversed, which flipped six rows on
+      // the real roster between a question and silently adding a line.
+      const di = doorOf(fileRows[i].floorSide);
+      const dj = doorOf(fileRows[j].floorSide);
+      if (di && dj && di !== dj) continue;
+      dup.add(i);
+      dup.add(j);
+    }
+  }
+
+  /** Lines at this address that already carry the publication. */
+  const served = ourLines.filter((line) => line.publicationIds.includes(publicationId));
+
+  const pair = (index: number, line: ExistingStop) => {
+    taken.add(line.id);
+    if (line.publicationIds.includes(publicationId)) {
+      out[index] = { kind: "no_change", stopId: line.id };
+      return;
+    }
+    if (crowded) {
+      out[index] = { kind: "ask", reason: `this address has ${ourLines.length} lines — pick which one` };
+      return;
+    }
+    // The line the file names does not carry the publication. Whether that is an
+    // ADDITION or a MOVE depends on the count, and the two rules Ari gave pull
+    // apart here. The file names the basement at 5 GRASSMERE ST; we deliver to
+    // the upstairs. Counting says one and one, nothing to do -- but then the
+    // household the file names gets nothing. Attaching says the basement should
+    // have it -- but that is two papers where the list asks for one.
+    //
+    // So it is neither: the household looks to have moved between the units, and
+    // settling it means STOPPING a delivery, which is never done silently. Where
+    // the file genuinely asks for more papers than we deliver, it is a plain
+    // addition and no one needs to be asked.
+    if (fileRows.length > served.length) {
+      out[index] = { kind: "attach", stopId: line.id };
+      return;
+    }
+    const elsewhere = served.map((line2) => doorOf(line2.floorSide) ?? "no label").join(" and ");
+    out[index] = {
+      kind: "ask",
+      reason:
+        `the list names the ${doorOf(line.floorSide) ?? "unlabelled"} unit, but the paper goes to ` +
+        `the ${elsewhere} — has this household moved? Nothing is stopped without you saying so.`,
+    };
+  };
+
+  /** Lines with the publication first, so a met count settles as "no change". */
+  const preferServed = (candidates: ExistingStop[]) =>
+    candidates.find((line) => line.publicationIds.includes(publicationId)) ?? candidates[0];
+  const free = (extra: (line: ExistingStop) => boolean) =>
+    ourLines.filter((line) => !taken.has(line.id) && extra(line));
+
+  // Pass 1: a stated door pairs with the line carrying that door. This is the
+  // pass that stops a paper landing on a door the file contradicts.
+  for (const i of order) {
+    const stated = doorOf(fileRows[i].floorSide);
+    if (!stated) continue;
+    const line = preferServed(free((candidate) => doorOf(candidate.floorSide) === stated));
+    if (line) pair(i, line);
+  }
+
+  // Pass 1b: a stated door against a line carrying NO label. An unlabelled line
+  // is not a different door -- it is no instruction at all, which is exactly the
+  // case Ari described as the driver deciding. So the file saying "upstairs"
+  // does not contradict it. Getting this wrong was the single biggest source of
+  // noise in the first version of this function: 122 of 301 spurious "has this
+  // household moved?" questions were one unlabelled line, already served,
+  // against a file row naming a door.
+  for (const i of order) {
+    if (out[i] || !doorOf(fileRows[i].floorSide)) continue;
+    const line = preferServed(free((candidate) => !doorOf(candidate.floorSide)));
+    if (line) pair(i, line);
+  }
+
+  // Pass 2: ONLY rows that stated no door. Both sides are silent, so the driver
+  // decides and either line is correct.
+  //
+  // A row that DID state a door and found neither its own door nor an unlabelled
+  // line must not be paired here -- that was the original bug in a new place: it
+  // put the paper on a door the file contradicts, and which row got mispaired
+  // depended on file order. Such a row falls through to pass 3.
+  for (const i of order) {
+    if (out[i] || doorOf(fileRows[i].floorSide)) continue;
+    const line =
+      preferServed(free((candidate) => !doorOf(candidate.floorSide))) ??
+      preferServed(free(() => true));
+    if (line) pair(i, line);
+  }
+
+  // Pass 3: everything still unsettled -- more households listed than lines held,
+  // or a stated door we hold no line for.
+  const capacity = Math.max(2, ourLines.length);
+  for (const i of order) {
+    if (out[i]) continue;
+    if (dup.has(i)) {
+      out[i] = {
+        kind: "ask",
+        reason: `the list names this household more than once at this address — one paper or two?`,
+      };
+    } else if (fileRows.length > capacity) {
+      out[i] = {
+        kind: "ask",
+        reason:
+          `the list has ${fileRows.length} households at this address but the house has ` +
+          `${ourLines.length} — check the list before adding`,
+      };
+    } else if (crowded) {
+      out[i] = { kind: "ask", reason: `this address has ${ourLines.length} lines — add this one by hand` };
+    } else if (doorOf(fileRows[i].floorSide) && served.length >= fileRows.length) {
+      // The file names a door we hold no line for, and the address already gets
+      // as many papers as the list asks for. Creating the door would send one
+      // too many; leaving it sends the paper to the wrong door. Same "moved"
+      // shape as in pair(), reached from the other side.
+      out[i] = {
+        kind: "ask",
+        reason:
+          `the list names the ${doorOf(fileRows[i].floorSide)} unit, which we have no line for, ` +
+          `and the address already gets ${served.length} — has this household moved?`,
+      };
+    } else {
+      // The stated door is carried onto the new line, because the driver follows
+      // it. Where the file states none, none is invented -- the driver decides.
+      out[i] = { kind: "create", floorSide: fileRows[i].floorSide };
+    }
+  }
+
+  // A row whose identity the list repeats never produces a WRITE. `no_change` is
+  // left alone because nothing is written and the paper is already going; every
+  // other outcome becomes a question. Letting `create` through was an asymmetry
+  // that made six rows on the real roster flip between "one paper or two?" and
+  // silently adding a line, depending on which of the two the export emitted
+  // first.
+  for (const i of dup) {
+    if (out[i].kind === "no_change") continue;
+    out[i] = {
+      kind: "ask",
+      reason: `the list names this household more than once at this address — one paper or two?`,
+    };
+  }
+  return out;
+}
+
+/**
+ * How many rows the file has at one address, and which of them this row is.
+ *
+ * Reconciliation is a count per address, not an identity match (Ari,
+ * 2026-08-21): *"why do we need to use surname matching? ... just match
+ * addresses. If there are two of the same address, then keep two of the same
+ * thing again in the delivery list as well."* A two-family house where the file
+ * lists one household and we deliver one paper needs no decision, and it does
+ * not matter which unit is which -- so the matcher must not ask.
+ *
+ * Without this, `planRow` sees one row and two candidate stops and can only ask
+ * "pick one". On the real 27 Aug Voice roster that was 486 of the 582 questions
+ * put to the office, none of which had an answer worth giving.
+ */
+export type RosterGroup = {
+  /** Every roster row at this (house number, street), in file order. */
+  fileRows: RosterFileRow[];
+  /** Which of them this row is, 0-based. */
+  index: number;
+};
+
 export function planRow(
   row: ParsedRow,
   stops: ExistingStop[],
@@ -387,6 +648,11 @@ export function planRow(
   streetRuling: Map<string, { ourStreet: string; ruling: StreetRuling; why: string }> = new Map(),
   /** Built once per upload by the caller; see buildStopIndex for why. */
   index: StopIndex = buildStopIndex(stops),
+  /**
+   * Set for a roster import: every row at this address, so the address is
+   * settled as a group rather than one row at a time. See settleAddress.
+   */
+  rosterGroup?: RosterGroup,
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -403,7 +669,7 @@ export function planRow(
     floorSide: mergeFloorSides(row.floorSide, row.floorSideAlt),
   };
 
-  if (row.problem) return { ...base, message: row.problem };
+  if (row.problem) return { ...base, message: row.problem, unreadable: true };
 
   // Resolve publication (required for add/remove, optional for change)
   let publication: { id: string; code: string; name: string } | undefined;
@@ -550,6 +816,80 @@ export function planRow(
   }
 
   // action === "add"
+
+  // Counting per address, which is what Ari asked for and what the code was not
+  // doing. It applies only when the address is matched CONFIDENTLY -- exact
+  // street and house number, or a street ruling of "same". `needsPerson` means
+  // the identity itself is in doubt (a near-miss street name, a unit letter that
+  // differs, a spelling the ruling could not settle), and counting a household
+  // onto an address we are not sure of is the wrong kind of confidence.
+  if (rosterGroup && publication && matches.length && !needsPerson) {
+    const atAddress =
+      index.byStreetAndHouse.get(`${normalizeStreet(matches[0].street)}|${house}`) ?? matches;
+    const outcome = settleAddress(atAddress, rosterGroup.fileRows, publication.id)[rosterGroup.index];
+
+    if (outcome.kind === "no_change") {
+      const covered = atAddress.filter((stop) => stop.publicationIds.includes(publication.id)).length;
+      return {
+        ...base,
+        status: "no_change",
+        stopId: outcome.stopId,
+        message:
+          rosterGroup.fileRows.length > 1
+            ? `${covered} of these already get ${publication.name} — nothing to do`
+            : `already gets ${publication.name} — nothing to do`,
+      };
+    }
+    if (outcome.kind === "attach") {
+      const stop = atAddress.find((candidate) => candidate.id === outcome.stopId)!;
+      return {
+        ...base,
+        status: "ready",
+        stopId: stop.id,
+        // Every line at the address, so the office can see WHICH door this will
+        // touch and change it. The old code offered the narrowed `candidates`,
+        // which sometimes did not even contain the stop it had chosen.
+        candidates: atAddress.map((line) => ({
+          stopId: line.id,
+          label: labelFor(line),
+          zoneNumber: line.zoneNumber,
+        })),
+        message: `adding to ${labelFor(stop)}`,
+      };
+    }
+    if (outcome.kind === "create") {
+      return {
+        ...base,
+        status: "ready",
+        candidates: atAddress.map((line) => ({
+          stopId: line.id,
+          label: labelFor(line),
+          zoneNumber: line.zoneNumber,
+        })),
+        newStop: {
+          ...newStopFrom(row, base, streetZones.get(street) ?? []),
+          zoneId: atAddress[0].zoneId,
+          zoneNumber: atAddress[0].zoneNumber,
+          floorSide: outcome.floorSide,
+        },
+        message: outcome.floorSide
+          ? `another household at this address (${outcome.floorSide}) — adding a line in zone ${atAddress[0].zoneNumber}`
+          : `another household at this address — adding a line in zone ${atAddress[0].zoneNumber}`,
+      };
+    }
+    return {
+      ...base,
+      status: "needs_choice",
+      candidates: atAddress.map((line) => ({
+        stopId: line.id,
+        label: labelFor(line),
+        zoneNumber: line.zoneNumber,
+      })),
+      message: outcome.reason,
+      newStop: newStopFrom(row, base, streetZones.get(street) ?? []),
+    };
+  }
+
   if (matches.length === 1) {
     const stop = matches[0];
     if (needsPerson) {
@@ -574,11 +914,18 @@ export function planRow(
     };
   }
   if (matches.length > 1) {
+    // Reached under a roster only when `needsPerson` is set -- counting above
+    // handles a confident address match. So the reason the address is in doubt
+    // is the useful half of the message, and it used to be dropped: the office
+    // read "2 addresses match" when the real problem was that the street
+    // spelling or the unit letter could not be settled.
     return {
       ...base,
       status: "needs_choice",
       candidates,
-      message: `${matches.length} addresses match — pick one, or add it as a new address`,
+      message: needsPerson
+        ? `${needsPerson} And ${matches.length} addresses match — pick one, or add it as a new address.`
+        : `${matches.length} addresses match — pick one, or add it as a new address`,
       newStop: newStopFrom(row, base, streetZones.get(street) ?? []),
     };
   }
@@ -699,6 +1046,9 @@ export function planRosterRemovals(
   const covered = (street: string) =>
     [...fileStreets.keys()].some((candidate) => sameStreetLoosely(candidate, normalizeStreet(street)));
 
+  /** Addresses already ruled on, so `covered` and the spelling scan run once each. */
+  const decided = new Map<string, boolean>();
+  /** Distinct addresses being stopped -- what removalsLookWrong is calibrated on. */
   const seen = new Set<string>();
   const out: PlanRow[] = [];
   let rowNumber = startingRowNumber;
@@ -709,12 +1059,18 @@ export function planRosterRemovals(
     // Leisure Chateau -- that a subscriber export will never list. Without this
     // every roster import would propose cancelling all of them, every week.
     if (stop.rosterManaged === false) continue;
+    // One row PER LINE, not per address (Ari, 2026-08-30): *"if the address is
+    // not listed at all on the master list then all instances of the address
+    // should be removed."* This used to dedupe on the address and set stopId to
+    // the first stop it met, so 962 River Ave -- five Leisure Chateau lines --
+    // produced one removal and left four papers going out every week. `seen` is
+    // kept only to avoid repeating the two street lookups below per line.
     const key = `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`;
-    if (seen.has(key)) continue;
+    if (!decided.has(key)) {
+      decided.set(key, covered(stop.street) && !listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets));
+    }
+    if (!decided.get(key)) continue;
     seen.add(key);
-    if (!covered(stop.street)) continue;
-    if (listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets)) continue;
-
     out.push({
       rowNumber: rowNumber++,
       action: "remove",

@@ -21,6 +21,8 @@ import {
   buildStreetZoneMap,
   normalizeStreet,
   normalizeHouseNumber,
+  buildStopIndex,
+  settleAddress,
   type ExistingStop,
 } from "./match.ts";
 import { rowsFromGrid, splitAddress } from "./parse.ts";
@@ -357,4 +359,379 @@ test("a street we do not deliver names what it nearly matched, and does not clai
   // to offer and the row becomes unresolvable.
   assert.equal(plan.candidates.length, 1);
   assert.equal(plan.candidates[0].stopId, "s1");
+});
+
+// --- Counting per address (Ari, 2026-08-21) --------------------------------
+//
+// The rule: compare how many households the roster lists at an address against
+// how many lines we deliver there. Equal -> nothing to do. More -> add that
+// many. More than the house can hold -> flag. Never decide which unit is which.
+//
+// Before this, a two-family house produced "2 addresses match -- pick one" and
+// stopped. On the real 27 Aug Voice roster that was 486 of 582 questions.
+
+const twoFamily = (): ExistingStop[] => [
+  { id: "b-upstairs", zoneId: "z1", zoneNumber: 1, recipientName: "KISS", houseNumber: "118",
+    street: "CHATEAU DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  { id: "a-basement", zoneId: "z1", zoneNumber: 1, recipientName: "BEER", houseNumber: "118",
+    street: "CHATEAU DR", floorSide: "basement", publicationIds: ["pub-v"] },
+];
+const PUBS = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+const rosterRow = (name: string, addr: string) => {
+  const row = rowsFromGrid(
+    [["customers.last_name", "addresses.addr"], [name, addr]],
+    { defaultAction: "add" },
+  )[0];
+  row.publication = "voice";
+  return row;
+};
+/** One roster row at `addr`, settled against `stops` alongside `others`. */
+const plan = (
+  stops: ExistingStop[],
+  addr: string,
+  count: { fileAtAddress: number; occurrence: number },
+  rows?: { floorSide: string | null; name: string | null }[],
+) => {
+  const fileRows =
+    rows ??
+    Array.from({ length: count.fileAtAddress }, (_, i) => ({
+      floorSide: null,
+      // Distinct surnames, or the duplicate-household guard fires -- which it
+      // should, and does: see the dedicated test below.
+      name: `Family ${["Aronowitz", "Bergman", "Deutsch", "Eisen"][i] ?? `Name${i}`}`,
+    }));
+  return planRow(rosterRow(fileRows[count.occurrence - 1].name ?? "Family Someone", addr), stops, PUBS,
+    buildStreetZoneMap(stops), new Map(), buildStopIndex(stops),
+    { fileRows, index: count.occurrence - 1 });
+};
+
+test("counting: as many households listed as we deliver is no change, and no question", () => {
+  const stops = twoFamily();
+  for (const occurrence of [1, 2]) {
+    const p = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence });
+    assert.equal(p.status, "no_change", `occurrence ${occurrence}`);
+    assert.doesNotMatch(p.message, /pick one/);
+  }
+});
+
+test("counting: one listed where we deliver two is still no change — never a guess at which", () => {
+  // 118 Chateau Dr holds upstairs KISS and basement BEER. The file naming only
+  // "Family Kiss" does not mean BEER cancelled, and it certainly does not tell
+  // us which line to touch.
+  const p = plan(twoFamily(), "118 Chateau Dr", { fileAtAddress: 1, occurrence: 1 });
+  assert.equal(p.status, "no_change");
+});
+
+test("counting: an extra household attaches to a line we already hold, rather than inventing a door", () => {
+  const stops = twoFamily();
+  stops[1].publicationIds = []; // basement does not get The Voice yet
+  const first = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence: 1 });
+  assert.equal(first.status, "no_change");
+  const second = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence: 2 });
+  assert.equal(second.status, "ready");
+  assert.equal(second.stopId, "a-basement", "attaches to the existing line lacking the publication");
+  assert.equal(second.newStop, null, "and does NOT create a second address record");
+});
+
+test("counting: a second household at a house we hold one line for adds a line in the same zone", () => {
+  const stops = [twoFamily()[0]];
+  const p = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence: 2 });
+  assert.equal(p.status, "ready");
+  assert.equal(p.stopId, null);
+  // The zone comes from the line already there, not inferred from the street --
+  // a street can span two routes.
+  assert.equal(p.newStop?.zoneId, "z1");
+});
+
+test("counting: more households than a house can hold is flagged, not applied (Ari, 2026-08-30)", () => {
+  // 10 Flannery Ave: the file lists three households at a two-apartment house.
+  // "there shouldn't be more than two to one single family house. that should
+  // be flagged."
+  const p = plan(twoFamily(), "118 Chateau Dr", { fileAtAddress: 3, occurrence: 3 });
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /3 households at this address but the house has 2/);
+});
+
+test("counting: a real apartment block holding more than two lines is not strange", () => {
+  const stops: ExistingStop[] = Array.from({ length: 5 }, (_, i) => ({
+    id: `apt${i}`, zoneId: "z5", zoneNumber: 5, recipientName: "LEISURE CHATEAU",
+    houseNumber: "962", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const p = plan(stops, "962 River Ave", { fileAtAddress: 4, occurrence: 4 });
+  assert.equal(p.status, "no_change");
+});
+
+test("counting never fires when the ADDRESS itself is in doubt", () => {
+  // WALTER DR against our WALKER DR is one edit. Counting a household onto an
+  // address we are not sure of is the wrong kind of confidence, so the near-miss
+  // still goes to a person -- and the message keeps the reason.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Weiss", houseNumber: "4",
+      street: "WALKER DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Stern", houseNumber: "4",
+      street: "WALKER DR", floorSide: "basement", publicationIds: ["pub-v"] },
+  ];
+  const p = plan(stops, "4 Walter Dr", { fileAtAddress: 1, occurrence: 1 });
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /WALTER DR is not one of our streets/);
+  assert.match(p.message, /2 addresses match/);
+});
+
+test("an address the master list does not carry loses EVERY line, not one (Ari, 2026-08-30)", () => {
+  // 962 River Ave holds five Leisure Chateau lines. Deduping on the address left
+  // four papers going out every week.
+  const stops: ExistingStop[] = Array.from({ length: 5 }, (_, i) => ({
+    id: `apt${i}`, zoneId: "z5", zoneNumber: 5, recipientName: "LEISURE CHATEAU",
+    houseNumber: "962", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  stops.push({ id: "other", zoneId: "z5", zoneNumber: 5, recipientName: "Preschel",
+    houseNumber: "809", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
+  // The roster covers River Ave, but names neither address.
+  const fileStreets = streets({ "RIVER AVE": ["611"] });
+  const removals = planRosterRemovals(stops, { id: "pub-v", name: "The Voice" }, fileStreets, 100);
+  assert.equal(removals.length, 6, "five lines at 962 plus one at 809");
+  assert.deepEqual(
+    removals.map((r) => r.stopId).sort(),
+    ["apt0", "apt1", "apt2", "apt3", "apt4", "other"],
+  );
+});
+
+test("an address cell we cannot read is marked unreadable, not filed under 'not on our routes'", () => {
+  const row = rowsFromGrid(
+    [["customers.last_name", "addresses.addr"], ["Family Klein", "Meadowood Road 429"]],
+    { defaultAction: "add" },
+  )[0];
+  row.publication = "voice";
+  const p = planRow(row, [], PUBS, new Map());
+  assert.equal(p.status, "blocked");
+  assert.equal(p.unreadable, true);
+});
+
+// --- The door the file names is the door that gets the paper ---------------
+//
+// Ari, 2026-08-31: "if the listed address has a specific door that it should go
+// to, then the driver follows that. If there are no specific instructions, then
+// the driver will decide where to throw it." So a stated door is an instruction,
+// not a hint, and pairing on it is not optional.
+
+const grassmere = (): ExistingStop[] => [
+  // uuid order deliberately puts the WRONG line first: the first version sorted
+  // spare lines by id and served upstairs while the file named the basement.
+  { id: "366ac1cf", zoneId: "z3", zoneNumber: 3, recipientName: "COHEN", houseNumber: "5",
+    street: "GRASSMERE ST", floorSide: "upstairs", publicationIds: [] },
+  { id: "40cd0f76", zoneId: "z3", zoneNumber: 3, recipientName: "LAN", houseNumber: "5",
+    street: "GRASSMERE ST", floorSide: "basement", publicationIds: [] },
+];
+
+test("a stated door pairs with that door, not with whichever line sorts first", () => {
+  const fileRows = [{ floorSide: "Basement", name: "Shani and Aaron tzvi Lan" }];
+  const p = planRow(rosterRow("Shani and Aaron tzvi Lan", "5 Grassmere St"), grassmere(), PUBS,
+    buildStreetZoneMap(grassmere()), new Map(), buildStopIndex(grassmere()), { fileRows, index: 0 });
+  assert.equal(p.status, "ready");
+  assert.equal(p.stopId, "40cd0f76", "the basement line the file names, not the upstairs one");
+});
+
+test("the chosen line is always among the candidates offered", () => {
+  // Seven ready rows on the real roster carried a stopId that was not in their
+  // own candidates, so the office could not see or correct the door.
+  const fileRows = [{ floorSide: "Basement", name: "Lan" }];
+  const p = planRow(rosterRow("Lan", "5 Grassmere St"), grassmere(), PUBS,
+    buildStreetZoneMap(grassmere()), new Map(), buildStopIndex(grassmere()), { fileRows, index: 0 });
+  assert.ok(p.candidates.some((c) => c.stopId === p.stopId), "stopId must be offered");
+  assert.equal(p.candidates.length, 2, "both doors offered so the office can switch");
+});
+
+test("a new line carries the door the file states, and never one we already serve", () => {
+  // 39 RENA LN: we hold upstairs Neumann with the paper; the file lists Neumann
+  // (upstairs) and Strickman (basement). The first version created a SECOND
+  // upstairs line and left the basement household with nothing.
+  const stops: ExistingStop[] = [
+    { id: "s-up", zoneId: "z2", zoneNumber: 2, recipientName: "Neumann", houseNumber: "39",
+      street: "RENA LN", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const fileRows = [
+    { floorSide: "Basement", name: "Family Strickman" },
+    { floorSide: "Upstairs", name: "Family Neumann" },
+  ];
+  const settled = fileRows.map((_, index) =>
+    planRow(rosterRow(fileRows[index].name, "39 Rena Ln"), stops, PUBS,
+      buildStreetZoneMap(stops), new Map(), buildStopIndex(stops), { fileRows, index }),
+  );
+  assert.equal(settled[1].status, "no_change", "the upstairs household is already served");
+  assert.equal(settled[0].status, "ready");
+  assert.equal(settled[0].newStop?.floorSide, "Basement", "the door the file asked for");
+});
+
+test("settling an address does not depend on the order rows appear in the file", () => {
+  // Shuffling rows within an address changed the created line 94 times over five
+  // trials, because occurrence indexed file order rather than matching doors.
+  const stops: ExistingStop[] = [
+    { id: "s-up", zoneId: "z2", zoneNumber: 2, recipientName: "Neumann", houseNumber: "39",
+      street: "RENA LN", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const forward = [
+    { floorSide: "Basement", name: "Family Strickman" },
+    { floorSide: "Upstairs", name: "Family Neumann" },
+  ];
+  const shape = (rows: typeof forward) =>
+    settleAddress(stops, rows, "pub-v").map((o) =>
+      o.kind === "create" ? `create:${o.floorSide}` : o.kind,
+    );
+  assert.deepEqual(shape(forward), ["create:Basement", "no_change"]);
+  assert.deepEqual(shape([...forward].reverse()), ["no_change", "create:Basement"]);
+});
+
+test("no door is ever invented — a silent file gets a silent line", () => {
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "7",
+      street: "JUNIPER LN", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const fileRows = [{ floorSide: null, name: "Klein" }, { floorSide: null, name: "Roth" }];
+  const settled = settleAddress(stops, fileRows, "pub-v");
+  const created = settled.find((o) => o.kind === "create");
+  assert.equal(created?.kind === "create" ? created.floorSide : "MISSING", null);
+});
+
+test("a house holding more than two lines is never written to blind", () => {
+  // 419 CEDAR BRIDGE AVE carries 23 deliveries and apartment numbers live in the
+  // instructions column, which the matcher does not load. So the lines are
+  // indistinguishable and choosing between them by id order is a coin toss.
+  const stops: ExistingStop[] = Array.from({ length: 5 }, (_, i) => ({
+    id: `apt${i}`, zoneId: "z1", zoneNumber: 1, recipientName: null, houseNumber: "419",
+    street: "CEDAR BRIDGE AVE", floorSide: null,
+    publicationIds: i < 2 ? ["pub-v"] : [],
+  }));
+  const fileRows = Array.from({ length: 4 }, (_, i) => ({ floorSide: null, name: `Family ${"ABCD"[i]}ronowitz` }));
+  const settled = settleAddress(stops, fileRows, "pub-v");
+  assert.equal(settled.filter((o) => o.kind === "no_change").length, 2);
+  assert.equal(settled.filter((o) => o.kind === "ask").length, 2, "the rest go to a person");
+  assert.equal(settled.filter((o) => o.kind === "attach" || o.kind === "create").length, 0);
+});
+
+test("the list naming one household twice is asked about, not counted as two", () => {
+  // 13 additions on the real roster were only this: "Ellenbogen" and "Family
+  // Ellenbogen" at one door. Whether a repeated identity means a second paper is
+  // the copy-count question in docs/domain-notes.md, still unanswered.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Ellenbogen", houseNumber: "8",
+      street: "SHENANDOAH DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Ellenbogen" },
+    { floorSide: null, name: "Family Ellenbogen" },
+  ], "pub-v");
+  assert.ok(settled.some((o) => o.kind === "ask" && /more than once/.test(o.reason)));
+  assert.equal(settled.filter((o) => o.kind === "create").length, 0, "no line is created on a surname match");
+});
+
+test("two households sharing a surname but naming different doors are two households", () => {
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Greenwald", houseNumber: "7",
+      street: "KENYON DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Greenwald", houseNumber: "7",
+      street: "KENYON DR", floorSide: "basement", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: "Upstairs", name: "Chana Greenwald" },
+    { floorSide: "Basement", name: "Family Greenwald" },
+  ], "pub-v");
+  assert.equal(settled[0].kind, "no_change");
+  assert.equal(settled[1].kind, "attach");
+});
+
+test("a household named at a door we do not serve, where a sibling door is served, is a move", () => {
+  // 5 GRASSMERE ST: the file names the basement; the paper goes upstairs. One
+  // listed, one delivered -- counting says nothing to do, and the basement gets
+  // nothing. Attaching would send two papers where the list asks for one. It is
+  // neither: it looks like a move between the units, and settling it means
+  // stopping a delivery, which is never done without a person.
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z3", zoneNumber: 3, recipientName: "COHEN", houseNumber: "5",
+      street: "GRASSMERE ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs", zoneId: "z3", zoneNumber: 3, recipientName: "LAN", houseNumber: "5",
+      street: "GRASSMERE ST", floorSide: "basement", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [{ floorSide: "Basement", name: "Lan" }], "pub-v");
+  assert.equal(settled[0].kind, "ask");
+  assert.match(settled[0].kind === "ask" ? settled[0].reason : "", /has this household moved/);
+  assert.match(settled[0].kind === "ask" ? settled[0].reason : "", /Nothing is stopped without you/);
+});
+
+test("the same door mismatch IS a plain addition when the list asks for more papers", () => {
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z3", zoneNumber: 3, recipientName: "COHEN", houseNumber: "5",
+      street: "GRASSMERE ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs", zoneId: "z3", zoneNumber: 3, recipientName: "LAN", houseNumber: "5",
+      street: "GRASSMERE ST", floorSide: "basement", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: "Upstairs", name: "Cohen" },
+    { floorSide: "Basement", name: "Lan" },
+  ], "pub-v");
+  assert.equal(settled[0].kind, "no_change");
+  assert.equal(settled[1].kind, "attach");
+});
+
+test("an unlabelled line is no instruction, not a different door", () => {
+  // 913 CLAIRE DR: one line, no floor label, already gets the paper. The file
+  // names "Upstairs". That is not a contradiction -- there is no instruction on
+  // the line, so per Ari the driver decides, and the paper already goes there.
+  // Reading it as a mismatch produced 122 spurious "has this household moved?"
+  // questions on the real roster.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z4", zoneNumber: 4, recipientName: "Pachtinger", houseNumber: "913",
+      street: "CLAIRE DR", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const settled = settleAddress(stops, [{ floorSide: "Upstairs", name: "Family Pachtinger" }], "pub-v");
+  assert.deepEqual(settled, [{ kind: "no_change", stopId: "s1" }]);
+});
+
+test("where the count is already met, the paper is credited to the line that has it", () => {
+  // 974 PRINCEWOOD AVE: two unlabelled lines, one served. The file lists one
+  // household. Pairing with the UNSERVED line would read as a move and ask a
+  // question with no answer; the count is met and nothing needs doing.
+  const stops: ExistingStop[] = [
+    { id: "a-none", zoneId: "z5", zoneNumber: 5, recipientName: null, houseNumber: "974",
+      street: "PRINCEWOOD AVE", floorSide: null, publicationIds: [] },
+    { id: "b-has", zoneId: "z5", zoneNumber: 5, recipientName: "BURSZTYN", houseNumber: "974",
+      street: "PRINCEWOOD AVE", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const settled = settleAddress(stops, [{ floorSide: null, name: "Yehoshua & Kayla BURSZTYN" }], "pub-v");
+  assert.deepEqual(settled, [{ kind: "no_change", stopId: "b-has" }]);
+});
+
+test("a genuine door contradiction still asks — both doors labelled, and they disagree", () => {
+  // The guard against the fix above going too far: where BOTH lines carry a
+  // label, an unmatched stated door really is a contradiction.
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z3", zoneNumber: 3, recipientName: "COHEN", houseNumber: "5",
+      street: "GRASSMERE ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs", zoneId: "z3", zoneNumber: 3, recipientName: "LAN", houseNumber: "5",
+      street: "GRASSMERE ST", floorSide: "basement", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [{ floorSide: "Basement", name: "Lan" }], "pub-v");
+  assert.equal(settled[0].kind, "ask");
+  assert.match(settled[0].kind === "ask" ? settled[0].reason : "", /moved/);
+});
+
+test("the duplicate check is symmetric in the two rows it compares", () => {
+  // 8 SHENANDOAH DR: "(none) · Ellenbogen" beside "upstairs · Family
+  // Ellenbogen". Testing only the first row's door made this read as one
+  // household in file order and as two reversed -- six rows on the real roster
+  // flipped between a question and silently adding a line.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Ellenbogen", houseNumber: "8",
+      street: "SHENANDOAH DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const rows = [
+    { floorSide: null, name: "Ellenbogen" },
+    { floorSide: "Upstairs", name: "Family Ellenbogen" },
+  ];
+  const kinds = (r: typeof rows) => settleAddress(stops, r, "pub-v").map((o) => o.kind).sort();
+  assert.deepEqual(kinds(rows), ["ask", "no_change"]);
+  assert.deepEqual(kinds([...rows].reverse()), ["ask", "no_change"]);
+  // And nothing is created either way -- a repeated identity never writes.
+  for (const r of [rows, [...rows].reverse()]) {
+    assert.equal(settleAddress(stops, r, "pub-v").filter((o) => o.kind === "create").length, 0);
+  }
 });
