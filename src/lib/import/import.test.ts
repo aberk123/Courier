@@ -257,7 +257,10 @@ test("an exact street match with an out-of-area house number is a decision, not 
     houseNumber: house, street, floorSide: null, publicationIds: [] as string[],
   });
   // Our Oak St is 26-110. A town-wide roster also carries Oak St in the 1400s.
-  const stops = [stop("26", "OAK ST"), stop("28", "OAK ST"), stop("110", "OAK ST")];
+  // Dense enough that 64 is genuine infill: with only 26/28/110 it would sit in
+  // an 82-wide hole, which is two blocks rather than one stretch.
+  const stops = [stop("26", "OAK ST"), stop("28", "OAK ST"), stop("60", "OAK ST"),
+    stop("66", "OAK ST"), stop("110", "OAK ST")];
   const zones = buildStreetZoneMap(stops);
   const pubs = [{ id: "V", code: "thevoice", name: "The Voice" }];
   const row = (house: string) => ({
@@ -433,12 +436,17 @@ test("counting: an extra household attaches to a line we already hold, rather th
   assert.equal(second.newStop, null, "and does NOT create a second address record");
 });
 
-test("counting: a second household at a house we hold one line for adds a line in the same zone", () => {
+test("counting: a second household at a house we hold one line for is proposed, not applied", () => {
+  // create_stop_in_route appends at max(sequence) + 1, and every production route
+  // ends with DONE at that maximum -- so applying this would print the delivery
+  // below the marker the driver stops at. It names the line to sit beside and
+  // waits for a person.
   const stops = [twoFamily()[0]];
   const p = plan(stops, "118 Chateau Dr", { fileAtAddress: 2, occurrence: 2 });
-  assert.equal(p.status, "ready");
-  assert.equal(p.stopId, null);
-  // The zone comes from the line already there, not inferred from the street --
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /add it next to/);
+  assert.match(p.message, /past DONE/);
+  // The zone still comes from the line already there, not from the street --
   // a street can span two routes.
   assert.equal(p.newStop?.zoneId, "z1");
 });
@@ -558,7 +566,9 @@ test("a new line carries the door the file states, and never one we already serv
       buildStreetZoneMap(stops), new Map(), buildStopIndex(stops), { fileRows, index }),
   );
   assert.equal(settled[1].status, "no_change", "the upstairs household is already served");
-  assert.equal(settled[0].status, "ready");
+  // Proposed rather than applied -- see the DONE-marker problem above -- but the
+  // door it carries is still the one the file asked for.
+  assert.equal(settled[0].status, "needs_choice");
   assert.equal(settled[0].newStop?.floorSide, "Basement", "the door the file asked for");
 });
 
@@ -734,4 +744,84 @@ test("the duplicate check is symmetric in the two rows it compares", () => {
   for (const r of [rows, [...rows].reverse()]) {
     assert.equal(settleAddress(stops, r, "pub-v").filter((o) => o.kind === "create").length, 0);
   }
+});
+
+// --- Coverage is a strict test; suppression stays loose --------------------
+
+test("a street the roster never names is NOT covered, even by a street one letter away", () => {
+  // RIDER ST (we deliver 20 and 30) against RIVER AVE: stripStreetSuffix gives
+  // "rider" and "river", one edit apart. The loose test is right for suppressing
+  // a removal and wrong for enabling one. Measured: this alone made all 7 of our
+  // River Ave addresses removable with no River Ave row in the file.
+  const stops: ExistingStop[] = ["203", "227", "962"].map((h) => ({
+    id: `r${h}`, zoneId: "z5", zoneNumber: 5, recipientName: `House ${h}`, houseNumber: h,
+    street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const pub = { id: "pub-v", name: "The Voice" };
+  assert.equal(planRosterRemovals(stops, pub, streets({ "RIDER ST": ["20", "30"] }), 1).length, 0);
+  // And PINE/VINE, which collides on our own streets: stripStreetSuffix makes
+  // PINE BLVD and PINE ST identical, and PINE/VINE one edit apart.
+  const pine: ExistingStop[] = ["150", "152", "270"].map((h) => ({
+    id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
+    street: "PINE ST", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  assert.equal(planRosterRemovals(pine, pub, streets({ "VINE ST": ["580", "736"] }), 1).length, 0);
+  assert.equal(planRosterRemovals(pine, pub, streets({ "PINE BLVD": ["1", "3"] }), 1).length, 0);
+  // A bare base word IS the same street, so it still counts as covered.
+  assert.equal(planRosterRemovals(pine, pub, streets({ "PINE": ["150"] }), 1).length, 2);
+});
+
+test("a new door on the other side of an all-even street is a question, not a creation", () => {
+  // 12 of the 18 brand-new doors on the 27 Aug roster were odd-side Pine St
+  // 151-233, against 21 stops all even 150-270. A single lo..hi range passed
+  // every one, because 151-233 sits inside 150-270. docs/handoff.md lists this
+  // as OPEN and says lakewood-courier-routing should place them first.
+  const stops: ExistingStop[] = ["150", "152", "198", "200", "204", "268", "270"].map((h) => ({
+    id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
+    street: "PINE ST", floorSide: null, publicationIds: [],
+  }));
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const row = (house: string) => {
+    const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Bandman", `${house} Pine St`]],
+      { defaultAction: "add" })[0];
+    r.publication = "voice";
+    return r;
+  };
+  const odd = planRow(row("233"), stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(odd.status, "needs_choice");
+  assert.match(odd.message, /every PINE ST number we deliver is even/);
+
+  // An even number in the gap between the two blocks has no neighbour either.
+  const gap = planRow(row("176"), stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(gap.status, "needs_choice");
+  assert.match(gap.message, /gap between 152 and 198/);
+
+  // Ordinary infill between two neighbours we already deliver is still an
+  // ordinary new address.
+  const infill = planRow(row("202"), stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(infill.status, "ready");
+});
+
+test("three households at a door we deliver to none of is a question", () => {
+  // 233 PINE ST has three roster rows. settleAddress is gated on holding at
+  // least one line there, so each created independently -- the "never write to
+  // more than two lines blind" rule was skipped at the address we know least
+  // about.
+  const stops: ExistingStop[] = ["150", "152"].map((h) => ({
+    id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
+    street: "PINE ST", floorSide: null, publicationIds: [],
+  }));
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Bandman", "151 Pine St"]],
+    { defaultAction: "add" })[0];
+  r.publication = "voice";
+  const fileRows = [
+    { floorSide: null, name: "Sarala Bandman" },
+    { floorSide: null, name: "Shloimy Silverstone" },
+    { floorSide: null, name: "Dovid Spitzer" },
+  ];
+  const p = planRow(r, stops, pubs, buildStreetZoneMap(stops), new Map(), buildStopIndex(stops),
+    { fileRows, index: 0 });
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /3 households at this address and we deliver to none/);
 });

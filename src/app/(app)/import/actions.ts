@@ -227,11 +227,20 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   // action column says per row what it wants. Normalising once per row here,
   // rather than three times as before -- this file's history includes a measured
   // 58-second matching incident.
-  const rowKeys: (string | null)[] = parsed.map((row) =>
-    row.street && row.houseNumber
-      ? `${normalizeStreet(row.street)}|${normalizeHouseNumber(row.houseNumber)}`
-      : null,
-  );
+  // Keyed on OUR address, not the file's spelling. ruleStreetVariants can rule
+  // two spellings the same street -- "6 Shenandoah" and "6 Shenandoah Dr" both
+  // resolve to SHENANDOAH DR -- but keying on the raw spelling put them in two
+  // groups of one, so each counted alone and both read "already gets it" while
+  // the second household got no paper. Invisible, because no_change rows are not
+  // even shipped to the browser. Eight of our addresses are reached under more
+  // than one spelling in the 27 Aug file.
+  const rowKeys: (string | null)[] = parsed.map((row) => {
+    if (!row.street || !row.houseNumber) return null;
+    const own = normalizeStreet(row.street);
+    const ruled = streetRuling.get(own);
+    const street = ruled?.ruling === "same" ? ruled.ourStreet : own;
+    return `${street}|${normalizeHouseNumber(row.houseNumber)}`;
+  });
   const groups = new Map<string, RosterFileRow[]>();
   if (rosterPublication) {
     parsed.forEach((row, i) => {
