@@ -507,13 +507,32 @@ export function settleAddress(
    */
   const usableId = (value: string | null | undefined) =>
     value && !/^zone\d*_/i.test(value) ? value : null;
+
+  /**
+   * `customers.id` is not one namespace. It is at least eight concatenated
+   * lists, and the B, C, D, E and a sequences ALL start at 1234 -- `B1234`,
+   * `C1234`, `D1234` and `E1234` are four different households at four
+   * different addresses. So "these two ids differ" is guaranteed by
+   * construction across prefixes and carries no information at all.
+   *
+   * Two ids are comparable only within one sequence. Everything else falls back
+   * to the surname, which is weaker but at least means something.
+   *
+   * This was measured after the id rule shipped to a branch: its stated evidence
+   * was "of 32 pairs sharing a surname, all 32 carry different ids", and 30 of
+   * those 32 were namespace artifacts -- 23 comparing a CRM row against the
+   * hand-appended tail block, one comparing two synthetic ids for the same
+   * household filed under two zones. The real evidence base was two pairs.
+   */
+  const prefixOf = (id: string) => (/^([^0-9]*)/.exec(id)?.[1] ?? "").toLowerCase();
+  const comparable = (a: string, b: string) => prefixOf(a) === prefixOf(b);
   const SAME_ID = "the list carries this subscription more than once at this address — two copies, or the same row twice?";
   const SAME_NAME = "the list may name this household twice at this address — one paper or two?";
   for (let i = 0; i < fileRows.length; i++) {
     for (let j = i + 1; j < fileRows.length; j++) {
       const idI = usableId(fileRows[i].externalId);
       const idJ = usableId(fileRows[j].externalId);
-      if (idI && idJ) {
+      if (idI && idJ && comparable(idI, idJ)) {
         // The publication's own subscriber ids settle it, and they are the only
         // thing that can. DIFFERENT ids are two subscriptions -- "Minna
         // Goldstone" and "Ari Goldstone" at 2 Shenandoah Drive, sequential ids
@@ -625,7 +644,29 @@ export function settleAddress(
   // depended on file order. Such a row falls through to pass 3.
   for (const i of order) {
     if (out[i] || doorOf(fileRows[i].floorSide)) continue;
+    // A served line anywhere at the address comes first, whether it carries a
+    // label or not. Looking only among unlabelled lines meant that where the one
+    // unlabelled line was UNSERVED, the labelled served line was unreachable and
+    // the row fell through to "has this household moved?" -- four rows on the 27
+    // Aug file, each one a household already getting its paper at the door its
+    // own surname is on (12 Sheraton Dr · Katz against basement/KATZ). The file
+    // states no door, so the driver decides and the served line is the answer.
+    const surname = surnameOf(fileRows[i].name);
     const line =
+      free((candidate) => candidate.publicationIds.includes(publicationId))[0] ??
+      // Where nothing else distinguishes the free lines, a line carrying this
+      // row's own surname is the better one. 4 STONEWALL CT: the file names
+      // BADOUCH with no door, and we hold basement/GEWIRTZ and upstairs/BADOUCH
+      // -- taking the first free line put BADOUCH's paper in GEWIRTZ's basement,
+      // and the label is what the driver follows.
+      //
+      // This is a TIE-BREAK among lines at an address already matched, not
+      // surname matching in the sense Ari rejected: it never decides whether an
+      // address matches, never creates or removes a line, and never changes how
+      // many papers the address gets.
+      (surname
+        ? free((candidate) => surnameOf(candidate.recipientName) === surname)[0]
+        : undefined) ??
       preferServed(free((candidate) => !doorOf(candidate.floorSide))) ??
       preferServed(free(() => true));
     if (line) pair(i, line);
@@ -1127,12 +1168,31 @@ export function planRow(
     };
   }
 
+  // A brand-new door, in range, on one route -- and still not `ready`.
+  // create_stop_in_route appends at max(sequence) + 1, which on every production
+  // route is AFTER the DONE marker the driver stops at. `1021 HEARTHSTONE DR` on
+  // the 27 Aug roster is correct infill (we hold 1020 and 1025, the range, parity
+  // and gap checks all pass) and would have been created there, printing below
+  // DONE with a record saying the subscriber is served.
+  //
+  // The second-household path was already changed for this reason; this path was
+  // missed, which made "nothing is auto-created" in docs/handoff.md false. The
+  // neighbours that name the right position are in hand -- they just have
+  // nowhere to be recorded until an unplaced-address destination exists.
+  const between = zoneCandidates.length === 1
+    ? (() => {
+        const below = [...numbersOnStreet].filter((n) => n < asNumber).sort((a, b) => b - a)[0];
+        const above = [...numbersOnStreet].filter((n) => n > asNumber).sort((a, b) => a - b)[0];
+        return below !== undefined && above !== undefined ? ` between ${below} and ${above}` : "";
+      })()
+    : "";
   return {
     ...base,
-    status: zoneCandidates.length === 1 ? "ready" : "needs_choice",
+    status: "needs_choice",
     message:
       zoneCandidates.length === 1
-        ? `new address — zone ${zoneCandidates[0].zoneNumber} (from other stops on this street)`
+        ? `new address on zone ${zoneCandidates[0].zoneNumber} — add it${between} in the route. ` +
+          `Applying it here would put it at the end, past DONE.`
         : "new address — this street spans several zones, pick one",
     newStop: newStopFrom(row, base, zoneCandidates),
   };
@@ -1208,7 +1268,7 @@ export function planRosterRemovals(
   // streets it never named.
   //
   // So: the same street, or the same base word. No edit distance.
-  const covered = (street: string) => {
+  const namesTheStreet = (street: string) => {
     const ours = normalizeStreet(street);
     const base = stripStreetSuffix(ours);
     for (const candidate of fileStreets.keys()) {
@@ -1217,6 +1277,28 @@ export function planRosterRemovals(
       // same street; a different type on the same base ("PINE BLVD" against our
       // PINE ST) is not.
       if (stripStreetSuffix(candidate) === base && (candidate === base || ours === base)) return true;
+    }
+    return false;
+  };
+
+  /**
+   * A street counts as covered only when the roster names at least one address we
+   * ACTUALLY DELIVER TO on it. Naming the street is not enough.
+   *
+   * The 27 Aug file contains exactly one River Ave row in 19,621 -- `611 River
+   * Ave`, an address we do not hold -- and that single row made the street
+   * covered, so all 7 of our River Ave addresses (12 Voice lines) became
+   * cancellations. River Ave is Route 9. Measured across every street we
+   * deliver, it is the only one where the file names none of our addresses: the
+   * next lowest is Clairmont Ct at 5 of 7, and every other street is at 88% or
+   * better. So "did they send us this street" separates cleanly on one address,
+   * and a percentage threshold is not needed.
+   */
+  const covered = (street: string) => {
+    if (!namesTheStreet(street)) return false;
+    for (const stop of stops) {
+      if (normalizeStreet(stop.street) !== normalizeStreet(street)) continue;
+      if (listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets)) return true;
     }
     return false;
   };

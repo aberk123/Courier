@@ -275,10 +275,14 @@ test("an exact street match with an out-of-area house number is a decision, not 
   // The address is still carried through, so a reviewer can accept it.
   assert.equal(far.newStop?.houseNumber, "1471");
 
-  // A gap inside the stretch we walk is still an ordinary new address.
+  // A gap inside the stretch we walk is an ordinary new address -- but still not
+  // applied, because create_stop_in_route appends past the route's DONE marker
+  // and nothing here knows where 64 belongs in the sequence.
   const inside = planRow(row("64"), stops, pubs, zones);
-  assert.equal(inside.status, "ready");
-  assert.match(inside.message, /new address/);
+  assert.equal(inside.status, "needs_choice");
+  assert.match(inside.message, /new address on zone 3/);
+  assert.match(inside.message, /add it between 60 and 66 in the route/);
+  assert.equal(inside.newStop?.houseNumber, "64");
 });
 
 test("a stop the roster does not manage is never removed by absence", () => {
@@ -291,8 +295,17 @@ test("a stop the roster does not manage is never removed by absence", () => {
   const stops = [
     stop("shop", "203", "RIVER AVE", false),
     stop("home", "611", "RIVER AVE", true),
+    // Listed in the file, so the street is genuinely covered. Without one of our
+    // own addresses appearing, absence on the street means nothing -- see
+    // covered().
+    stop("kept", "809", "RIVER AVE", true),
   ];
-  const out = planRosterRemovals(stops, { id: "V", name: "The Voice" }, streets({ "RIVER AVE": ["999"] }), 2);
+  const out = planRosterRemovals(
+    stops,
+    { id: "V", name: "The Voice" },
+    streets({ "RIVER AVE": ["809"] }),
+    2,
+  );
   assert.deepEqual(out.map((r) => r.stopId), ["home"]);
 });
 
@@ -495,10 +508,14 @@ test("an address the master list does not carry loses EVERY line, not one (Ari, 
   }));
   stops.push({ id: "other", zoneId: "z5", zoneNumber: 5, recipientName: "Preschel",
     houseNumber: "809", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
-  // The roster covers River Ave, but names neither address.
+  stops.push({ id: "listed", zoneId: "z5", zoneNumber: 5, recipientName: "Green",
+    houseNumber: "611", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
+  // The roster names 611, which we hold -- so the street really is covered and
+  // absence on it means something. Naming only an address we do NOT hold would
+  // leave the street uncovered: see the River Ave finding in covered().
   const fileStreets = streets({ "RIVER AVE": ["611"] });
   const removals = planRosterRemovals(stops, { id: "pub-v", name: "The Voice" }, fileStreets, 100);
-  assert.equal(removals.length, 6, "five lines at 962 plus one at 809");
+  assert.equal(removals.length, 6, "five lines at 962 plus one at 809; 611 is listed and kept");
   assert.deepEqual(
     removals.map((r) => r.stopId).sort(),
     ["apt0", "apt1", "apt2", "apt3", "apt4", "other"],
@@ -800,7 +817,11 @@ test("a new door on the other side of an all-even street is a question, not a cr
   // Ordinary infill between two neighbours we already deliver is still an
   // ordinary new address.
   const infill = planRow(row("202"), stops, pubs, buildStreetZoneMap(stops));
-  assert.equal(infill.status, "ready");
+  assert.equal(infill.status, "needs_choice");
+  assert.match(infill.message, /add it between 200 and 204 in the route/);
+  assert.match(infill.message, /past DONE/);
+  // The address is still carried through, so the office can accept it.
+  assert.equal(infill.newStop?.houseNumber, "202");
 });
 
 test("three households at a door we deliver to none of is a question", () => {
@@ -988,4 +1009,100 @@ test("the duplicate reason does not depend on which pair is visited last", () =>
       .map((o) => (o.kind === "ask" ? o.reason : ""))
       .sort();
   assert.deepEqual(reasons(rows), reasons([rows[2], rows[0], rows[1]]));
+});
+
+test("a subscriber id only means something within its own sequence", () => {
+  // customers.id is at least eight concatenated lists, and the B, C, D, E and a
+  // sequences ALL start at 1234: B1234, C1234, D1234 and E1234 are four
+  // different households at four different addresses. So "these ids differ" is
+  // guaranteed across prefixes and carries no information. The id rule shipped on
+  // a branch citing "32 pairs, all different ids"; 30 of those 32 were namespace
+  // artifacts and the real evidence was two pairs.
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z1", zoneNumber: 1, recipientName: "Ginsburg", houseNumber: "18",
+      street: "LONDON AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs", zoneId: "z1", zoneNumber: 1, recipientName: null, houseNumber: "18",
+      street: "LONDON AVE", floorSide: "basement", publicationIds: [] },
+  ];
+  // A CRM row and a hand-block row for one household: different prefixes, so not
+  // comparable, so the surname decides -- and it asks.
+  const across = settleAddress(stops, [
+    { floorSide: null, name: "Ginsburg", externalId: "B1663" },
+    { floorSide: null, name: "Family Ginsburg", externalId: "Zone1_31" },
+  ], "pub-v");
+  assert.ok(across.some((o) => o.kind === "ask"));
+  assert.equal(across.filter((o) => o.kind === "attach").length, 0);
+
+  // Within one sequence, two different numbers really are two subscriptions.
+  const within = settleAddress(stops, [
+    { floorSide: null, name: "Riki Teitelbaum", externalId: "C7033" },
+    { floorSide: null, name: "Shulamith Teitelbaum", externalId: "C7035" },
+  ], "pub-v");
+  assert.deepEqual(within.map((o) => o.kind).sort(), ["attach", "no_change"]);
+});
+
+test("a street counts as covered only when the file names an address we deliver to", () => {
+  // The 27 Aug file has exactly one River Ave row in 19,621 -- 611 River Ave, an
+  // address we do not hold -- and that made the street covered, so all 7 of our
+  // River Ave addresses became cancellations. River Ave is Route 9. Measured
+  // across every street we deliver it is the only one at zero: the next lowest
+  // is Clairmont Ct at 5 of 7.
+  const stops: ExistingStop[] = ["203", "227", "962"].map((h) => ({
+    id: `r${h}`, zoneId: "z5", zoneNumber: 5, recipientName: `House ${h}`, houseNumber: h,
+    street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const pub = { id: "pub-v", name: "The Voice" };
+  // Names the street, but not one address we hold: no evidence they sent it.
+  assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["611"] }), 1).length, 0);
+  // Names one we hold: now absence on the street means something.
+  assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["227"] }), 1).length, 2);
+});
+
+test("a brand-new address in range is proposed with its neighbours, never applied", () => {
+  // 1021 HEARTHSTONE DR was auto-created: range, parity and gap checks all pass
+  // rightly, and create_stop_in_route appends past DONE. "Nothing is
+  // auto-created" was true only of the second-household path.
+  const stops: ExistingStop[] = ["1020", "1025"].map((h) => ({
+    id: `h${h}`, zoneId: "z4", zoneNumber: 4, recipientName: null, houseNumber: h,
+    street: "HEARTHSTONE DR", floorSide: null, publicationIds: [],
+  }));
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Ort", "1021 Hearthstone Dr"]],
+    { defaultAction: "add" })[0];
+  r.publication = "voice";
+  const p = planRow(r, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /add it between 1020 and 1025 in the route/);
+  assert.equal(p.newStop?.houseNumber, "1021");
+});
+
+test("a household already served at the door its own name is on is not asked to move", () => {
+  // 12 Sheraton Dr · Elisheva Katz against basement/KATZ. The file states no
+  // door, the count is met, and the paper already goes to that household. Pass 2
+  // could not reach a LABELLED served line, so it fell through to "has this
+  // household moved?" -- which invites stopping a delivery that must not stop.
+  const stops: ExistingStop[] = [
+    { id: "bs", zoneId: "z2", zoneNumber: 2, recipientName: "KATZ", houseNumber: "12",
+      street: "SHERATON DR", floorSide: "basement", publicationIds: ["pub-v"] },
+    { id: "up", zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: "12",
+      street: "SHERATON DR", floorSide: null, publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [{ floorSide: null, name: "Elisheva Katz" }], "pub-v");
+  assert.deepEqual(settled, [{ kind: "no_change", stopId: "bs" }]);
+});
+
+test("where nothing else distinguishes them, the line carrying the row's surname wins", () => {
+  // 4 STONEWALL CT: the file names BADOUCH with no door; we hold
+  // basement/GEWIRTZ and upstairs/BADOUCH, neither served. Taking the first free
+  // line put BADOUCH's paper in GEWIRTZ's basement, and the label is what the
+  // driver follows. A tie-break only -- it never decides whether an address
+  // matches, and never changes how many papers the address gets.
+  const stops: ExistingStop[] = [
+    { id: "bs", zoneId: "z1", zoneNumber: 1, recipientName: "GEWIRTZ", houseNumber: "4",
+      street: "STONEWALL CT", floorSide: "basement", publicationIds: [] },
+    { id: "up", zoneId: "z1", zoneNumber: 1, recipientName: "BADOUCH", houseNumber: "4",
+      street: "STONEWALL CT", floorSide: "upstairs", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [{ floorSide: null, name: "Refoel & Karmit BADOUCH" }], "pub-v");
+  assert.deepEqual(settled, [{ kind: "attach", stopId: "up" }]);
 });
