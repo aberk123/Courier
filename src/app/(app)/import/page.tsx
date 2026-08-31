@@ -10,6 +10,20 @@ export default async function ImportPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  // Courier office only, matching Manage Users. Not a new boundary -- RLS already
+  // refuses every write a scoped staffer could attempt, and import_runs_insert
+  // fails at the first statement. The problem is upstream of the write: for a
+  // publication-scoped user `loadContext` returns only stops that already have
+  // their publication, so the whole count premise is computed from a partial
+  // list. They would work through a plausible-looking plan of hundreds of rows
+  // and then hit an opaque Postgres error with nothing applied.
+  const { data: myProfile } = await supabase
+    .from("profiles")
+    .select("is_courier_office")
+    .eq("id", user.id)
+    .single();
+  if (!myProfile?.is_courier_office) redirect("/");
+
   const [{ data: zones }, { data: publications }, { data: runs }] = await Promise.all([
     supabase.from("zones").select("id, number, name").order("number"),
     supabase.from("publications").select("id, code, name").eq("active", true).order("name"),

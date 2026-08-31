@@ -418,22 +418,29 @@ Both are worth knowing because they made that pass weaker than it looked.
   removal count carried across instead of the real 16. A stale component inside
   an otherwise correct calculation, which is harder to spot than a wrong method.
 
-- **Four things the counting rewrite did NOT fix** (deployed 2026-08-31, PR #15).
-  Named here because none changes what is applied today — nothing has been
-  applied — but all four bear on the first real apply:
+- **All four gaps the counting rewrite left are closed** (2026-08-31, PRs #17 and
+  #18). Recorded because each was found by review rather than by testing, and the
+  shape of each is worth knowing:
 
-  - **No guard on the addition side.** `removalsLookWrong` stops a run above 5% of
-    the publication's addresses; there is no equivalent for additions, so a
-    doubled or concatenated upload would propose a line at every single-line
-    address.
-  - **A publication-scoped staffer sees fewer lines**, so `settleAddress`'
-    view of an address shrinks and the same file can settle differently depending
-    on who uploads it. Untested — RLS is bypassed in every harness so far.
-  - **A new line at an address we already visit is appended to the route end**, so
-    it prints pages away from its twin. `create_stop_in_route` appends by design,
-    which is right for a genuinely new address and wrong for this case.
-  - **`applyImport` does not re-plan.** An address added by hand between review
-    and Apply is created a second time.
+  - **The addition side now has a tripwire too.** `additionsLookWrong` — floor of
+    40, else 15% of the publication's addresses. Deliberately looser than the
+    removal guard, because a wrong addition wastes a paper where a wrong deletion
+    loses a subscriber, and a publication's first run genuinely is a large
+    reconciliation. The 27 Aug roster's 20 additions sit against a limit of 165.
+  - **`/import` is courier office only**, matching Manage Users. RLS already
+    refused every write a scoped staffer could attempt, but the failure came at
+    the first statement with an opaque Postgres error — and upstream of it, their
+    `loadContext` returns only stops that already carry their publication, so the
+    whole count premise was computed from a partial list.
+  - **Nothing is auto-created.** `create_stop_in_route` appends at
+    `max(sequence) + 1`, which on every production route is *after* `DONE`. 48
+    rows would have been created in one click. A create now names the line it
+    should sit beside and waits for a person.
+  - **`applyImport` re-checks the premise, not just the ids.** Every create
+    carries `linesAtPlanTime`; apply compares it against the list it re-reads and
+    skips the row if an address gained a line in between. A create has no id to
+    validate — the address simply exists now and did not before. Two staff each
+    uploading the same roster is the same shape.
 
 - **The >1 MB import post-deploy check.** Upload and review only, do not apply.
   Needs a signed-in production session. Last item from `SETUP.md`.

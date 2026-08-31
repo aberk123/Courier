@@ -59,6 +59,14 @@ export type PlanRow = {
     street: string;
     floorSide: string | null;
     instructions: string | null;
+    /**
+     * How many lines this address already had when the plan was built. The plan
+     * round-trips through the browser and an address can be added by hand in the
+     * meantime, so applyImport compares this against the list it re-reads and
+     * skips the row if the premise moved. A create has no id to validate --
+     * the address simply exists now and did not before.
+     */
+    linesAtPlanTime?: number;
   } | null;
   instructions: string | null;
   floorSide: string | null;
@@ -892,6 +900,7 @@ export function planRow(
           zoneId: atAddress[0].zoneId,
           zoneNumber: atAddress[0].zoneNumber,
           floorSide: outcome.floorSide,
+          linesAtPlanTime: atAddress.length,
         },
         message:
           `another household at this address${outcome.floorSide ? ` (${outcome.floorSide})` : ""} — ` +
@@ -1091,6 +1100,7 @@ function newStopFrom(
     street: row.street,
     floorSide: base.floorSide,
     instructions: row.instructions,
+    linesAtPlanTime: 0,
   };
 }
 
@@ -1205,6 +1215,32 @@ export function planRosterRemovals(
  * before there is a previous file to diff against: once the database mirrors
  * last week's roster, the same check compares this week to last week for free.
  */
+/**
+ * The same tripwire on the other side of the diff.
+ *
+ * `removalsLookWrong` has guarded the deletion direction since the roster feature
+ * shipped, because a wrong deletion stops a paying subscriber silently. Additions
+ * had nothing: a doubled or concatenated upload reads every single-line address
+ * as two households. Measured on the real file concatenated with itself, the
+ * per-address settlement absorbs most of it -- 53 creates and 1,665 questions
+ * rather than ~1,100 silent lines -- but the only thing standing between a
+ * duplicated file and duplicated papers is an exact surname comparison, and
+ * docs/domain-notes.md records that the two sources spell one family differently
+ * constantly (DIAMANT/DIAMOND, NOSENCHUCK/NOSENCHUK).
+ *
+ * Deliberately looser than the removal guard: a wrong addition wastes a paper
+ * where a wrong deletion loses a subscriber, and the first run of a publication
+ * genuinely is a large reconciliation. The floor of 40 is above the 41 ready rows
+ * the 27 Aug roster produces.
+ */
+export function additionsLookWrong(
+  additions: number,
+  publicationAddresses: number,
+): { tripped: boolean; limit: number } {
+  const limit = Math.max(40, Math.round(publicationAddresses * 0.15));
+  return { tripped: additions > limit, limit };
+}
+
 export function removalsLookWrong(
   removals: number,
   publicationAddresses: number,
