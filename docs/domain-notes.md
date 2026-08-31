@@ -838,6 +838,47 @@ Two clarifications the original wording needed:
 Confirmed still working: `207 CAROL ST` is not suppressed by `207 CAREY ST` —
 five-character base, two edits, below the eight-character threshold.
 
+### The printed door is an instruction, not a hint (Ari, 2026-08-31)
+
+Asked whether the floor label the booklet prints tells the driver which door or
+whether he works it out at the house, Ari: *"if the listed address has a specific
+door that it should go to, then the driver follows that. If there are no specific
+instructions, then the driver will decide where to throw it."*
+
+This resolves an apparent conflict between two earlier records. "Match by address
+only, and count" says counting's answer to an ambiguous unit is "one line, driver
+picks the door", which reads as though the label does not matter. It does — but
+only when it is *there*. An **unlabelled** line carries no instruction, so the
+driver decides and either line is correct. A **labelled** line is an order.
+
+Three consequences, all now in `settleAddress`:
+
+- **A roster row naming a door is paired with the line carrying that door**
+  before anything is counted. Not as a guess about identity — because the label
+  is followed. Getting this wrong left ten doors the file names with no paper on
+  the 27 Aug roster while a sibling door got two.
+- **An unlabelled line is never treated as a contradiction.** 913 CLAIRE DR is one
+  line with no label, already served; the file naming "Upstairs" does not disagree
+  with it. Reading that as a mismatch produced 122 spurious "has this household
+  moved?" questions out of 301.
+- **No label is ever invented, and a new line carries the door the file stated.**
+  A silent file gets a silent line, per the existing "never invent a label" rule.
+
+**Where counting and the door disagree, nothing is written.** The list names the
+basement at `5 GRASSMERE ST`; the paper goes upstairs. Counting says one and one,
+nothing to do — and the named household gets nothing. Attaching says the basement
+should have it — and that is two papers where one is asked for. Neither is safe,
+because settling it means *stopping* a delivery. It is reported as an apparent
+move between the units and left to a person. 16 rows on the 27 Aug file.
+
+**An address holding more than two lines is never written to blind.** A house has
+two apartments; more than that is either a real block — `419 CEDAR BRIDGE AVE`
+carries 23 deliveries — or a duplicate in our own records. Apartment numbers live
+in `special_instructions`, which `loadContext` does not select, so the lines are
+indistinguishable and picking between them by id order is a coin toss. Such an
+address still reports "no change" where it is already covered, because nothing is
+written; attaching or creating goes to a person. 10 rows.
+
 ### Commercial drops are cancelled like anyone else (Ari, 2026-08-30)
 
 Asked directly whether the businesses on the round should be protected from a

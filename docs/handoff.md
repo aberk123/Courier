@@ -418,6 +418,23 @@ Both are worth knowing because they made that pass weaker than it looked.
   removal count carried across instead of the real 16. A stale component inside
   an otherwise correct calculation, which is harder to spot than a wrong method.
 
+- **Four things the counting rewrite did NOT fix** (deployed 2026-08-31, PR #15).
+  Named here because none changes what is applied today — nothing has been
+  applied — but all four bear on the first real apply:
+
+  - **No guard on the addition side.** `removalsLookWrong` stops a run above 5% of
+    the publication's addresses; there is no equivalent for additions, so a
+    doubled or concatenated upload would propose a line at every single-line
+    address.
+  - **A publication-scoped staffer sees fewer lines**, so `settleAddress`'
+    view of an address shrinks and the same file can settle differently depending
+    on who uploads it. Untested — RLS is bypassed in every harness so far.
+  - **A new line at an address we already visit is appended to the route end**, so
+    it prints pages away from its twin. `create_stop_in_route` appends by design,
+    which is right for a genuinely new address and wrong for this case.
+  - **`applyImport` does not re-plan.** An address added by hand between review
+    and Apply is created a second time.
+
 - **The >1 MB import post-deploy check.** Upload and review only, do not apply.
   Needs a signed-in production session. Last item from `SETUP.md`.
 - **Five unconfirmed courier letters** (above), before the first real print run.
