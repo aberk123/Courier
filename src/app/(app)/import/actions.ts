@@ -7,6 +7,7 @@ import { fetchAllPages } from "@/lib/fetch-all";
 import { parseCsv, rowsFromGrid, type ParsedRow } from "@/lib/import/parse";
 import {
   buildStopIndex,
+  mergeFloorSides,
   buildStreetZoneMap,
   normalizeHouseNumber,
   normalizeStreet,
@@ -16,7 +17,8 @@ import {
   ruleStreetVariants,
   type ExistingStop,
   type PlanRow,
-  type RosterCount,
+  type RosterGroup,
+  type RosterFileRow,
 } from "@/lib/import/match";
 
 /**
@@ -220,28 +222,38 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   // Built once, not once per row -- see buildStopIndex.
   const stopIndex = buildStopIndex(existing);
 
-  // How many households the roster lists at each address, and which of them each
-  // row is. Only for a roster: a file with its own action column says per row
-  // what it wants, so there is nothing to count. See RosterCount -- this is what
-  // stops the matcher asking "pick one" 486 times on a two-family house.
-  const fileAtAddress = new Map<string, number>();
+  // Every roster row at each address, grouped, so the address is settled as a
+  // whole rather than one row at a time. Only for a roster: a file with its own
+  // action column says per row what it wants. Normalising once per row here,
+  // rather than three times as before -- this file's history includes a measured
+  // 58-second matching incident.
+  const rowKeys: (string | null)[] = parsed.map((row) =>
+    row.street && row.houseNumber
+      ? `${normalizeStreet(row.street)}|${normalizeHouseNumber(row.houseNumber)}`
+      : null,
+  );
+  const groups = new Map<string, RosterFileRow[]>();
   if (rosterPublication) {
-    for (const row of parsed) {
-      if (!row.street || !row.houseNumber) continue;
-      const key = `${normalizeStreet(row.street)}|${normalizeHouseNumber(row.houseNumber)}`;
-      fileAtAddress.set(key, (fileAtAddress.get(key) ?? 0) + 1);
-    }
+    parsed.forEach((row, i) => {
+      const key = rowKeys[i];
+      if (!key) return;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push({
+        floorSide: mergeFloorSides(row.floorSide, row.floorSideAlt),
+        name: row.name ?? null,
+      });
+    });
   }
-  const occurrences = new Map<string, number>();
-  const rows = parsed.map((row) => {
-    let rosterCount: RosterCount | undefined;
-    if (rosterPublication && row.street && row.houseNumber) {
-      const key = `${normalizeStreet(row.street)}|${normalizeHouseNumber(row.houseNumber)}`;
-      const occurrence = (occurrences.get(key) ?? 0) + 1;
-      occurrences.set(key, occurrence);
-      rosterCount = { fileAtAddress: fileAtAddress.get(key) ?? 1, occurrence };
+  const seenAtAddress = new Map<string, number>();
+  const rows = parsed.map((row, i) => {
+    let rosterGroup: RosterGroup | undefined;
+    const key = rowKeys[i];
+    if (rosterPublication && key) {
+      const index = seenAtAddress.get(key) ?? 0;
+      seenAtAddress.set(key, index + 1);
+      rosterGroup = { fileRows: groups.get(key) ?? [], index };
     }
-    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterCount);
+    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup);
   });
 
   // A roster is the whole truth for its publication, so an address it no longer
