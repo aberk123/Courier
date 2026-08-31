@@ -905,16 +905,17 @@ Princeton Dineros at 900, Ocean Dental at 838, Lipa's Auto at 227, Silvino's Aut
 at 203. Removal is per-publication, so a Voice import leaves their BP, Shopper
 and Lakewood Courier deliveries untouched.
 
-**But a whole-address removal only stops one line of several.**
-`planRosterRemovals` dedupes on `street|houseNumber` (`seen.add(key)`) and sets
-`stopId` to the first stop it met at that address, so an address holding several
-lines yields one removal row. Measured on the six commercial addresses the 27 Aug
-roster does not list: 11 Voice lines exist, 6 would be removed, **5 keep
-delivering** — four of Leisure Chateau's five copies, and one of the two
-businesses at 916 River Ave. Ari's rule means all copies, so this needs fixing
-before a roster removal is trusted to cancel anything. It is not specific to
-commercial stops: any address with two households absent from the file loses
-only one of them.
+**A whole-address removal used to stop only one line of several — fixed
+2026-08-31.** `planRosterRemovals` deduped on `street|houseNumber` and set
+`stopId` to the first stop it met, so `962 RIVER AVE` — five Leisure Chateau
+lines — produced one removal and left four papers going out every week. Ari,
+2026-08-30: *"if the address is not listed at all on the master list then all
+instances of the address should be removed."* It now emits one row per line: 21
+rows across the same 16 addresses on the 27 Aug file, the five extra being four
+at 962 River Ave and one at 916. `removalsLookWrong` is still fed the distinct
+**address** count, because 5% of the publication's addresses is what that
+threshold was calibrated against; feeding it lines would have tightened it
+silently.
 
 ### Three runs a week, each with a different mix (Ari, 2026-08-28)
 

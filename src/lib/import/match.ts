@@ -383,6 +383,14 @@ export function buildStopIndex(stops: ExistingStop[]): StopIndex {
  * what was asked for on the requirements call.
  */
 /** One roster row at an address, reduced to what settling it needs. */
+/**
+ * How large a hole in a street's delivered house numbers means two separate
+ * blocks of the route rather than one stretch with a few non-subscribers in it.
+ * Zone 2's Pine St gap is 152 -> 198; Oak St is reached at five separate points
+ * in zone 3. Twelve is well above ordinary infill and well below either.
+ */
+const BLOCK_GAP = 12;
+
 export type RosterFileRow = { floorSide: string | null; name: string | null };
 
 /** What settleAddress decided for one roster row. */
@@ -858,9 +866,22 @@ export function planRow(
       };
     }
     if (outcome.kind === "create") {
+      // NOT ready. create_stop_in_route appends at max(sequence) + 1, and every
+      // production route ends with DONE / DONE! / END OF ROUTE at that maximum --
+      // so an auto-created line prints BELOW the marker the driver stops at.
+      // Measured on the 27 Aug roster: 48 rows would have been created in one
+      // click, 30 of them a second line at an address already in the sequence,
+      // where the right position is known exactly and is not the end.
+      //
+      // docs/domain-notes.md is explicit: "New addresses slot in by house
+      // number... An unconfirmed address is listed on the cover as unplaced and
+      // kept off the route pages entirely." Auto-creating was never sanctioned;
+      // it just was not caught. Until there is somewhere to put an unplaced
+      // address, the office positions it, as it does for a stop added by hand.
+      const twin = atAddress[0];
       return {
         ...base,
-        status: "ready",
+        status: "needs_choice",
         candidates: atAddress.map((line) => ({
           stopId: line.id,
           label: labelFor(line),
@@ -872,9 +893,10 @@ export function planRow(
           zoneNumber: atAddress[0].zoneNumber,
           floorSide: outcome.floorSide,
         },
-        message: outcome.floorSide
-          ? `another household at this address (${outcome.floorSide}) — adding a line in zone ${atAddress[0].zoneNumber}`
-          : `another household at this address — adding a line in zone ${atAddress[0].zoneNumber}`,
+        message:
+          `another household at this address${outcome.floorSide ? ` (${outcome.floorSide})` : ""} — ` +
+          `add it next to ${labelFor(twin)} in zone ${twin.zoneNumber}. Applying it here would ` +
+          `put it at the end of the route, past DONE.`,
       };
     }
     return {
@@ -933,6 +955,25 @@ export function planRow(
   // Brand new address: infer the zone from other stops on the same street.
   const zoneCandidates = streetZones.get(street) ?? [];
 
+  // settleAddress never sees this path, because it is gated on having at least
+  // one line at the address -- so the "never write to more than two lines blind"
+  // rule was skipped at exactly the address we know least about. Measured:
+  // 233 PINE ST has three roster rows, all unlabelled, all creating
+  // independently. A house has two apartments.
+  // Only on a street we deliver. Without the zoneCandidates guard this fired on
+  // every out-of-area apartment block in Lakewood -- 100 WHISPER VILLAGE WAY has
+  // 51 households, 325 7TH ST has 48 -- turning 1,261 rows that are simply not
+  // on our routes into questions.
+  if (rosterGroup && zoneCandidates.length && rosterGroup.fileRows.length > 2) {
+    return {
+      ...base,
+      status: "needs_choice",
+      message:
+        `the list has ${rosterGroup.fileRows.length} households at this address and we deliver to ` +
+        `none of them — check the list before adding any`,
+    };
+  }
+
   // The street name matches ours exactly, but is this the stretch we walk?
   // A town-wide roster contains the whole of a street we only cover part of:
   // OAK ST 1386-1491 against our 26-110, twelve HENRY ST numbers in the 200s
@@ -959,6 +1000,47 @@ export function planRow(
         ...base,
         status: "needs_choice",
         message: `${row.houseNumber} is outside the ${lo}–${hi} stretch of ${row.street.toUpperCase()} our routes cover — confirm it is on this route before adding it`,
+        newStop: newStopFrom(row, base, zoneCandidates),
+      };
+    }
+
+    // Inside the range is not the same as inside a delivered block. Zone 2's
+    // Pine St is 150-152 and then 198-270, all even; a global lo..hi test passes
+    // 151, 185, 201 and 233 because they sit between 150 and 270. Measured on
+    // the 27 Aug roster: 12 of the 18 brand-new doors were odd-side Pine St
+    // 151-233, marked ready. docs/handoff.md lists exactly this as OPEN and says
+    // lakewood-courier-routing should place them first.
+    //
+    // Two cheap discriminators, both from the numbers alone:
+    const sorted = [...new Set(numbersOnStreet)].sort((a, b) => a - b);
+
+    // One side of the street. Every number we deliver shares a parity and this
+    // one does not -- a new side, not infill.
+    const parities = new Set(sorted.map((n) => n % 2));
+    if (parities.size === 1 && !parities.has(asNumber % 2)) {
+      return {
+        ...base,
+        status: "needs_choice",
+        message:
+          `every ${row.street.toUpperCase()} number we deliver is ${sorted[0] % 2 === 0 ? "even" : "odd"} ` +
+          `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
+        newStop: newStopFrom(row, base, zoneCandidates),
+      };
+    }
+
+    // A gap between two blocks. The street is reached at more than one point in
+    // the route and this number falls between them, so there is no neighbour to
+    // slot it beside.
+    const below = sorted.filter((n) => n < asNumber).pop();
+    const above = sorted.find((n) => n > asNumber);
+    if (below !== undefined && above !== undefined && above - below > BLOCK_GAP) {
+      return {
+        ...base,
+        status: "needs_choice",
+        message:
+          `${row.houseNumber} falls in the gap between ${below} and ${above} on ` +
+          `${row.street.toUpperCase()} — we deliver both blocks but nothing between them, so it has ` +
+          `no position yet`,
         newStop: newStopFrom(row, base, zoneCandidates),
       };
     }
@@ -1041,10 +1123,33 @@ export function planRosterRemovals(
   fileStreets: Map<string, Set<string>>,
   startingRowNumber: number,
 ): PlanRow[] {
-  // Streets the roster covers at all -- compared loosely, so a street that only
-  // ever appears misspelled still counts as covered.
-  const covered = (street: string) =>
-    [...fileStreets.keys()].some((candidate) => sameStreetLoosely(candidate, normalizeStreet(street)));
+  // Streets the roster covers at all. STRICT on purpose, and this is the whole
+  // point: the loose test is used by listedUnderAnySpelling, where being generous
+  // SUPPRESSES a removal -- the safe direction. Reusing it here pointed the same
+  // generosity the other way, where it ENABLES removals.
+  //
+  // Measured against the real file: `sameStreetLoosely` allows one edit with no
+  // length floor, so RIDER ST (we deliver 20 and 30) marked RIVER AVE covered and
+  // all 7 of our River Ave addresses became removable with no River Ave row in
+  // the file at all. Worse on our own streets, because stripStreetSuffix makes
+  // PINE BLVD and PINE ST identical and PINE/VINE one edit apart: a file whose
+  // only Vine-family rows are spelled VINE ST -- which the real file does --
+  // marked both Pine streets covered and proposed 13 lines for removal on
+  // streets it never named.
+  //
+  // So: the same street, or the same base word. No edit distance.
+  const covered = (street: string) => {
+    const ours = normalizeStreet(street);
+    const base = stripStreetSuffix(ours);
+    for (const candidate of fileStreets.keys()) {
+      if (candidate === ours) return true;
+      // A bare base word in the file ("PONDEROSA" for our PONDEROSA DR) is the
+      // same street; a different type on the same base ("PINE BLVD" against our
+      // PINE ST) is not.
+      if (stripStreetSuffix(candidate) === base && (candidate === base || ours === base)) return true;
+    }
+    return false;
+  };
 
   /** Addresses already ruled on, so `covered` and the spelling scan run once each. */
   const decided = new Map<string, boolean>();
