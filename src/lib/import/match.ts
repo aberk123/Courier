@@ -834,15 +834,48 @@ export function planRow(
       // is a single letter. So the message states what was found and asks,
       // rather than asserting the two are one street. Never auto-applied.
       // Compared against the 71 distinct street names, not every stop.
-      matches = index.streets
+      const near = index.streets
         .filter((candidate) => editDistance(candidate, street) <= 2)
         .flatMap((candidate) => index.byStreetAndHouse.get(`${candidate}|${house}`) ?? []);
-      if (matches.length) {
-        const near = [...new Set(matches.map((stop) => stop.street.toUpperCase()))];
+
+      // A street name in the file is THAT STREET unless there is positive
+      // evidence it is a typo. Ari, 2026-08-31: "There is a Bruce St and Carol St
+      // in Lakewood. Why should we assume that's not what it is?" -- and he is
+      // right, the default was backwards. A similar name plus a house-number
+      // coincidence is not evidence: it is guaranteed by construction, because
+      // this branch only looks at house numbers we already hold.
+      //
+      // Measured on the 27 Aug roster: of the near-miss rows, exactly FOUR have
+      // the same surname at the same house number -- WINDEMERE/WINDERMERE,
+      // HAZLEWOOD/HAZELWOOD, CLEARMONT/CLAIRMONT, SHENENDOAH/SHENANDOAH, each a
+      // single-letter slip. The rest -- BRUCE ST, BARON CT, CHERRY ST, CAREY ST,
+      // MENDON DR, WALTER DR, DINA PL, JULE CT -- have none, and every one of
+      // them is a real Lakewood street we simply do not deliver.
+      //
+      // So without a surname agreeing, this is not our street at all.
+      // This branch is also reached for a street that IS ours where only the
+      // house number is new -- OAK ST 1471 against our 26-110 has no ruling
+      // either, because ruleStreetVariants only rules spellings that are NOT
+      // ours. Such a row must fall through to the range and new-address checks
+      // below, not be blocked. Only a street name we do not carry at all is
+      // decided here.
+      const weCarryTheStreet = (index.byStreet.get(street) ?? []).length > 0;
+      const key = surnameOf(row.name);
+      const named = key ? near.filter((stop) => surnameOf(stop.recipientName) === key) : [];
+      if (weCarryTheStreet) {
+        // nothing to decide here; the house-number checks below own this case
+      } else if (named.length) {
+        matches = named;
+        const where = [...new Set(named.map((stop) => stop.street.toUpperCase()))].join(" or ");
         needsPerson =
-          `${row.street.toUpperCase()} is not one of our streets. ` +
-          `The closest we deliver is ${near.join(" or ")} — the same street written ` +
-          `differently, or a different road?`;
+          `${row.street.toUpperCase()} is not one of our streets, but ${row.houseNumber} ` +
+          `${where} is, and the name matches — a slip of one or two letters?`;
+      } else {
+        return {
+          ...base,
+          status: "blocked",
+          message: `${row.street.toUpperCase()} is not on any of our routes`,
+        };
       }
     }
   }

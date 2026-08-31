@@ -349,13 +349,13 @@ test("an address that already has the publication reports no change, not a failu
   assert.equal(plan.stopId, "s1");
 });
 
-test("a street we do not deliver names what it nearly matched, and does not claim they are one street", () => {
-  // Measured on the real Voice roster: CHERRY ST -> HENRY ST, TEABERRY CT ->
-  // NEWBERRY CT, WALTER DR -> WALKER DR. That last pair differs by one letter,
-  // and both are plausible road names. The old wording, "the street is spelled
-  // differently from ours", told the office they were the same street, which
-  // would put a Cherry St subscriber's paper on Henry St and mark the real one
-  // handled. It has to state the finding and ask.
+test("a street we do not deliver is not ours, however close the name looks", () => {
+  // Ari, 2026-08-31: "There is a Bruce St and Carol St in Lakewood. Why should we
+  // assume that's not what it is?" A similar name plus a matching house number is
+  // not evidence -- the house-number match is guaranteed, because this branch only
+  // looks at numbers we already hold. WALTER DR against our WALKER DR is one
+  // letter and both are real roads. Without a surname agreeing it is simply not
+  // one of our streets.
   const stops: ExistingStop[] = [
     { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Weiss", houseNumber: "4",
       street: "WALKER DR", floorSide: null, publicationIds: [] },
@@ -368,14 +368,10 @@ test("a street we do not deliver names what it nearly matched, and does not clai
   row.publication = "voice";
   const plan = planRow(row, stops, pubs, buildStreetZoneMap(stops));
 
-  assert.equal(plan.status, "needs_choice");
-  assert.match(plan.message, /WALTER DR is not one of our streets/);
-  assert.match(plan.message, /closest we deliver is WALKER DR/);
-  assert.doesNotMatch(plan.message, /spelled differently from ours/);
-  // And it must still hand over the candidate, or the review screen has nothing
-  // to offer and the row becomes unresolvable.
-  assert.equal(plan.candidates.length, 1);
-  assert.equal(plan.candidates[0].stopId, "s1");
+  assert.equal(plan.status, "blocked");
+  assert.match(plan.message, /WALTER DR is not on any of our routes/);
+  // Gittel David is not Weiss, so there is nothing tying 4 Walter Dr to our
+  // 4 Walker Dr beyond a house number this branch was always going to find.
 });
 
 // --- Counting per address (Ari, 2026-08-21) --------------------------------
@@ -494,9 +490,10 @@ test("counting never fires when the ADDRESS itself is in doubt", () => {
       street: "WALKER DR", floorSide: "basement", publicationIds: ["pub-v"] },
   ];
   const p = plan(stops, "4 Walter Dr", { fileAtAddress: 1, occurrence: 1 });
-  assert.equal(p.status, "needs_choice");
-  assert.match(p.message, /WALTER DR is not one of our streets/);
-  assert.match(p.message, /2 addresses match/);
+  // No surname agrees, so WALTER DR is simply not one of our streets -- counting
+  // must not fire, and there is nothing for the office to decide.
+  assert.equal(p.status, "blocked");
+  assert.match(p.message, /WALTER DR is not on any of our routes/);
 });
 
 test("an address the master list does not carry loses EVERY line, not one (Ari, 2026-08-30)", () => {

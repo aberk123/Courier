@@ -838,6 +838,46 @@ Two clarifications the original wording needed:
 Confirmed still working: `207 CAROL ST` is not suppressed by `207 CAREY ST` —
 five-character base, two edits, below the eight-character threshold.
 
+### A street in the file is that street, unless something says otherwise (Ari, 2026-08-31)
+
+Ari, on being shown questions offering `SPRUCE ST` for the file's `BRUCE ST` and
+`CAROL ST` for `CAREY ST`: *"There is a Bruce St and Carol St in Lakewood. Why
+should we assume that's not what it is?"*
+
+The default was backwards. The near-miss branch offered a match on nothing but an
+edit distance of two plus a house number we already hold — and the house-number
+match is **guaranteed by construction**, because the branch only ever looks at
+numbers we hold. So a real Lakewood street we do not deliver looked exactly like a
+misspelling of one we do.
+
+**Positive evidence now means the same surname at the same house number.**
+Measured on the 27 Aug roster, exactly four rows have it, each a single-letter
+slip:
+
+| the file says | we deliver | name |
+| --- | --- | --- |
+| `31 Windemere St · Fink` | `31 WINDERMERE ST` | FINK |
+| `5 Hazlewood Ln · Ashkenazi` | `5 HAZELWOOD LN` | ASHKENAZI |
+| `139 CLEARMONT CT · Lichtman` | `139 CLAIRMONT CT` | Lichtman |
+| `10 Shenendoah Dr · Ollech` | `10 SHENANDOAH DR` | Ollech |
+
+Everything else had none: `BRUCE ST`, `BARON CT`, `CHERRY ST`, `CAREY ST`,
+`MENDON DR`, `WALTER DR`, `DINA PL`, `JULE CT`. All are real Lakewood streets we
+do not cover, and all now read as "not on any of our routes" rather than as a
+question. That took the questions from 222 to 179 and moved 43 rows into the
+bucket they belonged in.
+
+**One trap this closes.** `BRUCE ST` had a delayed failure: answer "yes, add it"
+and the address joins the route, but next week the file still spells it `BRUCE
+ST`, so `listedUnderAnySpelling` fails (`bruce`/`spruce` is two edits on a
+five-letter base, below the eight-character threshold) and the run proposes
+deleting exactly what was just added.
+
+**Not to be confused with `ruleStreetVariants`**, which handles a *suffix*
+variant — `HAZELWOOD CT` for our `HAZELWOOD LN`, `PONDEROSA` for `PONDEROSA DR` —
+and does apply overlap and range tests. That path is evidence-based already. This
+one is the base word differing, where the only real evidence is the household.
+
 ### The printed door is an instruction, not a hint (Ari, 2026-08-31)
 
 Asked whether the floor label the booklet prints tells the driver which door or
