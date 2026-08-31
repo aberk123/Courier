@@ -862,11 +862,23 @@ Measured on the 27 Aug master list: 55 of the 179 questions are "this house
 number is outside the stretch of that street our routes cover", and answering
 them once takes the weekly total to **124**.
 
-**A whole-street ruling can only apply to a street we hold nothing on.** Ruling
-the whole of VINE AVE "not ours" — because `106 Vine Avenue` is outside our
-550–736 stretch — would blank the twenty-four Vine Ave doors we do serve. Only an
-address-level ruling speaks for a street we are on, and the code enforces that
-rather than trusting the office to notice.
+**A ruling is always one address; a street-wide answer is not expressible.** It
+sounded useful and was a trap. The master list spells our Vine Ave as `VINE ST`,
+so the guard meant to protect a street we deliver on — "does `byStreet` hold this
+street?" — missed on the file's own spelling, and a street-level "not ours" sent
+five real Vine Ave rows to blocked. The same guard silently discarded every
+street-level "ours". Both defects came from defending a scope nothing created, so
+`house_number` is now `not null` and the scope is gone.
+
+**Both answers are offered, not just "no".** A single "Not ours" button made a
+mis-click a permanent, invisible refusal — and it appeared on `314 CEDAR BRIDGE
+AVE`, which this file records as a real addition. There is now an "It is ours"
+answer beside it, a list of everything answered, and a remove link on each.
+
+**Only on the out-of-stretch questions.** The wrong-side-of-the-street and
+between-blocks questions are the open routing item in `docs/handoff.md`; they need
+Amrom and `lakewood-courier-routing`, and an open question must not be closeable
+by one click. 55 rows rather than 69.
 
 Rulings are stored normalised, so one recorded against "Bruce St" also answers
 "BRUCE STREET" next week. A publication-specific ruling beats one that applies to

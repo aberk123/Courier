@@ -408,7 +408,7 @@ const BLOCK_GAP = 12;
  */
 export type AddressRuling = {
   street: string;
-  houseNumber: string | null;
+  houseNumber: string;
   publicationId: string | null;
   ruling: "not_ours" | "ours";
   note: string | null;
@@ -420,17 +420,21 @@ export type RulingIndex = Map<string, AddressRuling>;
 export function buildRulingIndex(rulings: AddressRuling[]): RulingIndex {
   const map: RulingIndex = new Map();
   for (const r of rulings) {
-    const street = normalizeStreet(r.street);
-    const house = r.houseNumber ? normalizeHouseNumber(r.houseNumber) : "";
-    map.set(`${r.publicationId ?? ""}|${street}|${house}`, r);
+    map.set(
+      `${r.publicationId ?? ""}|${normalizeStreet(r.street)}|${normalizeHouseNumber(r.houseNumber)}`,
+      r,
+    );
   }
   return map;
 }
 
 /**
- * The office's answer for this address, if they have given one. An address-level
- * ruling wins over a street-level one, and a publication-specific ruling wins
- * over one that applies to every publication.
+ * The office's answer for this address, if they have given one. A
+ * publication-specific answer beats one recorded for every publication.
+ *
+ * Deliberately address-only. A street-wide answer sounds useful and is a trap:
+ * the master list spells our Vine Ave as VINE ST, so a "not ours" recorded
+ * against the street would have blanked the twenty-four Vine Ave doors we serve.
  */
 export function rulingFor(
   index: RulingIndex,
@@ -440,12 +444,7 @@ export function rulingFor(
 ): AddressRuling | undefined {
   const st = normalizeStreet(street);
   const hn = normalizeHouseNumber(house);
-  return (
-    index.get(`${publicationId ?? ""}|${st}|${hn}`) ??
-    index.get(`|${st}|${hn}`) ??
-    (publicationId ? index.get(`${publicationId}|${st}|`) : undefined) ??
-    index.get(`|${st}|`)
-  );
+  return index.get(`${publicationId ?? ""}|${st}|${hn}`) ?? index.get(`|${st}|${hn}`);
 }
 
 export type RosterFileRow = {
@@ -854,20 +853,13 @@ export function planRow(
   // house number is outside the stretch we cover", and the answer is a fact about
   // geography that does not change week to week.
   const ruled = rulingFor(rulings, row.street, row.houseNumber, publication?.id ?? null);
-  // A WHOLE-STREET "not ours" must never apply to a street we actually deliver
-  // on: VINE AVENUE 106 is outside our 550-736 stretch, but ruling the street out
-  // would blank the twenty-four Vine Ave addresses we do serve. Only an
-  // address-level ruling can speak for a street we are on.
-  const streetIsOurs = (index.byStreet.get(street) ?? []).length > 0;
-  const applies = ruled ? Boolean(ruled.houseNumber) || !streetIsOurs : false;
-  if (applies && ruled?.ruling === "not_ours") {
+  if (ruled?.ruling === "not_ours") {
     return {
       ...base,
       status: "blocked",
       message:
-        `${row.street.toUpperCase()} is not on any of our routes` +
-        (ruled.houseNumber ? ` at ${ruled.houseNumber}` : "") +
-        ` — you told us so${ruled.note ? `: ${ruled.note}` : ""}`,
+        `${row.houseNumber} ${row.street.toUpperCase()} is not on any of our routes ` +
+        `— you told us so${ruled.note ? `: ${ruled.note}` : ""}`,
     };
   }
 
@@ -935,14 +927,25 @@ export function planRow(
       const weCarryTheStreet = (index.byStreet.get(street) ?? []).length > 0;
       const key = surnameOf(row.name);
       const named = key ? near.filter((stop) => surnameOf(stop.recipientName) === key) : [];
+      // 258 of our active stops carry no recipient name at all, 84 of them Voice
+      // lines, and docs/domain-notes.md records a blank name as normal. Where
+      // there is no name on one side or the other there is no evidence EITHER
+      // WAY, which is not the same as evidence that the streets differ -- so the
+      // question stands rather than the row being decided. It also means a future
+      // master list that renames its name column degrades into questions rather
+      // than silently sending every near-miss to "not on our routes".
+      const noEvidencePossible =
+        near.length > 0 && (!key || near.every((stop) => !surnameOf(stop.recipientName)));
       if (weCarryTheStreet) {
         // nothing to decide here; the house-number checks below own this case
-      } else if (named.length) {
-        matches = named;
-        const where = [...new Set(named.map((stop) => stop.street.toUpperCase()))].join(" or ");
-        needsPerson =
-          `${row.street.toUpperCase()} is not one of our streets, but ${row.houseNumber} ` +
-          `${where} is, and the name matches — a slip of one or two letters?`;
+      } else if (named.length || noEvidencePossible) {
+        matches = named.length ? named : near;
+        const where = [...new Set(matches.map((stop) => stop.street.toUpperCase()))].join(" or ");
+        needsPerson = named.length
+          ? `${row.street.toUpperCase()} is not one of our streets, but ${row.houseNumber} ` +
+            `${where} is, and the name matches — a slip of one or two letters?`
+          : `${row.street.toUpperCase()} is not one of our streets, and ${row.houseNumber} ` +
+            `${where} has no name to compare — is this the same street written differently?`;
       } else {
         return {
           ...base,
@@ -1205,7 +1208,7 @@ export function planRow(
     const hi = Math.max(...numbersOnStreet);
     // `ours` means the office has already confirmed this address is on the route,
     // so the geography questions below have been answered and must not recur.
-    const confirmedOurs = applies && ruled?.ruling === "ours";
+    const confirmedOurs = ruled?.ruling === "ours";
     if (!confirmedOurs && (asNumber < lo || asNumber > hi)) {
       return {
         ...base,

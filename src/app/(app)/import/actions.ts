@@ -40,7 +40,7 @@ async function loadContext() {
   // against the first 1,000 of 2,427 addresses -- see src/lib/fetch-all.ts for
   // what that did to the numbers. `.order("id")` is what makes the pages line
   // up; without a stable order they overlap and skip.
-  const [stops, { data: publications, error: pubError }, { data: zones, error: zoneError }, { data: rulings }] = await Promise.all([
+  const [stops, { data: publications, error: pubError }, { data: zones, error: zoneError }, rulings] = await Promise.all([
     fetchAllPages("addresses", (from, to) =>
       supabase
         .from("stops")
@@ -59,9 +59,19 @@ async function loadContext() {
     supabase.from("zones").select("id, number").order("number"),
     // Answers the office has already given, so the same question is not asked
     // every week. Courier-office only by RLS; a scoped staffer simply gets none.
-    supabase
-      .from("address_rulings")
-      .select("street, house_number, publication_id, ruling, note"),
+    //
+    // Paged and ordered like everything else here. This table only grows -- 69
+    // answers were available to record in week one alone -- so it crosses
+    // PostgREST's 1,000-row cap within months, after which an arbitrary and
+    // unstable subset of the office's answers would silently stop applying.
+    fetchAllPages("your recorded answers", (from, to) =>
+      supabase
+        .from("address_rulings")
+        .select("street, house_number, publication_id, ruling, note", { count: "exact" })
+        .order("street")
+        .order("house_number")
+        .range(from, to),
+    ),
   ]);
 
   if (pubError) throw new Error(`Could not read the publication list: ${pubError.message}`);
@@ -79,9 +89,9 @@ async function loadContext() {
     publicationIds: stop.stop_publications.map((sp) => sp.publication_id),
   }));
 
-  const addressRulings: AddressRuling[] = (rulings ?? []).map((r) => ({
+  const addressRulings: AddressRuling[] = rulings.map((r) => ({
     street: r.street,
-    houseNumber: r.house_number,
+    houseNumber: r.house_number ?? "",
     publicationId: r.publication_id,
     ruling: r.ruling as AddressRuling["ruling"],
     note: r.note,
@@ -432,7 +442,6 @@ export async function recordRuling(_prev: { error: string | null; saved: string 
   const street = String(formData.get("street") ?? "").trim();
   const houseNumber = String(formData.get("houseNumber") ?? "").trim();
   const ruling = String(formData.get("ruling") ?? "");
-  const scope = String(formData.get("scope") ?? "address");
   const publicationId = String(formData.get("publicationId") ?? "").trim();
 
   if (!street) return { error: "That row has no street to record.", saved: null };
@@ -446,30 +455,42 @@ export async function recordRuling(_prev: { error: string | null; saved: string 
   } = await supabase.auth.getUser();
   if (!user) return { error: "Sign in again — your session expired.", saved: null };
 
-  const { error } = await supabase.from("address_rulings").insert({
-    created_by: user.id,
-    // Stored normalised, so a ruling recorded against "Bruce St" also answers
-    // "BRUCE STREET" next week.
-    street: normalizeStreet(street),
-    house_number: scope === "street" ? null : normalizeHouseNumber(houseNumber),
-    publication_id: publicationId || null,
-    ruling,
-    note: String(formData.get("note") ?? "").trim() || null,
-  });
-  if (error) {
-    // A repeat of an answer already given is not a failure.
-    if (error.code === "23505") {
-      return { error: null, saved: `Already recorded for ${street.toUpperCase()}.` };
-    }
-    return { error: `Could not record that: ${error.message}`, saved: null };
-  }
+  if (!houseNumber) return { error: "That row has no house number to record.", saved: null };
+
+  // Upsert on the address, so changing your mind replaces the old answer rather
+  // than leaving two contradictory ones and letting row order decide.
+  const { error } = await supabase.from("address_rulings").upsert(
+    {
+      created_by: user.id,
+      // Stored normalised, so an answer recorded against "Bruce St" also answers
+      // "BRUCE STREET" next week.
+      street: normalizeStreet(street),
+      house_number: normalizeHouseNumber(houseNumber),
+      publication_id: publicationId || null,
+      ruling,
+      note: String(formData.get("note") ?? "").trim() || null,
+    },
+    { onConflict: "street,house_number,publication_id" },
+  );
+  if (error) return { error: `Could not record that: ${error.message}`, saved: null };
 
   revalidatePath("/import");
   return {
     error: null,
     saved:
       ruling === "not_ours"
-        ? `${scope === "street" ? street.toUpperCase() : `${houseNumber} ${street.toUpperCase()}`} recorded as not on our routes — we will stop asking.`
-        : `${houseNumber} ${street.toUpperCase()} recorded as on our routes.`,
+        ? `${houseNumber} ${street.toUpperCase()} recorded as not on our routes — we will stop asking.`
+        : `${houseNumber} ${street.toUpperCase()} recorded as on our routes — we will stop asking.`,
   };
+}
+
+/** Removes an answer, so the address goes back to being asked about. */
+export async function deleteRuling(_prev: { error: string | null; saved: string | null }, formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Nothing to remove.", saved: null };
+  const supabase = await createClient();
+  const { error } = await supabase.from("address_rulings").delete().eq("id", id);
+  if (error) return { error: `Could not remove that: ${error.message}`, saved: null };
+  revalidatePath("/import");
+  return { error: null, saved: "Answer removed — that address will be asked about again." };
 }

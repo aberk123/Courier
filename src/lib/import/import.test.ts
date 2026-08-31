@@ -1128,7 +1128,7 @@ test("a street the office has ruled not ours stops being a question", () => {
   const stops = oakStops();
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const rulings = buildRulingIndex([
-    { street: "Bruce St", houseNumber: null, publicationId: null, ruling: "not_ours",
+    { street: "Bruce St", houseNumber: "12", publicationId: null, ruling: "not_ours",
       note: "real street, not on our round" },
   ]);
   const p = planRow(rulingRow("12", "Bruce St"), stops, pubs, buildStreetZoneMap(stops),
@@ -1142,7 +1142,7 @@ test("a ruling is stored normalised, so next week's spelling still matches", () 
   const stops = oakStops();
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const rulings = buildRulingIndex([
-    { street: "BRUCE STREET", houseNumber: null, publicationId: null, ruling: "not_ours", note: null },
+    { street: "BRUCE STREET", houseNumber: "12", publicationId: null, ruling: "not_ours", note: null },
   ]);
   const p = planRow(rulingRow("12", "Bruce St"), stops, pubs, buildStreetZoneMap(stops),
     new Map(), buildStopIndex(stops), undefined, rulings);
@@ -1191,33 +1191,54 @@ test("a publication-specific ruling wins over one that applies to all", () => {
   assert.notEqual(p.status, "blocked");
 });
 
-test("a whole-street ruling cannot blank a street we actually deliver on", () => {
-  // 106 VINE AVENUE is outside our 550-736 stretch and asks every week. Ruling
-  // the whole of VINE AVE "not ours" would also blank the twenty-four Vine Ave
-  // addresses we do serve. Only an address-level ruling speaks for a street we
-  // are on.
+test("a ruling is always one address — a street-wide answer is not expressible", () => {
+  // The street-wide scope was written for a case nothing creates, and defending
+  // against it caused two defects: a street-level `ours` was silently discarded,
+  // and a street-level `not_ours` reached the addresses we serve whenever the
+  // master list spelled the street its own way (our Vine Ave is written VINE ST,
+  // so the "do we hold this street" test missed and five real Vine Ave rows went
+  // to blocked). Removing the scope removes both.
   const stops = oakStops();
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
-  const streetWide = buildRulingIndex([
-    { street: "OAK ST", houseNumber: null, publicationId: null, ruling: "not_ours", note: null },
-  ]);
-  const onOurStreet = planRow(rulingRow("26", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
-    new Map(), buildStopIndex(stops), undefined, streetWide);
-  assert.notEqual(onOurStreet.status, "blocked", "26 Oak St is ours and must survive");
-
-  // The same ruling on a street we hold nothing on does apply.
-  const elsewhere = buildRulingIndex([
-    { street: "BRUCE ST", houseNumber: null, publicationId: null, ruling: "not_ours", note: null },
-  ]);
-  const off = planRow(rulingRow("12", "Bruce St"), stops, pubs, buildStreetZoneMap(stops),
-    new Map(), buildStopIndex(stops), undefined, elsewhere);
-  assert.equal(off.status, "blocked");
-
-  // And an ADDRESS-level ruling still works on a street we are on.
-  const oneAddress = buildRulingIndex([
+  const forOne = buildRulingIndex([
     { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "not_ours", note: null },
   ]);
-  const single = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
-    new Map(), buildStopIndex(stops), undefined, oneAddress);
-  assert.equal(single.status, "blocked");
+  const ruled = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, forOne);
+  assert.equal(ruled.status, "blocked");
+
+  // Every other door on that street is untouched -- the 26 Oak St we deliver to,
+  // and any other number the master list carries.
+  for (const house of ["26", "1490"]) {
+    const other = planRow(rulingRow(house, "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+      new Map(), buildStopIndex(stops), undefined, forOne);
+    assert.notEqual(other.status, "blocked", `${house} Oak St must survive`);
+  }
+});
+
+test("a near-miss with no name on either side stays a question, not a decision", () => {
+  // 258 of our active stops have no recipient name, 84 of them Voice lines, and
+  // a blank name is recorded as normal on this data. No name is no evidence
+  // EITHER WAY -- which is not the same as evidence the streets differ.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: null, houseNumber: "207",
+      street: "CAROL ST", floorSide: null, publicationIds: [] },
+  ];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Ort", "207 Carel St"]],
+    { defaultAction: "add" })[0];
+  r.publication = "voice";
+  const p = planRow(r, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /has no name to compare/);
+
+  // But a name on both sides that DISAGREES is still evidence, and still decides.
+  const named: ExistingStop[] = [
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Weiss", houseNumber: "4",
+      street: "WALKER DR", floorSide: null, publicationIds: [] },
+  ];
+  const r2 = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Gittel David", "4 Walter Dr"]],
+    { defaultAction: "add" })[0];
+  r2.publication = "voice";
+  assert.equal(planRow(r2, named, pubs, buildStreetZoneMap(named)).status, "blocked");
 });
