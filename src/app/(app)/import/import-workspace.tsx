@@ -5,7 +5,9 @@ import { useActionState, useMemo, useState } from "react";
 import type { PlanRow } from "@/lib/import/match";
 import {
   applyImport,
+  deleteRuling,
   planImport,
+  recordRuling,
   undoImport,
   type ApplyState,
   type PlanState,
@@ -40,14 +42,26 @@ const ACTION_LABEL: Record<PlanRow["action"], string> = {
 // 500 with nothing rendered -- the office would just see the button do nothing.
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
+/** An answer the office has already given about one address. */
+type Ruling = {
+  id: string;
+  street: string;
+  houseNumber: string | null;
+  ruling: "not_ours" | "ours";
+  note: string | null;
+  publicationName: string | null;
+};
+
 export function ImportWorkspace({
   zones,
   publications,
   runs,
+  rulings,
 }: {
   zones: Zone[];
   publications: Publication[];
   runs: ImportRun[];
+  rulings: Ruling[];
 }) {
   const [planState, planAction, planPending] = useActionState(planImport, initialPlanState);
   const [applyState, applyAction, applyPending] = useActionState(applyImport, initialApplyState);
@@ -66,6 +80,15 @@ export function ImportWorkspace({
   const [rosterPublicationId, setRosterPublicationId] = useState("");
   const [excluded, setExcluded] = useState<number[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
+  // Answers the office records so the same question is not asked next week.
+  const [rulingState, rulingAction, rulingPending] = useActionState(recordRuling, {
+    error: null as string | null,
+    saved: null as string | null,
+  });
+  const [removeState, removeAction, removePending] = useActionState(deleteRuling, {
+    error: null as string | null,
+    saved: null as string | null,
+  });
 
   // Reset the review table during render rather than in an effect: a fresh plan
   // replaces whatever was on screen (including choices made against the
@@ -330,6 +353,55 @@ export function ImportWorkspace({
         </p>
       ) : null}
 
+      {rulings.length ? (
+        <details className="mt-6 rounded-2xl border border-black/10 p-4 dark:border-white/15">
+          <summary className="cursor-pointer text-sm font-medium">
+            {rulings.length} address{rulings.length === 1 ? "" : "es"} you have already answered about
+          </summary>
+          <p className="mt-2 text-xs text-black/55 dark:text-white/55">
+            These are not asked about any more. Remove one and it comes back next time you upload.
+          </p>
+          <ul className="mt-3 space-y-1 text-sm">
+            {rulings.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-medium">
+                  {r.houseNumber} {r.street.toUpperCase()}
+                </span>
+                <span className="text-black/60 dark:text-white/60">
+                  {r.ruling === "not_ours" ? "not on our routes" : "is on our routes"}
+                  {r.publicationName ? ` · ${r.publicationName} only` : ""}
+                  {r.note ? ` · ${r.note}` : ""}
+                </span>
+                <form action={removeAction}>
+                  <input type="hidden" name="id" value={r.id} />
+                  <button
+                    type="submit"
+                    disabled={removePending}
+                    className="text-xs underline underline-offset-2 disabled:opacity-50"
+                  >
+                    remove
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+
+      {removeState.saved || removeState.error ? (
+        <p className={`mt-3 text-sm ${removeState.error ? "text-red-700 dark:text-red-300" : "text-green-700 dark:text-green-300"}`}>
+          {removeState.error ?? removeState.saved}
+        </p>
+      ) : null}
+
+      {rulingState.saved || rulingState.error ? (
+        <p
+          className={`mt-4 text-sm ${rulingState.error ? "text-red-700 dark:text-red-300" : "text-green-700 dark:text-green-300"}`}
+        >
+          {rulingState.error ?? rulingState.saved}
+        </p>
+      ) : null}
+
       {rows.length ? (
         <>
           <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
@@ -359,6 +431,12 @@ export function ImportWorkspace({
                   <>
                     {blockedCount.toLocaleString()} are on streets outside your five routes — the
                     list covers all of Lakewood and you hold five of about thirty rounds.{" "}
+                  </>
+                ) : null}
+                {rulings.length ? (
+                  <>
+                    {rulings.length} address{rulings.length === 1 ? " is" : "es are"} settled by
+                    answers you gave — see the list above.{" "}
                   </>
                 ) : null}
                 {unreadableCount ? (
@@ -474,6 +552,34 @@ export function ImportWorkspace({
                         ) : null}
                       </td>
                       <td className="px-3 py-2 align-top">
+                        {/* Only on the questions that are about geography rather
+                            than about this week's roster -- those are the ones
+                            whose answer is the same every week. A question about
+                            a household ("has this one moved?") must not be
+                            answerable once and forever. */}
+                        {row.status === "needs_choice" && row.newStop && RECURRING.test(row.message) ? (
+                          <div className="mb-2 flex flex-col gap-1">
+                            {/* Both answers. Offering only "no" made a mis-click
+                                a permanent, invisible refusal -- and it was
+                                offered on 314 CEDAR BRIDGE AVE, which the
+                                requirements record names as a real addition. */}
+                            {(["not_ours", "ours"] as const).map((answer) => (
+                              <form action={rulingAction} key={answer}>
+                                <input type="hidden" name="street" value={row.newStop!.street} />
+                                <input type="hidden" name="houseNumber" value={row.newStop!.houseNumber} />
+                                <input type="hidden" name="ruling" value={answer} />
+                                <input type="hidden" name="publicationId" value={rosterPublicationId} />
+                                <button
+                                  type="submit"
+                                  disabled={rulingPending}
+                                  className="w-full whitespace-nowrap rounded-lg border border-black/15 px-2 py-1 text-xs hover:bg-black/5 disabled:opacity-50 dark:border-white/20 dark:hover:bg-white/10"
+                                >
+                                  {answer === "not_ours" ? "Not ours" : "It is ours"} — stop asking
+                                </button>
+                              </form>
+                            ))}
+                          </div>
+                        ) : null}
                         <input
                           type="checkbox"
                           checked={!isExcluded}
@@ -523,6 +629,22 @@ export function ImportWorkspace({
     </div>
   );
 }
+
+/**
+ * Questions whose answer is a fact about geography, not about this week's roster:
+ * the same address will ask again next week and the week after. These are the only
+ * ones the office can answer once and for all.
+ */
+/**
+ * Questions whose answer is a fact about geography that does not change week to
+ * week, AND that the office can settle on its own.
+ *
+ * Deliberately NOT the wrong-side-of-the-street or between-blocks questions: those
+ * are the open routing item in docs/handoff.md, they need Amrom and
+ * lakewood-courier-routing, and an open question must not be closeable by one
+ * click. 55 rows on the 27 Aug master list rather than 69.
+ */
+const RECURRING = /is outside the .* stretch/;
 
 function StatusPill({ row }: { row: PlanRow }) {
   // An unreadable address is a `blocked` row, but "Not on our routes" is a false

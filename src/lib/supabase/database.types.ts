@@ -12,6 +12,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      address_rulings: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          house_number: string | null
+          id: string
+          note: string | null
+          publication_id: string | null
+          ruling: string
+          street: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          house_number?: string | null
+          id?: string
+          note?: string | null
+          publication_id?: string | null
+          ruling: string
+          street: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          house_number?: string | null
+          id?: string
+          note?: string | null
+          publication_id?: string | null
+          ruling?: string
+          street?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "address_rulings_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: false
+            referencedRelation: "publications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       complaints: {
         Row: {
           created_at: string

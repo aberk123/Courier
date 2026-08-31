@@ -24,7 +24,7 @@ export default async function ImportPage() {
     .single();
   if (!myProfile?.is_courier_office) redirect("/");
 
-  const [{ data: zones }, { data: publications }, { data: runs }] = await Promise.all([
+  const [{ data: zones }, { data: publications }, { data: runs }, { data: rulings }] = await Promise.all([
     supabase.from("zones").select("id, number, name").order("number"),
     supabase.from("publications").select("id, code, name").eq("active", true).order("name"),
     // Only the courier office can see these -- import_runs_select enforces it,
@@ -34,6 +34,12 @@ export default async function ImportPage() {
       .select("id, created_at, file_name, applied_count, undone_at, publication_id")
       .order("created_at", { ascending: false })
       .limit(5),
+    // Answers the office has given. Shown so a permanent "no" is visible and
+    // removable, rather than being an invisible decision nobody can review.
+    supabase
+      .from("address_rulings")
+      .select("id, street, house_number, ruling, note, created_at, publication_id")
+      .order("created_at", { ascending: false }),
   ]);
 
   return (
@@ -44,6 +50,15 @@ export default async function ImportPage() {
         label: zone.name ?? `Zone ${zone.number}`,
       }))}
       publications={publications ?? []}
+      rulings={(rulings ?? []).map((r) => ({
+        id: r.id,
+        street: r.street,
+        houseNumber: r.house_number,
+        ruling: r.ruling as "not_ours" | "ours",
+        note: r.note,
+        publicationName:
+          (publications ?? []).find((pub) => pub.id === r.publication_id)?.name ?? null,
+      }))}
       runs={(runs ?? []).map((run) => ({
         id: run.id,
         createdAt: run.created_at,

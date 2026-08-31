@@ -5,21 +5,14 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllPages } from "@/lib/fetch-all";
 import { parseCsv, rowsFromGrid, type ParsedRow } from "@/lib/import/parse";
+import { planRoster, type PlanSummary } from "@/lib/import/plan";
+export type { PlanSummary };
 import {
-  buildStopIndex,
-  mergeFloorSides,
-  buildStreetZoneMap,
   normalizeHouseNumber,
   normalizeStreet,
-  planRosterRemovals,
-  planRow,
-  additionsLookWrong,
-  removalsLookWrong,
-  ruleStreetVariants,
   type ExistingStop,
+  type AddressRuling,
   type PlanRow,
-  type RosterGroup,
-  type RosterFileRow,
 } from "@/lib/import/match";
 
 /**
@@ -31,17 +24,6 @@ import {
  * rows in the DOM, and a page that locked up for a minute. `summary` carries the
  * counts so nothing is hidden from the office -- only shipped.
  */
-export type PlanSummary = {
-  total: number;
-  ready: number;
-  needsChoice: number;
-  noChange: number;
-  /** Streets that are not on any of our five routes. */
-  blocked: number;
-  /** Address cells the importer could not read -- fixable in the master list. */
-  unreadable: number;
-  sampled: number;
-};
 export type PlanState = {
   error: string | null;
   rows: PlanRow[] | null;
@@ -58,7 +40,7 @@ async function loadContext() {
   // against the first 1,000 of 2,427 addresses -- see src/lib/fetch-all.ts for
   // what that did to the numbers. `.order("id")` is what makes the pages line
   // up; without a stable order they overlap and skip.
-  const [stops, { data: publications, error: pubError }, { data: zones, error: zoneError }] = await Promise.all([
+  const [stops, { data: publications, error: pubError }, { data: zones, error: zoneError }, rulings] = await Promise.all([
     fetchAllPages("addresses", (from, to) =>
       supabase
         .from("stops")
@@ -75,6 +57,21 @@ async function loadContext() {
     ),
     supabase.from("publications").select("id, code, name").eq("active", true).order("name"),
     supabase.from("zones").select("id, number").order("number"),
+    // Answers the office has already given, so the same question is not asked
+    // every week. Courier-office only by RLS; a scoped staffer simply gets none.
+    //
+    // Paged and ordered like everything else here. This table only grows -- 69
+    // answers were available to record in week one alone -- so it crosses
+    // PostgREST's 1,000-row cap within months, after which an arbitrary and
+    // unstable subset of the office's answers would silently stop applying.
+    fetchAllPages("your recorded answers", (from, to) =>
+      supabase
+        .from("address_rulings")
+        .select("street, house_number, publication_id, ruling, note", { count: "exact" })
+        .order("street")
+        .order("house_number")
+        .range(from, to),
+    ),
   ]);
 
   if (pubError) throw new Error(`Could not read the publication list: ${pubError.message}`);
@@ -92,7 +89,15 @@ async function loadContext() {
     publicationIds: stop.stop_publications.map((sp) => sp.publication_id),
   }));
 
-  return { supabase, existing, publications: publications ?? [], zones: zones ?? [] };
+  const addressRulings: AddressRuling[] = rulings.map((r) => ({
+    street: r.street,
+    houseNumber: r.house_number ?? "",
+    publicationId: r.publication_id,
+    ruling: r.ruling as AddressRuling["ruling"],
+    note: r.note,
+  }));
+
+  return { supabase, existing, publications: publications ?? [], zones: zones ?? [], addressRulings };
 }
 
 async function gridFromFile(file: File): Promise<string[][]> {
@@ -173,8 +178,9 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   // cancellation, and everything already on the route looks new.
   let existing: ExistingStop[];
   let publications: { id: string; code: string; name: string }[];
+  let addressRulings: AddressRuling[];
   try {
-    ({ existing, publications } = await loadContext());
+    ({ existing, publications, addressRulings } = await loadContext());
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Could not read the current address list.",
@@ -184,175 +190,15 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
     };
   }
 
-  // A roster names no publication per row, so the uploader picks one and it is
-  // stamped on every row.
-  if (rosterPublication) {
-    const chosen = publications.find((pub) => pub.id === rosterPublication);
-    if (!chosen) {
-      return {
-        error: "Pick which publication that list is for.",
-        rows: null,
-        fileName: file.name,
-        summary: null,
-      };
-    }
-    for (const row of parsed) row.publication = chosen.code;
+  // One code path, shared with every harness that checks these numbers. See
+  // src/lib/import/plan.ts -- this used to be 150 lines inline, which meant the
+  // only way to measure it was to reimplement it, and the reimplementation
+  // drifted six rows away from what the screen showed.
+  const outcome = planRoster(parsed, existing, publications, rosterPublication || null, addressRulings);
+  if (outcome.error) {
+    return { error: outcome.error, rows: null, fileName: file.name, summary: null };
   }
-
-  const streetZones = buildStreetZoneMap(existing);
-
-  // Which street spellings in THIS upload are our streets written differently is
-  // a fact about the whole file, not about one row -- the evidence is whether
-  // the file also uses our spelling, and for which house numbers. So it is
-  // settled once, before any row is planned. See ruleStreetVariants.
-  const fileStreets = new Map<string, Set<string>>();
-  for (const row of parsed) {
-    if (!row.street || !row.houseNumber) continue;
-    const key = normalizeStreet(row.street);
-    if (!fileStreets.has(key)) fileStreets.set(key, new Set());
-    fileStreets.get(key)!.add(normalizeHouseNumber(row.houseNumber));
-  }
-  const ourStreets = new Map<string, Set<string>>();
-  for (const stop of existing) {
-    const key = normalizeStreet(stop.street);
-    if (!ourStreets.has(key)) ourStreets.set(key, new Set());
-    ourStreets.get(key)!.add(normalizeHouseNumber(stop.houseNumber));
-  }
-  const streetRuling = ruleStreetVariants(fileStreets, ourStreets);
-
-  // Built once, not once per row -- see buildStopIndex.
-  const stopIndex = buildStopIndex(existing);
-
-  // Every roster row at each address, grouped, so the address is settled as a
-  // whole rather than one row at a time. Only for a roster: a file with its own
-  // action column says per row what it wants. Normalising once per row here,
-  // rather than three times as before -- this file's history includes a measured
-  // 58-second matching incident.
-  // Keyed on OUR address, not the file's spelling. ruleStreetVariants can rule
-  // two spellings the same street -- "6 Shenandoah" and "6 Shenandoah Dr" both
-  // resolve to SHENANDOAH DR -- but keying on the raw spelling put them in two
-  // groups of one, so each counted alone and both read "already gets it" while
-  // the second household got no paper. Invisible, because no_change rows are not
-  // even shipped to the browser. Eight of our addresses are reached under more
-  // than one spelling in the 27 Aug file.
-  const rowKeys: (string | null)[] = parsed.map((row) => {
-    if (!row.street || !row.houseNumber) return null;
-    const own = normalizeStreet(row.street);
-    const ruled = streetRuling.get(own);
-    const street = ruled?.ruling === "same" ? ruled.ourStreet : own;
-    return `${street}|${normalizeHouseNumber(row.houseNumber)}`;
-  });
-  const groups = new Map<string, RosterFileRow[]>();
-  if (rosterPublication) {
-    parsed.forEach((row, i) => {
-      const key = rowKeys[i];
-      if (!key) return;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push({
-        floorSide: mergeFloorSides(row.floorSide, row.floorSideAlt),
-        name: row.name ?? null,
-      });
-    });
-  }
-  const seenAtAddress = new Map<string, number>();
-  const rows = parsed.map((row, i) => {
-    let rosterGroup: RosterGroup | undefined;
-    const key = rowKeys[i];
-    if (rosterPublication && key) {
-      const index = seenAtAddress.get(key) ?? 0;
-      seenAtAddress.set(key, index + 1);
-      rosterGroup = { fileRows: groups.get(key) ?? [], index };
-    }
-    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup);
-  });
-
-  // A roster is the whole truth for its publication, so an address it no longer
-  // carries is a cancellation. Nothing in the file says so -- it has to be
-  // derived from our side. See planRosterRemovals for the three rules that keep
-  // that from cancelling real subscribers.
-  if (rosterPublication) {
-    const chosen = publications.find((pub) => pub.id === rosterPublication)!;
-    const removals = planRosterRemovals(
-      existing,
-      chosen,
-      fileStreets,
-      parsed.length + 2,
-    );
-    const addresses = new Set(
-      existing
-        .filter((stop) => stop.publicationIds.includes(chosen.id))
-        .map((stop) => `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`),
-    ).size;
-    // Removals are one row per LINE now, so the count fed to the guard is the
-    // distinct ADDRESSES behind them -- which is what the 5% threshold was
-    // calibrated against. Counting lines would tighten it silently.
-    const byId = new Map(existing.map((stop) => [stop.id, stop]));
-    const stopping = new Set(
-      removals
-        .map((removal) => (removal.stopId ? byId.get(removal.stopId) : undefined))
-        .filter((stop): stop is ExistingStop => Boolean(stop))
-        .map((stop) => `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`),
-    ).size;
-    const check = removalsLookWrong(stopping, addresses);
-    if (check.tripped) {
-      return {
-        error:
-          `That list would stop ${stopping} of ${addresses} ${chosen.name} addresses, ` +
-          `well past the ${check.limit} a normal week reaches. That is usually a partial file or ` +
-          `a column that did not line up, not ${stopping} cancellations. Nothing has been changed — ` +
-          `check the file covers all of Lakewood and re-upload.`,
-        rows: null,
-        fileName: file.name,
-        summary: null,
-      };
-    }
-    rows.push(...removals);
-  }
-
-  // The tripwire the removal side has always had, now on both sides. A doubled
-  // or concatenated upload is the case it exists for.
-  if (rosterPublication) {
-    const chosen = publications.find((pub) => pub.id === rosterPublication)!;
-    const addresses = new Set(
-      existing
-        .filter((stop) => stop.publicationIds.includes(chosen.id))
-        .map((stop) => `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`),
-    ).size;
-    const adding = rows.filter((row) => row.status === "ready" && row.action === "add").length;
-    const check = additionsLookWrong(adding, addresses);
-    if (check.tripped) {
-      return {
-        error:
-          `That list would add ${adding} deliveries to ${chosen.name}, well past the ` +
-          `${check.limit} a normal week reaches. That is usually the same file twice, or two ` +
-          `exports pasted together, not ${adding} new subscribers. Nothing has been changed — ` +
-          `check the file and re-upload.`,
-        rows: null,
-        fileName: file.name,
-        summary: null,
-      };
-    }
-  }
-
-  const summary: PlanSummary = {
-    total: rows.length,
-    ready: rows.filter((row) => row.status === "ready").length,
-    needsChoice: rows.filter((row) => row.status === "needs_choice").length,
-    noChange: rows.filter((row) => row.status === "no_change").length,
-    // Split out of `blocked`: an address cell the importer could not read is a
-    // thing the office can fix, unlike a street that is not on our routes.
-    blocked: rows.filter((row) => row.status === "blocked" && !row.unreadable).length,
-    unreadable: rows.filter((row) => row.unreadable).length,
-    sampled: 0,
-  };
-
-  // Everything actionable, plus a handful of the rest so the office can spot
-  // check that "not on our routes" really means that.
-  const actionable = rows.filter((row) => row.status === "ready" || row.status === "needs_choice");
-  const sample = rows.filter((row) => row.status !== "ready" && row.status !== "needs_choice").slice(0, 40);
-  summary.sampled = sample.length;
-
-  return { error: null, rows: [...actionable, ...sample], fileName: file.name, summary };
+  return { error: null, rows: outcome.rows, fileName: file.name, summary: outcome.summary };
 }
 
 export async function applyImport(_prev: ApplyState, formData: FormData): Promise<ApplyState> {
@@ -576,4 +422,75 @@ export async function undoImport(_prev: UndoState, formData: FormData): Promise<
     error: null,
     message: `Import undone — ${parts.length ? parts.join(", ") : "nothing to reverse"}.${kept}`,
   };
+}
+
+/**
+ * Records an answer the office has given about an address or a street, so the
+ * weekly import stops asking it.
+ *
+ * Ari, 2026-08-31: "it does make sense to build something to record decisions
+ * about specific addresses so that we don't have to answer the same questions
+ * every week." Measured on the 27 Aug master list, 55 questions were "this house
+ * number is outside the stretch of that street our routes cover" -- a fact about
+ * geography, re-answered every week because there was nowhere to put it.
+ *
+ * Scoped to the whole street when no house number is given, which is usually what
+ * the office means: BRUCE ST is a real Lakewood street we do not deliver, and
+ * that is true of every number on it.
+ */
+export async function recordRuling(_prev: { error: string | null; saved: string | null }, formData: FormData) {
+  const street = String(formData.get("street") ?? "").trim();
+  const houseNumber = String(formData.get("houseNumber") ?? "").trim();
+  const ruling = String(formData.get("ruling") ?? "");
+  const publicationId = String(formData.get("publicationId") ?? "").trim();
+
+  if (!street) return { error: "That row has no street to record.", saved: null };
+  if (ruling !== "not_ours" && ruling !== "ours") {
+    return { error: "Unrecognised answer.", saved: null };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Sign in again — your session expired.", saved: null };
+
+  if (!houseNumber) return { error: "That row has no house number to record.", saved: null };
+
+  // Upsert on the address, so changing your mind replaces the old answer rather
+  // than leaving two contradictory ones and letting row order decide.
+  const { error } = await supabase.from("address_rulings").upsert(
+    {
+      created_by: user.id,
+      // Stored normalised, so an answer recorded against "Bruce St" also answers
+      // "BRUCE STREET" next week.
+      street: normalizeStreet(street),
+      house_number: normalizeHouseNumber(houseNumber),
+      publication_id: publicationId || null,
+      ruling,
+      note: String(formData.get("note") ?? "").trim() || null,
+    },
+    { onConflict: "street,house_number,publication_id" },
+  );
+  if (error) return { error: `Could not record that: ${error.message}`, saved: null };
+
+  revalidatePath("/import");
+  return {
+    error: null,
+    saved:
+      ruling === "not_ours"
+        ? `${houseNumber} ${street.toUpperCase()} recorded as not on our routes — we will stop asking.`
+        : `${houseNumber} ${street.toUpperCase()} recorded as on our routes — we will stop asking.`,
+  };
+}
+
+/** Removes an answer, so the address goes back to being asked about. */
+export async function deleteRuling(_prev: { error: string | null; saved: string | null }, formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Nothing to remove.", saved: null };
+  const supabase = await createClient();
+  const { error } = await supabase.from("address_rulings").delete().eq("id", id);
+  if (error) return { error: `Could not remove that: ${error.message}`, saved: null };
+  revalidatePath("/import");
+  return { error: null, saved: "Answer removed — that address will be asked about again." };
 }

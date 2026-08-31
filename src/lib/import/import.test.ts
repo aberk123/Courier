@@ -23,6 +23,7 @@ import {
   normalizeStreet,
   normalizeHouseNumber,
   buildStopIndex,
+  buildRulingIndex,
   settleAddress,
   type ExistingStop,
 } from "./match.ts";
@@ -275,10 +276,14 @@ test("an exact street match with an out-of-area house number is a decision, not 
   // The address is still carried through, so a reviewer can accept it.
   assert.equal(far.newStop?.houseNumber, "1471");
 
-  // A gap inside the stretch we walk is still an ordinary new address.
+  // A gap inside the stretch we walk is an ordinary new address -- but still not
+  // applied, because create_stop_in_route appends past the route's DONE marker
+  // and nothing here knows where 64 belongs in the sequence.
   const inside = planRow(row("64"), stops, pubs, zones);
-  assert.equal(inside.status, "ready");
-  assert.match(inside.message, /new address/);
+  assert.equal(inside.status, "needs_choice");
+  assert.match(inside.message, /new address on zone 3/);
+  assert.match(inside.message, /add it between 60 and 66 in the route/);
+  assert.equal(inside.newStop?.houseNumber, "64");
 });
 
 test("a stop the roster does not manage is never removed by absence", () => {
@@ -291,8 +296,17 @@ test("a stop the roster does not manage is never removed by absence", () => {
   const stops = [
     stop("shop", "203", "RIVER AVE", false),
     stop("home", "611", "RIVER AVE", true),
+    // Listed in the file, so the street is genuinely covered. Without one of our
+    // own addresses appearing, absence on the street means nothing -- see
+    // covered().
+    stop("kept", "809", "RIVER AVE", true),
   ];
-  const out = planRosterRemovals(stops, { id: "V", name: "The Voice" }, streets({ "RIVER AVE": ["999"] }), 2);
+  const out = planRosterRemovals(
+    stops,
+    { id: "V", name: "The Voice" },
+    streets({ "RIVER AVE": ["809"] }),
+    2,
+  );
   assert.deepEqual(out.map((r) => r.stopId), ["home"]);
 });
 
@@ -336,13 +350,13 @@ test("an address that already has the publication reports no change, not a failu
   assert.equal(plan.stopId, "s1");
 });
 
-test("a street we do not deliver names what it nearly matched, and does not claim they are one street", () => {
-  // Measured on the real Voice roster: CHERRY ST -> HENRY ST, TEABERRY CT ->
-  // NEWBERRY CT, WALTER DR -> WALKER DR. That last pair differs by one letter,
-  // and both are plausible road names. The old wording, "the street is spelled
-  // differently from ours", told the office they were the same street, which
-  // would put a Cherry St subscriber's paper on Henry St and mark the real one
-  // handled. It has to state the finding and ask.
+test("a street we do not deliver is not ours, however close the name looks", () => {
+  // Ari, 2026-08-31: "There is a Bruce St and Carol St in Lakewood. Why should we
+  // assume that's not what it is?" A similar name plus a matching house number is
+  // not evidence -- the house-number match is guaranteed, because this branch only
+  // looks at numbers we already hold. WALTER DR against our WALKER DR is one
+  // letter and both are real roads. Without a surname agreeing it is simply not
+  // one of our streets.
   const stops: ExistingStop[] = [
     { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Weiss", houseNumber: "4",
       street: "WALKER DR", floorSide: null, publicationIds: [] },
@@ -355,14 +369,10 @@ test("a street we do not deliver names what it nearly matched, and does not clai
   row.publication = "voice";
   const plan = planRow(row, stops, pubs, buildStreetZoneMap(stops));
 
-  assert.equal(plan.status, "needs_choice");
-  assert.match(plan.message, /WALTER DR is not one of our streets/);
-  assert.match(plan.message, /closest we deliver is WALKER DR/);
-  assert.doesNotMatch(plan.message, /spelled differently from ours/);
-  // And it must still hand over the candidate, or the review screen has nothing
-  // to offer and the row becomes unresolvable.
-  assert.equal(plan.candidates.length, 1);
-  assert.equal(plan.candidates[0].stopId, "s1");
+  assert.equal(plan.status, "blocked");
+  assert.match(plan.message, /WALTER DR is not on any of our routes/);
+  // Gittel David is not Weiss, so there is nothing tying 4 Walter Dr to our
+  // 4 Walker Dr beyond a house number this branch was always going to find.
 });
 
 // --- Counting per address (Ari, 2026-08-21) --------------------------------
@@ -481,9 +491,10 @@ test("counting never fires when the ADDRESS itself is in doubt", () => {
       street: "WALKER DR", floorSide: "basement", publicationIds: ["pub-v"] },
   ];
   const p = plan(stops, "4 Walter Dr", { fileAtAddress: 1, occurrence: 1 });
-  assert.equal(p.status, "needs_choice");
-  assert.match(p.message, /WALTER DR is not one of our streets/);
-  assert.match(p.message, /2 addresses match/);
+  // No surname agrees, so WALTER DR is simply not one of our streets -- counting
+  // must not fire, and there is nothing for the office to decide.
+  assert.equal(p.status, "blocked");
+  assert.match(p.message, /WALTER DR is not on any of our routes/);
 });
 
 test("an address the master list does not carry loses EVERY line, not one (Ari, 2026-08-30)", () => {
@@ -495,10 +506,14 @@ test("an address the master list does not carry loses EVERY line, not one (Ari, 
   }));
   stops.push({ id: "other", zoneId: "z5", zoneNumber: 5, recipientName: "Preschel",
     houseNumber: "809", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
-  // The roster covers River Ave, but names neither address.
+  stops.push({ id: "listed", zoneId: "z5", zoneNumber: 5, recipientName: "Green",
+    houseNumber: "611", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
+  // The roster names 611, which we hold -- so the street really is covered and
+  // absence on it means something. Naming only an address we do NOT hold would
+  // leave the street uncovered: see the River Ave finding in covered().
   const fileStreets = streets({ "RIVER AVE": ["611"] });
   const removals = planRosterRemovals(stops, { id: "pub-v", name: "The Voice" }, fileStreets, 100);
-  assert.equal(removals.length, 6, "five lines at 962 plus one at 809");
+  assert.equal(removals.length, 6, "five lines at 962 plus one at 809; 611 is listed and kept");
   assert.deepEqual(
     removals.map((r) => r.stopId).sort(),
     ["apt0", "apt1", "apt2", "apt3", "apt4", "other"],
@@ -631,7 +646,7 @@ test("the list naming one household twice is asked about, not counted as two", (
     { floorSide: null, name: "Ellenbogen" },
     { floorSide: null, name: "Family Ellenbogen" },
   ], "pub-v");
-  assert.ok(settled.some((o) => o.kind === "ask" && /more than once/.test(o.reason)));
+  assert.ok(settled.some((o) => o.kind === "ask" && /may name this household twice/.test(o.reason)));
   assert.equal(settled.filter((o) => o.kind === "create").length, 0, "no line is created on a surname match");
 });
 
@@ -800,7 +815,11 @@ test("a new door on the other side of an all-even street is a question, not a cr
   // Ordinary infill between two neighbours we already deliver is still an
   // ordinary new address.
   const infill = planRow(row("202"), stops, pubs, buildStreetZoneMap(stops));
-  assert.equal(infill.status, "ready");
+  assert.equal(infill.status, "needs_choice");
+  assert.match(infill.message, /add it between 200 and 204 in the route/);
+  assert.match(infill.message, /past DONE/);
+  // The address is still carried through, so the office can accept it.
+  assert.equal(infill.newStop?.houseNumber, "202");
 });
 
 test("three households at a door we deliver to none of is a question", () => {
@@ -856,4 +875,370 @@ test("a create carries the line count it was planned against", () => {
   const p = planRow(rosterRow("Family Strickman", "39 Rena Ln"), stops, PUBS,
     buildStreetZoneMap(stops), new Map(), buildStopIndex(stops), { fileRows, index: 0 });
   assert.equal(p.newStop?.linesAtPlanTime, 1);
+});
+
+test("two subscriptions sharing a surname at one address are two households, not a duplicate", () => {
+  // 2 Shenandoah Drive lists "Minna Goldstone" and "Ari Goldstone"; 67 Finchley
+  // Blvd lists two Teitelbaums with sequential ids. Measured on the 27 Aug
+  // roster: of 32 pairs sharing a surname at one of our addresses, ALL 32 carry
+  // different customer ids. The surname guess asked 20 questions that had an
+  // answer sitting in a column the parser was discarding.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Goldstone", houseNumber: "2",
+      street: "SHENANDOAH DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Goldstone", houseNumber: "2",
+      street: "SHENANDOAH DR", floorSide: "basement", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Minna Goldstone", externalId: "169xltUF" },
+    { floorSide: null, name: "Ari Goldstone", externalId: "16BVFMUN" },
+  ], "pub-v");
+  assert.deepEqual(settled.map((o) => o.kind).sort(), ["attach", "no_change"]);
+});
+
+test("the SAME subscription listed twice is still asked about", () => {
+  // Either the household takes two copies -- 25 ids repeat across 53 rows in the
+  // real file, and where it also states a count in text the two agree -- or the
+  // export was pasted together with itself. Not guessable.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "3",
+      street: "MAPLEHURST AVE", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Family Klein", externalId: "16CY4gUP" },
+    { floorSide: null, name: "Family Klein", externalId: "16CY4gUP" },
+  ], "pub-v");
+  assert.ok(settled.some((o) => o.kind === "ask" && /two copies, or the same row twice/.test(o.reason)));
+  assert.equal(settled.filter((o) => o.kind === "create").length, 0);
+});
+
+test("with no id column at all, the surname fallback still asks", () => {
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Ellenbogen", houseNumber: "8",
+      street: "SHENANDOAH DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Ellenbogen" },
+    { floorSide: "Upstairs", name: "Family Ellenbogen" },
+  ], "pub-v");
+  assert.ok(settled.some((o) => o.kind === "ask"));
+});
+
+test("the parser keeps the publication's own subscriber id", () => {
+  const rows = rowsFromGrid(
+    [["customers.id", "customers.last_name", "addresses.addr"],
+     ["16BhJEV75Wr9g8KNt", "Klein", "12 Juniper Ln"]],
+    { defaultAction: "add" },
+  );
+  assert.equal(rows[0].externalId, "16BhJEV75Wr9g8KNt");
+});
+
+test("a row counter named ID cannot stand in for the subscriber id", () => {
+  // Resolved by specificity, not by column position: a file carrying both `ID`
+  // (a counter) and `customers.id` used to take whichever came first, so a
+  // counter could decide whether a household gets one paper or two.
+  const rows = rowsFromGrid(
+    [["ID", "customers.id", "customers.last_name", "addresses.addr"],
+     ["41", "16CY4gUP", "Klein", "12 Juniper Ln"]],
+    { defaultAction: "add" },
+  );
+  assert.equal(rows[0].externalId, "16CY4gUP");
+  // And a bare "id" alone is not treated as a subscriber id at all.
+  const counterOnly = rowsFromGrid(
+    [["ID", "customers.last_name", "addresses.addr"], ["41", "Klein", "12 Juniper Ln"]],
+    { defaultAction: "add" },
+  );
+  assert.equal(counterOnly[0].externalId, null);
+});
+
+test("the file's fabricated tail ids do not settle household identity", () => {
+  // 71 rows at the tail of the 27 Aug file carry Zone1_1…zone2_8 instead of a
+  // subscriber id, and 65 of them land on an address we already hold.
+  // docs/domain-notes.md: no number from those rows reaches a driver until their
+  // provenance is known.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "12",
+      street: "JUNIPER LN", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "12",
+      street: "JUNIPER LN", floorSide: "basement", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [
+    { floorSide: null, name: "Family Klein", externalId: "16CY4gUP" },
+    { floorSide: null, name: "Family Klein", externalId: "zone1_7" },
+  ], "pub-v");
+  // With the synthetic id ignored, the surname fallback applies and it asks
+  // rather than silently attaching a second paper.
+  assert.ok(settled.some((o) => o.kind === "ask"));
+  assert.equal(settled.filter((o) => o.kind === "attach" || o.kind === "create").length, 0);
+});
+
+test("a question that offers a new address carries the address's real line count", () => {
+  // The ask branch built its newStop with linesAtPlanTime hardcoded to 0, so if
+  // the office answered by picking "Add as a new address", applyImport compared
+  // the live count against 0, decided the premise had moved, and skipped the row
+  // -- silently. 41 of the 187 rows offering that choice were in this state.
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z4", zoneNumber: 4, recipientName: "Olsberg", houseNumber: "142",
+      street: "CHATEAU DR", floorSide: "upstairs", publicationIds: ["pub-v"] },
+  ];
+  const p = planRow(rosterRow("Rochel Neiman", "142 Chateau Dr"), stops, PUBS,
+    buildStreetZoneMap(stops), new Map(), buildStopIndex(stops),
+    { fileRows: [{ floorSide: "Basement", name: "Rochel Neiman" }], index: 0 });
+  assert.equal(p.status, "needs_choice");
+  assert.equal(p.newStop?.linesAtPlanTime, 1, "not 0 — the address holds one line");
+});
+
+test("the duplicate reason does not depend on which pair is visited last", () => {
+  // Three rows, all surname Klein, two sharing an id. The weaker surname
+  // evidence used to overwrite the stronger same-id reason whenever it was
+  // visited last, so the wording depended on row order.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: "Klein", houseNumber: "3",
+      street: "MAPLEHURST AVE", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const rows = [
+    { floorSide: null, name: "Family Klein", externalId: "X1" },
+    { floorSide: null, name: "Family Klein", externalId: "X1" },
+    { floorSide: null, name: "Family Klein" },
+  ];
+  const reasons = (r: typeof rows) =>
+    settleAddress(stops, r, "pub-v")
+      .filter((o) => o.kind === "ask")
+      .map((o) => (o.kind === "ask" ? o.reason : ""))
+      .sort();
+  assert.deepEqual(reasons(rows), reasons([rows[2], rows[0], rows[1]]));
+});
+
+test("a subscriber id only means something within its own sequence", () => {
+  // customers.id is at least eight concatenated lists, and the B, C, D, E and a
+  // sequences ALL start at 1234: B1234, C1234, D1234 and E1234 are four
+  // different households at four different addresses. So "these ids differ" is
+  // guaranteed across prefixes and carries no information. The id rule shipped on
+  // a branch citing "32 pairs, all different ids"; 30 of those 32 were namespace
+  // artifacts and the real evidence was two pairs.
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z1", zoneNumber: 1, recipientName: "Ginsburg", houseNumber: "18",
+      street: "LONDON AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs", zoneId: "z1", zoneNumber: 1, recipientName: null, houseNumber: "18",
+      street: "LONDON AVE", floorSide: "basement", publicationIds: [] },
+  ];
+  // A CRM row and a hand-block row for one household: different prefixes, so not
+  // comparable, so the surname decides -- and it asks.
+  const across = settleAddress(stops, [
+    { floorSide: null, name: "Ginsburg", externalId: "B1663" },
+    { floorSide: null, name: "Family Ginsburg", externalId: "Zone1_31" },
+  ], "pub-v");
+  assert.ok(across.some((o) => o.kind === "ask"));
+  assert.equal(across.filter((o) => o.kind === "attach").length, 0);
+
+  // Within one sequence, two different numbers really are two subscriptions.
+  const within = settleAddress(stops, [
+    { floorSide: null, name: "Riki Teitelbaum", externalId: "C7033" },
+    { floorSide: null, name: "Shulamith Teitelbaum", externalId: "C7035" },
+  ], "pub-v");
+  assert.deepEqual(within.map((o) => o.kind).sort(), ["attach", "no_change"]);
+});
+
+test("a street counts as covered only when the file names an address we deliver to", () => {
+  // The 27 Aug file has exactly one River Ave row in 19,621 -- 611 River Ave, an
+  // address we do not hold -- and that made the street covered, so all 7 of our
+  // River Ave addresses became cancellations. River Ave is Route 9. Measured
+  // across every street we deliver it is the only one at zero: the next lowest
+  // is Clairmont Ct at 5 of 7.
+  const stops: ExistingStop[] = ["203", "227", "962"].map((h) => ({
+    id: `r${h}`, zoneId: "z5", zoneNumber: 5, recipientName: `House ${h}`, houseNumber: h,
+    street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const pub = { id: "pub-v", name: "The Voice" };
+  // Names the street, but not one address we hold: no evidence they sent it.
+  assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["611"] }), 1).length, 0);
+  // Names one we hold: now absence on the street means something.
+  assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["227"] }), 1).length, 2);
+});
+
+test("a brand-new address in range is proposed with its neighbours, never applied", () => {
+  // 1021 HEARTHSTONE DR was auto-created: range, parity and gap checks all pass
+  // rightly, and create_stop_in_route appends past DONE. "Nothing is
+  // auto-created" was true only of the second-household path.
+  const stops: ExistingStop[] = ["1020", "1025"].map((h) => ({
+    id: `h${h}`, zoneId: "z4", zoneNumber: 4, recipientName: null, houseNumber: h,
+    street: "HEARTHSTONE DR", floorSide: null, publicationIds: [],
+  }));
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Ort", "1021 Hearthstone Dr"]],
+    { defaultAction: "add" })[0];
+  r.publication = "voice";
+  const p = planRow(r, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /add it between 1020 and 1025 in the route/);
+  assert.equal(p.newStop?.houseNumber, "1021");
+});
+
+test("a household already served at the door its own name is on is not asked to move", () => {
+  // 12 Sheraton Dr · Elisheva Katz against basement/KATZ. The file states no
+  // door, the count is met, and the paper already goes to that household. Pass 2
+  // could not reach a LABELLED served line, so it fell through to "has this
+  // household moved?" -- which invites stopping a delivery that must not stop.
+  const stops: ExistingStop[] = [
+    { id: "bs", zoneId: "z2", zoneNumber: 2, recipientName: "KATZ", houseNumber: "12",
+      street: "SHERATON DR", floorSide: "basement", publicationIds: ["pub-v"] },
+    { id: "up", zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: "12",
+      street: "SHERATON DR", floorSide: null, publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [{ floorSide: null, name: "Elisheva Katz" }], "pub-v");
+  assert.deepEqual(settled, [{ kind: "no_change", stopId: "bs" }]);
+});
+
+test("where nothing else distinguishes them, the line carrying the row's surname wins", () => {
+  // 4 STONEWALL CT: the file names BADOUCH with no door; we hold
+  // basement/GEWIRTZ and upstairs/BADOUCH, neither served. Taking the first free
+  // line put BADOUCH's paper in GEWIRTZ's basement, and the label is what the
+  // driver follows. A tie-break only -- it never decides whether an address
+  // matches, and never changes how many papers the address gets.
+  const stops: ExistingStop[] = [
+    { id: "bs", zoneId: "z1", zoneNumber: 1, recipientName: "GEWIRTZ", houseNumber: "4",
+      street: "STONEWALL CT", floorSide: "basement", publicationIds: [] },
+    { id: "up", zoneId: "z1", zoneNumber: 1, recipientName: "BADOUCH", houseNumber: "4",
+      street: "STONEWALL CT", floorSide: "upstairs", publicationIds: [] },
+  ];
+  const settled = settleAddress(stops, [{ floorSide: null, name: "Refoel & Karmit BADOUCH" }], "pub-v");
+  assert.deepEqual(settled, [{ kind: "attach", stopId: "up" }]);
+});
+
+// --- Answers the office has already given ---------------------------------
+//
+// Ari, 2026-08-31: "it does make sense to build something to record decisions
+// about specific addresses so that we don't have to answer the same questions
+// every week." 55 of the questions on the 27 Aug master list were "this house
+// number is outside the stretch we cover" -- a fact about geography, re-answered
+// weekly because there was nowhere to put it.
+
+const rulingRow = (house: string, street: string) => {
+  const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Ort", `${house} ${street}`]],
+    { defaultAction: "add" })[0];
+  r.publication = "voice";
+  return r;
+};
+const oakStops = (): ExistingStop[] => ["26", "28", "60", "66", "110"].map((h) => ({
+  id: `o${h}`, zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: h,
+  street: "OAK ST", floorSide: null, publicationIds: [],
+}));
+
+test("a street the office has ruled not ours stops being a question", () => {
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const rulings = buildRulingIndex([
+    { street: "Bruce St", houseNumber: "12", publicationId: null, ruling: "not_ours",
+      note: "real street, not on our round" },
+  ]);
+  const p = planRow(rulingRow("12", "Bruce St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(p.status, "blocked");
+  assert.match(p.message, /you told us so/);
+  assert.match(p.message, /real street, not on our round/);
+});
+
+test("a ruling is stored normalised, so next week's spelling still matches", () => {
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const rulings = buildRulingIndex([
+    { street: "BRUCE STREET", houseNumber: "12", publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const p = planRow(rulingRow("12", "Bruce St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(p.status, "blocked");
+});
+
+test("an address ruled OURS stops being asked about as out of area", () => {
+  // 1471 OAK ST against our 26-110 asks every week. Once the office says it is on
+  // the route, it is an ordinary new address.
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const before = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops));
+  assert.match(before.message, /outside the 26–110 stretch/);
+
+  const rulings = buildRulingIndex([
+    { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "ours", note: null },
+  ]);
+  const after = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.doesNotMatch(after.message, /outside the 26–110 stretch/);
+});
+
+test("a ruling for one address does not silence the rest of the street", () => {
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const rulings = buildRulingIndex([
+    { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const ruled = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(ruled.status, "blocked");
+  const other = planRow(rulingRow("1490", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(other.status, "needs_choice");
+});
+
+test("a publication-specific ruling wins over one that applies to all", () => {
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const rulings = buildRulingIndex([
+    { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "not_ours", note: "nobody" },
+    { street: "OAK ST", houseNumber: "1471", publicationId: "pub-v", ruling: "ours", note: "Voice does" },
+  ]);
+  const p = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.notEqual(p.status, "blocked");
+});
+
+test("a ruling is always one address — a street-wide answer is not expressible", () => {
+  // The street-wide scope was written for a case nothing creates, and defending
+  // against it caused two defects: a street-level `ours` was silently discarded,
+  // and a street-level `not_ours` reached the addresses we serve whenever the
+  // master list spelled the street its own way (our Vine Ave is written VINE ST,
+  // so the "do we hold this street" test missed and five real Vine Ave rows went
+  // to blocked). Removing the scope removes both.
+  const stops = oakStops();
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const forOne = buildRulingIndex([
+    { street: "OAK ST", houseNumber: "1471", publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const ruled = planRow(rulingRow("1471", "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, forOne);
+  assert.equal(ruled.status, "blocked");
+
+  // Every other door on that street is untouched -- the 26 Oak St we deliver to,
+  // and any other number the master list carries.
+  for (const house of ["26", "1490"]) {
+    const other = planRow(rulingRow(house, "Oak St"), stops, pubs, buildStreetZoneMap(stops),
+      new Map(), buildStopIndex(stops), undefined, forOne);
+    assert.notEqual(other.status, "blocked", `${house} Oak St must survive`);
+  }
+});
+
+test("a near-miss with no name on either side stays a question, not a decision", () => {
+  // 258 of our active stops have no recipient name, 84 of them Voice lines, and
+  // a blank name is recorded as normal on this data. No name is no evidence
+  // EITHER WAY -- which is not the same as evidence the streets differ.
+  const stops: ExistingStop[] = [
+    { id: "s1", zoneId: "z1", zoneNumber: 1, recipientName: null, houseNumber: "207",
+      street: "CAROL ST", floorSide: null, publicationIds: [] },
+  ];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Ort", "207 Carel St"]],
+    { defaultAction: "add" })[0];
+  r.publication = "voice";
+  const p = planRow(r, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(p.status, "needs_choice");
+  assert.match(p.message, /has no name to compare/);
+
+  // But a name on both sides that DISAGREES is still evidence, and still decides.
+  const named: ExistingStop[] = [
+    { id: "s2", zoneId: "z1", zoneNumber: 1, recipientName: "Weiss", houseNumber: "4",
+      street: "WALKER DR", floorSide: null, publicationIds: [] },
+  ];
+  const r2 = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Gittel David", "4 Walter Dr"]],
+    { defaultAction: "add" })[0];
+  r2.publication = "voice";
+  assert.equal(planRow(r2, named, pubs, buildStreetZoneMap(named)).status, "blocked");
 });

@@ -838,6 +838,110 @@ Two clarifications the original wording needed:
 Confirmed still working: `207 CAROL ST` is not suppressed by `207 CAREY ST` —
 five-character base, two edits, below the eight-character threshold.
 
+### Terminology (Ari, 2026-08-31)
+
+- **The master list** is the spreadsheet The Voice sends, uploaded weekly and
+  compared against what we hold.
+- **The zones** are what is in the system — the five routes and their addresses.
+
+Use these two words. Earlier notes say "roster" and "the file" for the master
+list; they mean the same thing.
+
+### Answers the office has given are recorded, not re-asked (Ari, 2026-08-31)
+
+*"It does make sense to build something to record decisions about specific
+addresses so that we don't have to answer the same questions every week."*
+
+`address_rulings` holds them. A ruling is about an ADDRESS or a STREET, never
+about a subscriber: subscribers come and go, but "106 Vine Avenue is outside the
+stretch we walk" does not. `not_ours` stops the address being proposed; `ours`
+confirms it is on the route, which silences the out-of-stretch, wrong-side and
+between-blocks questions for it.
+
+Measured on the 27 Aug master list: 55 of the 179 questions are "this house
+number is outside the stretch of that street our routes cover", and answering
+them once takes the weekly total to **124**.
+
+**A ruling is always one address; a street-wide answer is not expressible.** It
+sounded useful and was a trap. The master list spells our Vine Ave as `VINE ST`,
+so the guard meant to protect a street we deliver on — "does `byStreet` hold this
+street?" — missed on the file's own spelling, and a street-level "not ours" sent
+five real Vine Ave rows to blocked. The same guard silently discarded every
+street-level "ours". Both defects came from defending a scope nothing created, so
+`house_number` is now `not null` and the scope is gone.
+
+**Both answers are offered, not just "no".** A single "Not ours" button made a
+mis-click a permanent, invisible refusal — and it appeared on `314 CEDAR BRIDGE
+AVE`, which this file records as a real addition. There is now an "It is ours"
+answer beside it, a list of everything answered, and a remove link on each.
+
+**Only on the out-of-stretch questions.** The wrong-side-of-the-street and
+between-blocks questions are the open routing item in `docs/handoff.md`; they need
+Amrom and `lakewood-courier-routing`, and an open question must not be closeable
+by one click. 55 rows rather than 69.
+
+Rulings are stored normalised, so one recorded against "Bruce St" also answers
+"BRUCE STREET" next week. A publication-specific ruling beats one that applies to
+every publication, and an address-level one beats a street-level one.
+
+### River Ave is a commercial road (Ari, 2026-08-31)
+
+*"River Avenue is a commercial road, so it makes sense that you don't have many
+addresses there."*
+
+So the master list carrying one River Ave row out of 19,621 is **expected**, not a
+coverage failure — an earlier note in this file called it one and was wrong. Of
+our 7 River Ave addresses, 6 are businesses (Leisure Chateau, Silvino's Auto,
+Lipa's Auto Service, Ocean Dental, Styled Child, Wig Authorities, Princeton
+Dineros) and one is residential (`809 River Ave · Preschel`).
+
+This sits against the 2026-08-30 ruling that commercial drops are cancelled like
+anyone else, and the two need reconciling before the first apply: under that
+ruling the six businesses should be cancelled, and `covered()` currently prevents
+it because the master list names none of our River Ave addresses. **Open — Ari
+has not been asked which he wants.** The `address_rulings` table is where the
+answer belongs once he gives it.
+
+### A street in the file is that street, unless something says otherwise (Ari, 2026-08-31)
+
+Ari, on being shown questions offering `SPRUCE ST` for the file's `BRUCE ST` and
+`CAROL ST` for `CAREY ST`: *"There is a Bruce St and Carol St in Lakewood. Why
+should we assume that's not what it is?"*
+
+The default was backwards. The near-miss branch offered a match on nothing but an
+edit distance of two plus a house number we already hold — and the house-number
+match is **guaranteed by construction**, because the branch only ever looks at
+numbers we hold. So a real Lakewood street we do not deliver looked exactly like a
+misspelling of one we do.
+
+**Positive evidence now means the same surname at the same house number.**
+Measured on the 27 Aug roster, exactly four rows have it, each a single-letter
+slip:
+
+| the file says | we deliver | name |
+| --- | --- | --- |
+| `31 Windemere St · Fink` | `31 WINDERMERE ST` | FINK |
+| `5 Hazlewood Ln · Ashkenazi` | `5 HAZELWOOD LN` | ASHKENAZI |
+| `139 CLEARMONT CT · Lichtman` | `139 CLAIRMONT CT` | Lichtman |
+| `10 Shenendoah Dr · Ollech` | `10 SHENANDOAH DR` | Ollech |
+
+Everything else had none: `BRUCE ST`, `BARON CT`, `CHERRY ST`, `CAREY ST`,
+`MENDON DR`, `WALTER DR`, `DINA PL`, `JULE CT`. All are real Lakewood streets we
+do not cover, and all now read as "not on any of our routes" rather than as a
+question. That took the questions from 222 to 179 and moved 43 rows into the
+bucket they belonged in.
+
+**One trap this closes.** `BRUCE ST` had a delayed failure: answer "yes, add it"
+and the address joins the route, but next week the file still spells it `BRUCE
+ST`, so `listedUnderAnySpelling` fails (`bruce`/`spruce` is two edits on a
+five-letter base, below the eight-character threshold) and the run proposes
+deleting exactly what was just added.
+
+**Not to be confused with `ruleStreetVariants`**, which handles a *suffix*
+variant — `HAZELWOOD CT` for our `HAZELWOOD LN`, `PONDEROSA` for `PONDEROSA DR` —
+and does apply overlap and range tests. That path is evidence-based already. This
+one is the base word differing, where the only real evidence is the household.
+
 ### The printed door is an instruction, not a hint (Ari, 2026-08-31)
 
 Asked whether the floor label the booklet prints tells the driver which door or

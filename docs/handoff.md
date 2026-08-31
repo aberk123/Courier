@@ -404,6 +404,23 @@ Both are worth knowing because they made that pass weaker than it looked.
 
 ## What is open
 
+- **Where the weekly import stands, 2026-08-31.** Verified through the real screen
+  signed in against production, not from a harness:
+
+  ```
+  19,630 rows · 50 to apply · 188 need a choice · 1,257 already correct
+         · 18,122 not on our routes · 13 we could not read
+  ```
+
+  50 to apply = 41 additions + 9 removals. Nothing is auto-created; every new
+  address names the line it should sit beside and waits. The 9 removals are each
+  absent from a street the master list covers densely, with both neighbours
+  present. Both guards pass without tripping: removals 9 of 1,102 against a limit
+  of 55, additions 41 against 165.
+
+  Terminology (Ari, 2026-08-31): the **master list** is the spreadsheet The Voice
+  sends; the **zones** are what is in the system.
+
 - **The 27 Aug roster still needs re-planning after the paging fix.** Every count
   produced before 2026-08-28 came off a 1,000-address list and is wrong — the
   "42 ready / 392 need a choice" numbers included. The deployed screen now reads
@@ -411,6 +428,9 @@ Both are worth knowing because they made that pass weaker than it looked.
   routes** — confirmed 2026-08-30 by an independent recomputation that matches
   the app exactly. `73 = 57 plan rows + 16 roster removals`, because `planImport`
   pushes the removals into `rows` before computing `summary.ready`.
+
+  **Those figures are themselves superseded** by the block above: the near-miss
+  evidence rule, the coverage rule and the rulings table have all landed since.
 
   An earlier draft of this line predicted "roughly 61", and the way it went wrong
   is worth keeping: its other three figures were exactly right, so the full list

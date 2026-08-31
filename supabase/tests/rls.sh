@@ -344,5 +344,45 @@ check "an address edited since the import is kept, not deleted" \
   "1,1"
 
 echo
+echo "address_rulings (answers the office has given)"
+# A new RLS-protected table shipped with no coverage, which CLAUDE.md names as
+# exactly where a class of bug hides. These are the four things that matter: only
+# the office can read or write them, a scoped staffer sees none and cannot add
+# one, and nobody can attribute an answer to somebody else.
+check "the courier office can record an answer" \
+  "$(as $OFFICE "insert into public.address_rulings (created_by, street, house_number, ruling, note)
+       values ('$OFFICE','vine ave','106','not_ours','the 100s end is not ours');
+     select count(*) from public.address_rulings;")" \
+  "1"
+check "a publication-scoped staffer sees no answers at all" \
+  "$(as $VOICE "select count(*) from public.address_rulings;")" \
+  "0"
+check "a publication-scoped staffer cannot record one" \
+  "$(as $VOICE "insert into public.address_rulings (created_by, street, house_number, ruling)
+       values ('$VOICE','pine st','151','not_ours');" | grep -c 'row-level security')" \
+  "1"
+check "an answer cannot be attributed to somebody else" \
+  "$(as $OFFICE "insert into public.address_rulings (created_by, street, house_number, ruling)
+       values ('$VOICE','pine st','151','not_ours');" | grep -c 'row-level security')" \
+  "1"
+# Changing your mind must replace the old answer, not leave two contradictory
+# ones for row order to choose between.
+check "a changed answer replaces the old one rather than sitting beside it" \
+  "$(as $OFFICE "insert into public.address_rulings (created_by, street, house_number, ruling)
+       values ('$OFFICE','vine ave','106','ours')
+       on conflict (street, house_number, publication_id) do update set ruling = excluded.ruling;
+     select count(*) from public.address_rulings where street='vine ave';
+     select ruling from public.address_rulings where street='vine ave';")" \
+  "1,ours"
+check "a publication-scoped staffer cannot remove one" \
+  "$(as $VOICE "delete from public.address_rulings;
+     select count(*) from public.address_rulings;" | tail -1)" \
+  "0"
+check "the courier office can remove one" \
+  "$(as $OFFICE "delete from public.address_rulings where street='vine ave';
+     select count(*) from public.address_rulings;")" \
+  "0"
+
+echo
 printf 'ceil %d passed, %d failed\n' "$pass" "$fail" | sed 's/^ceil //'
 [ "$fail" -eq 0 ]

@@ -399,7 +399,60 @@ export function buildStopIndex(stops: ExistingStop[]): StopIndex {
  */
 const BLOCK_GAP = 12;
 
-export type RosterFileRow = { floorSide: string | null; name: string | null };
+/**
+ * An answer the office has already given about an address or a street.
+ *
+ * `houseNumber` null means the whole street; `publicationId` null means every
+ * publication. Both are normalised the way the matcher normalises, so a ruling
+ * recorded against "Bruce St" also answers "BRUCE STREET".
+ */
+export type AddressRuling = {
+  street: string;
+  houseNumber: string;
+  publicationId: string | null;
+  ruling: "not_ours" | "ours";
+  note: string | null;
+};
+
+/** Indexed once per upload; a plain array would be scanned 19,600 times. */
+export type RulingIndex = Map<string, AddressRuling>;
+
+export function buildRulingIndex(rulings: AddressRuling[]): RulingIndex {
+  const map: RulingIndex = new Map();
+  for (const r of rulings) {
+    map.set(
+      `${r.publicationId ?? ""}|${normalizeStreet(r.street)}|${normalizeHouseNumber(r.houseNumber)}`,
+      r,
+    );
+  }
+  return map;
+}
+
+/**
+ * The office's answer for this address, if they have given one. A
+ * publication-specific answer beats one recorded for every publication.
+ *
+ * Deliberately address-only. A street-wide answer sounds useful and is a trap:
+ * the master list spells our Vine Ave as VINE ST, so a "not ours" recorded
+ * against the street would have blanked the twenty-four Vine Ave doors we serve.
+ */
+export function rulingFor(
+  index: RulingIndex,
+  street: string,
+  house: string,
+  publicationId: string | null,
+): AddressRuling | undefined {
+  const st = normalizeStreet(street);
+  const hn = normalizeHouseNumber(house);
+  return index.get(`${publicationId ?? ""}|${st}|${hn}`) ?? index.get(`|${st}|${hn}`);
+}
+
+export type RosterFileRow = {
+  floorSide: string | null;
+  name: string | null;
+  /** The publication's own subscriber id, when the file carries one. */
+  externalId?: string | null;
+};
 
 /** What settleAddress decided for one roster row. */
 export type AddressOutcome =
@@ -463,6 +516,12 @@ export function settleAddress(
     .sort((x, y) =>
       (doorOf(fileRows[x].floorSide) ?? "~").localeCompare(doorOf(fileRows[y].floorSide) ?? "~") ||
       (fileRows[x].name ?? "").localeCompare(fileRows[y].name ?? "") ||
+      // The subscriber id before the index, so rows that are identical in door
+      // and name still sort by something in the DATA. Without it, three rows at
+      // one address -- two sharing an id, one without -- gave a different row the
+      // "nothing to do" outcome depending on which order the export emitted, and
+      // the questions the other two got were worded differently as a result.
+      (fileRows[x].externalId ?? "").localeCompare(fileRows[y].externalId ?? "") ||
       x - y,
     );
 
@@ -479,21 +538,83 @@ export function settleAddress(
   // with nothing to tell them apart is exactly that ambiguity, so it is asked
   // rather than answered. Two rows naming DIFFERENT doors are distinguishable and
   // are two households.
-  const dup = new Set<number>();
+  /**
+   * Rows whose identity the list repeats, with the reason -- carried together so
+   * the two places that emit it cannot drift apart, which they did: pass 3 said
+   * one thing and the post-pass overwrote it with another.
+   */
+  const dup = new Map<number, string>();
+
+  /**
+   * An id we will not let decide anything. 71 rows at the tail of the 27 Aug
+   * file carry `Zone1_1`…`zone2_8` instead of a subscriber id -- synthetic,
+   * zone-prefixed and sequence-numbered, and docs/domain-notes.md says no number
+   * from those rows should reach a driver until their provenance is known. 65 of
+   * them land on an address we already hold, so without this they would settle
+   * household identity for 65 real doors.
+   */
+  const usableId = (value: string | null | undefined) =>
+    value && !/^zone\d*_/i.test(value) ? value : null;
+
+  /**
+   * `customers.id` is not one namespace. It is at least eight concatenated
+   * lists, and the B, C, D, E and a sequences ALL start at 1234 -- `B1234`,
+   * `C1234`, `D1234` and `E1234` are four different households at four
+   * different addresses. So "these two ids differ" is guaranteed by
+   * construction across prefixes and carries no information at all.
+   *
+   * Two ids are comparable only within one sequence. Everything else falls back
+   * to the surname, which is weaker but at least means something.
+   *
+   * This was measured after the id rule shipped to a branch: its stated evidence
+   * was "of 32 pairs sharing a surname, all 32 carry different ids", and 30 of
+   * those 32 were namespace artifacts -- 23 comparing a CRM row against the
+   * hand-appended tail block, one comparing two synthetic ids for the same
+   * household filed under two zones. The real evidence base was two pairs.
+   */
+  const prefixOf = (id: string) => (/^([^0-9]*)/.exec(id)?.[1] ?? "").toLowerCase();
+  const comparable = (a: string, b: string) => prefixOf(a) === prefixOf(b);
+  const SAME_ID = "the list carries this subscription more than once at this address — two copies, or the same row twice?";
+  const SAME_NAME = "the list may name this household twice at this address — one paper or two?";
   for (let i = 0; i < fileRows.length; i++) {
     for (let j = i + 1; j < fileRows.length; j++) {
+      const idI = usableId(fileRows[i].externalId);
+      const idJ = usableId(fileRows[j].externalId);
+      if (idI && idJ && comparable(idI, idJ)) {
+        // The publication's own subscriber ids settle it, and they are the only
+        // thing that can. DIFFERENT ids are two subscriptions -- "Minna
+        // Goldstone" and "Ari Goldstone" at 2 Shenandoah Drive, sequential ids
+        // for the two Teitelbaums at 67 Finchley Blvd. Measured on the 27 Aug
+        // roster: of 32 pairs sharing a surname at one of our addresses, all 32
+        // carry different ids, so all 20 questions this used to raise were
+        // wrong.
+        //
+        // The SAME id twice is genuinely ambiguous: either the household takes
+        // two copies (docs/domain-notes.md: 25 ids repeat across 53 rows, and
+        // where the file also states a count in text the two agree, so the
+        // repeats ARE the copies) or the export was pasted together with itself.
+        // Asked, not guessed.
+        if (idI !== idJ) continue;
+        dup.set(i, SAME_ID);
+        dup.set(j, SAME_ID);
+        continue;
+      }
+      // No ids in the file: fall back to the surname, which is weaker and errs
+      // toward asking. Only two rows that BOTH name a door, and name different
+      // ones, are distinguishable -- testing one row's door made this asymmetric
+      // in i and j, which flipped six rows on the real roster between a question
+      // and silently adding a line.
       const surname = surnameOf(fileRows[i].name);
       if (!surname || surname !== surnameOf(fileRows[j].name)) continue;
-      // Only two rows that BOTH name a door, and name different ones, are
-      // distinguishable. Testing one row's door made this asymmetric in i and j:
-      // "(none) · Ellenbogen" beside "upstairs · Family Ellenbogen" read as one
-      // household in file order and as two reversed, which flipped six rows on
-      // the real roster between a question and silently adding a line.
       const di = doorOf(fileRows[i].floorSide);
       const dj = doorOf(fileRows[j].floorSide);
       if (di && dj && di !== dj) continue;
-      dup.add(i);
-      dup.add(j);
+      // Never overwrite a SAME_ID reason with the weaker surname one: whichever
+      // pair was visited last would otherwise win, making the wording depend on
+      // row order. The kind is `ask` either way, but this function's own history
+      // is order-dependence, so it does not get to creep back in as wording.
+      if (!dup.has(i)) dup.set(i, SAME_NAME);
+      if (!dup.has(j)) dup.set(j, SAME_NAME);
     }
   }
 
@@ -571,7 +692,29 @@ export function settleAddress(
   // depended on file order. Such a row falls through to pass 3.
   for (const i of order) {
     if (out[i] || doorOf(fileRows[i].floorSide)) continue;
+    // A served line anywhere at the address comes first, whether it carries a
+    // label or not. Looking only among unlabelled lines meant that where the one
+    // unlabelled line was UNSERVED, the labelled served line was unreachable and
+    // the row fell through to "has this household moved?" -- four rows on the 27
+    // Aug file, each one a household already getting its paper at the door its
+    // own surname is on (12 Sheraton Dr · Katz against basement/KATZ). The file
+    // states no door, so the driver decides and the served line is the answer.
+    const surname = surnameOf(fileRows[i].name);
     const line =
+      free((candidate) => candidate.publicationIds.includes(publicationId))[0] ??
+      // Where nothing else distinguishes the free lines, a line carrying this
+      // row's own surname is the better one. 4 STONEWALL CT: the file names
+      // BADOUCH with no door, and we hold basement/GEWIRTZ and upstairs/BADOUCH
+      // -- taking the first free line put BADOUCH's paper in GEWIRTZ's basement,
+      // and the label is what the driver follows.
+      //
+      // This is a TIE-BREAK among lines at an address already matched, not
+      // surname matching in the sense Ari rejected: it never decides whether an
+      // address matches, never creates or removes a line, and never changes how
+      // many papers the address gets.
+      (surname
+        ? free((candidate) => surnameOf(candidate.recipientName) === surname)[0]
+        : undefined) ??
       preferServed(free((candidate) => !doorOf(candidate.floorSide))) ??
       preferServed(free(() => true));
     if (line) pair(i, line);
@@ -583,10 +726,7 @@ export function settleAddress(
   for (const i of order) {
     if (out[i]) continue;
     if (dup.has(i)) {
-      out[i] = {
-        kind: "ask",
-        reason: `the list names this household more than once at this address — one paper or two?`,
-      };
+      out[i] = { kind: "ask", reason: dup.get(i)! };
     } else if (fileRows.length > capacity) {
       out[i] = {
         kind: "ask",
@@ -620,12 +760,9 @@ export function settleAddress(
   // that made six rows on the real roster flip between "one paper or two?" and
   // silently adding a line, depending on which of the two the export emitted
   // first.
-  for (const i of dup) {
+  for (const [i, reason] of dup) {
     if (out[i].kind === "no_change") continue;
-    out[i] = {
-      kind: "ask",
-      reason: `the list names this household more than once at this address — one paper or two?`,
-    };
+    out[i] = { kind: "ask", reason };
   }
   return out;
 }
@@ -669,6 +806,8 @@ export function planRow(
    * settled as a group rather than one row at a time. See settleAddress.
    */
   rosterGroup?: RosterGroup,
+  /** Answers the office has already given. See AddressRuling. */
+  rulings: RulingIndex = new Map(),
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -709,6 +848,21 @@ export function planRow(
   const street = normalizeStreet(row.street);
   const house = normalizeHouseNumber(row.houseNumber);
 
+  // An answer the office has already given comes first. This is the whole point
+  // of the rulings table: 55 of the questions on the 27 Aug master list are "this
+  // house number is outside the stretch we cover", and the answer is a fact about
+  // geography that does not change week to week.
+  const ruled = rulingFor(rulings, row.street, row.houseNumber, publication?.id ?? null);
+  if (ruled?.ruling === "not_ours") {
+    return {
+      ...base,
+      status: "blocked",
+      message:
+        `${row.houseNumber} ${row.street.toUpperCase()} is not on any of our routes ` +
+        `— you told us so${ruled.note ? `: ${ruled.note}` : ""}`,
+    };
+  }
+
   let matches = index.byStreetAndHouse.get(`${street}|${house}`) ?? [];
 
   // No exact street hit. This used to accept any street within two edits that
@@ -745,15 +899,59 @@ export function planRow(
       // is a single letter. So the message states what was found and asks,
       // rather than asserting the two are one street. Never auto-applied.
       // Compared against the 71 distinct street names, not every stop.
-      matches = index.streets
+      const near = index.streets
         .filter((candidate) => editDistance(candidate, street) <= 2)
         .flatMap((candidate) => index.byStreetAndHouse.get(`${candidate}|${house}`) ?? []);
-      if (matches.length) {
-        const near = [...new Set(matches.map((stop) => stop.street.toUpperCase()))];
-        needsPerson =
-          `${row.street.toUpperCase()} is not one of our streets. ` +
-          `The closest we deliver is ${near.join(" or ")} — the same street written ` +
-          `differently, or a different road?`;
+
+      // A street name in the file is THAT STREET unless there is positive
+      // evidence it is a typo. Ari, 2026-08-31: "There is a Bruce St and Carol St
+      // in Lakewood. Why should we assume that's not what it is?" -- and he is
+      // right, the default was backwards. A similar name plus a house-number
+      // coincidence is not evidence: it is guaranteed by construction, because
+      // this branch only looks at house numbers we already hold.
+      //
+      // Measured on the 27 Aug roster: of the near-miss rows, exactly FOUR have
+      // the same surname at the same house number -- WINDEMERE/WINDERMERE,
+      // HAZLEWOOD/HAZELWOOD, CLEARMONT/CLAIRMONT, SHENENDOAH/SHENANDOAH, each a
+      // single-letter slip. The rest -- BRUCE ST, BARON CT, CHERRY ST, CAREY ST,
+      // MENDON DR, WALTER DR, DINA PL, JULE CT -- have none, and every one of
+      // them is a real Lakewood street we simply do not deliver.
+      //
+      // So without a surname agreeing, this is not our street at all.
+      // This branch is also reached for a street that IS ours where only the
+      // house number is new -- OAK ST 1471 against our 26-110 has no ruling
+      // either, because ruleStreetVariants only rules spellings that are NOT
+      // ours. Such a row must fall through to the range and new-address checks
+      // below, not be blocked. Only a street name we do not carry at all is
+      // decided here.
+      const weCarryTheStreet = (index.byStreet.get(street) ?? []).length > 0;
+      const key = surnameOf(row.name);
+      const named = key ? near.filter((stop) => surnameOf(stop.recipientName) === key) : [];
+      // 258 of our active stops carry no recipient name at all, 84 of them Voice
+      // lines, and docs/domain-notes.md records a blank name as normal. Where
+      // there is no name on one side or the other there is no evidence EITHER
+      // WAY, which is not the same as evidence that the streets differ -- so the
+      // question stands rather than the row being decided. It also means a future
+      // master list that renames its name column degrades into questions rather
+      // than silently sending every near-miss to "not on our routes".
+      const noEvidencePossible =
+        near.length > 0 && (!key || near.every((stop) => !surnameOf(stop.recipientName)));
+      if (weCarryTheStreet) {
+        // nothing to decide here; the house-number checks below own this case
+      } else if (named.length || noEvidencePossible) {
+        matches = named.length ? named : near;
+        const where = [...new Set(matches.map((stop) => stop.street.toUpperCase()))].join(" or ");
+        needsPerson = named.length
+          ? `${row.street.toUpperCase()} is not one of our streets, but ${row.houseNumber} ` +
+            `${where} is, and the name matches — a slip of one or two letters?`
+          : `${row.street.toUpperCase()} is not one of our streets, and ${row.houseNumber} ` +
+            `${where} has no name to compare — is this the same street written differently?`;
+      } else {
+        return {
+          ...base,
+          status: "blocked",
+          message: `${row.street.toUpperCase()} is not on any of our routes`,
+        };
       }
     }
   }
@@ -896,7 +1094,7 @@ export function planRow(
           zoneNumber: line.zoneNumber,
         })),
         newStop: {
-          ...newStopFrom(row, base, streetZones.get(street) ?? []),
+          ...newStopFrom(row, base, streetZones.get(street) ?? [], atAddress.length),
           zoneId: atAddress[0].zoneId,
           zoneNumber: atAddress[0].zoneNumber,
           floorSide: outcome.floorSide,
@@ -917,7 +1115,11 @@ export function planRow(
         zoneNumber: line.zoneNumber,
       })),
       message: outcome.reason,
-      newStop: newStopFrom(row, base, streetZones.get(street) ?? []),
+      // atAddress.length, not 0: if the office answers this question by picking
+      // "Add as a new address", applyImport compares the live line count against
+      // this. Hardcoded 0 made it decide the premise had moved and skip the row
+      // -- silently discarding the answer it had just asked for.
+      newStop: newStopFrom(row, base, streetZones.get(street) ?? [], atAddress.length),
     };
   }
 
@@ -1004,7 +1206,10 @@ export function planRow(
   if (numbersOnStreet.length && Number.isFinite(asNumber) && asNumber > 0) {
     const lo = Math.min(...numbersOnStreet);
     const hi = Math.max(...numbersOnStreet);
-    if (asNumber < lo || asNumber > hi) {
+    // `ours` means the office has already confirmed this address is on the route,
+    // so the geography questions below have been answered and must not recur.
+    const confirmedOurs = ruled?.ruling === "ours";
+    if (!confirmedOurs && (asNumber < lo || asNumber > hi)) {
       return {
         ...base,
         status: "needs_choice",
@@ -1026,7 +1231,7 @@ export function planRow(
     // One side of the street. Every number we deliver shares a parity and this
     // one does not -- a new side, not infill.
     const parities = new Set(sorted.map((n) => n % 2));
-    if (parities.size === 1 && !parities.has(asNumber % 2)) {
+    if (!confirmedOurs && parities.size === 1 && !parities.has(asNumber % 2)) {
       return {
         ...base,
         status: "needs_choice",
@@ -1042,7 +1247,7 @@ export function planRow(
     // slot it beside.
     const below = sorted.filter((n) => n < asNumber).pop();
     const above = sorted.find((n) => n > asNumber);
-    if (below !== undefined && above !== undefined && above - below > BLOCK_GAP) {
+    if (!confirmedOurs && below !== undefined && above !== undefined && above - below > BLOCK_GAP) {
       return {
         ...base,
         status: "needs_choice",
@@ -1075,12 +1280,31 @@ export function planRow(
     };
   }
 
+  // A brand-new door, in range, on one route -- and still not `ready`.
+  // create_stop_in_route appends at max(sequence) + 1, which on every production
+  // route is AFTER the DONE marker the driver stops at. `1021 HEARTHSTONE DR` on
+  // the 27 Aug roster is correct infill (we hold 1020 and 1025, the range, parity
+  // and gap checks all pass) and would have been created there, printing below
+  // DONE with a record saying the subscriber is served.
+  //
+  // The second-household path was already changed for this reason; this path was
+  // missed, which made "nothing is auto-created" in docs/handoff.md false. The
+  // neighbours that name the right position are in hand -- they just have
+  // nowhere to be recorded until an unplaced-address destination exists.
+  const between = zoneCandidates.length === 1
+    ? (() => {
+        const below = [...numbersOnStreet].filter((n) => n < asNumber).sort((a, b) => b - a)[0];
+        const above = [...numbersOnStreet].filter((n) => n > asNumber).sort((a, b) => a - b)[0];
+        return below !== undefined && above !== undefined ? ` between ${below} and ${above}` : "";
+      })()
+    : "";
   return {
     ...base,
-    status: zoneCandidates.length === 1 ? "ready" : "needs_choice",
+    status: "needs_choice",
     message:
       zoneCandidates.length === 1
-        ? `new address — zone ${zoneCandidates[0].zoneNumber} (from other stops on this street)`
+        ? `new address on zone ${zoneCandidates[0].zoneNumber} — add it${between} in the route. ` +
+          `Applying it here would put it at the end, past DONE.`
         : "new address — this street spans several zones, pick one",
     newStop: newStopFrom(row, base, zoneCandidates),
   };
@@ -1090,6 +1314,14 @@ function newStopFrom(
   row: ParsedRow,
   base: PlanRow,
   zoneCandidates: { zoneId: string; zoneNumber: number }[],
+  /**
+   * Lines already at this address when the plan was built. MUST be passed
+   * wherever we hold lines there, or applyImport's staleness check compares the
+   * live count against 0 and silently skips the row -- which is what happened to
+   * every question that offered "Add as a new address" at an address we already
+   * serve: the office answered, the answer was discarded, and nothing said so.
+   */
+  linesAtPlanTime = 0,
 ): NonNullable<PlanRow["newStop"]> {
   return {
     zoneId: zoneCandidates.length === 1 ? zoneCandidates[0].zoneId : null,
@@ -1100,7 +1332,7 @@ function newStopFrom(
     street: row.street,
     floorSide: base.floorSide,
     instructions: row.instructions,
-    linesAtPlanTime: 0,
+    linesAtPlanTime,
   };
 }
 
@@ -1148,7 +1380,7 @@ export function planRosterRemovals(
   // streets it never named.
   //
   // So: the same street, or the same base word. No edit distance.
-  const covered = (street: string) => {
+  const namesTheStreet = (street: string) => {
     const ours = normalizeStreet(street);
     const base = stripStreetSuffix(ours);
     for (const candidate of fileStreets.keys()) {
@@ -1157,6 +1389,28 @@ export function planRosterRemovals(
       // same street; a different type on the same base ("PINE BLVD" against our
       // PINE ST) is not.
       if (stripStreetSuffix(candidate) === base && (candidate === base || ours === base)) return true;
+    }
+    return false;
+  };
+
+  /**
+   * A street counts as covered only when the roster names at least one address we
+   * ACTUALLY DELIVER TO on it. Naming the street is not enough.
+   *
+   * The 27 Aug file contains exactly one River Ave row in 19,621 -- `611 River
+   * Ave`, an address we do not hold -- and that single row made the street
+   * covered, so all 7 of our River Ave addresses (12 Voice lines) became
+   * cancellations. River Ave is Route 9. Measured across every street we
+   * deliver, it is the only one where the file names none of our addresses: the
+   * next lowest is Clairmont Ct at 5 of 7, and every other street is at 88% or
+   * better. So "did they send us this street" separates cleanly on one address,
+   * and a percentage threshold is not needed.
+   */
+  const covered = (street: string) => {
+    if (!namesTheStreet(street)) return false;
+    for (const stop of stops) {
+      if (normalizeStreet(stop.street) !== normalizeStreet(street)) continue;
+      if (listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets)) return true;
     }
     return false;
   };
