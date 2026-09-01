@@ -1262,3 +1262,75 @@ test("a near-miss with no name on either side stays a question, not a decision",
   r2.publication = "voice";
   assert.equal(planRow(r2, named, pubs, buildStreetZoneMap(named)).status, "blocked");
 });
+
+test("the no-name near-miss street question is settled by a recorded answer", () => {
+  // The file writes 122 CAREY ST; we hold an unnamed 122 CAROL ST. With no name
+  // on our side there is no evidence either way, so it asks -- and with nothing
+  // to ever compare, it would ask every single week. Ari settled this exact pair
+  // from a map (2026-09-01): two different streets. A recorded "not ours" must
+  // end the question; the review screen offers that button on this message.
+  const stops: ExistingStop[] = [{
+    id: "c122", zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: "122",
+    street: "CAROL ST", floorSide: null, publicationIds: [],
+  }];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Schwartz", "122 Carey St"]],
+    { defaultAction: "add" })[0];
+  row.publication = "voice";
+
+  const asked = planRow(row, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(asked.status, "needs_choice");
+  assert.match(asked.message, /has no name to compare — is this the same street written differently\?/);
+  // The screen's ruling buttons post row.street / row.houseNumber, so the plan
+  // row must carry the FILE's address, not the candidate's.
+  assert.equal(normalizeStreet(asked.street), normalizeStreet("Carey St"));
+  assert.equal(asked.houseNumber, "122");
+
+  const rulings = buildRulingIndex([
+    { street: "Carey St", houseNumber: "122", publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const settled = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(settled.status, "blocked");
+  assert.match(settled.message, /you told us so/);
+});
+
+test("a map-confirmed real street settles the no-name near-miss question", () => {
+  // Same fixture as the recorded-answer test above: the file's 122 CAREY ST
+  // against our unnamed 122 CAROL ST. With the map confirming CAREY ST is a
+  // real Lakewood street, Ari's rule applies with evidence: it is that street,
+  // so the row is not ours -- blocked, no weekly question. The map must NOT
+  // outrank name evidence, and its absence must change nothing.
+  const stops: ExistingStop[] = [{
+    id: "c122", zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: "122",
+    street: "CAROL ST", floorSide: null, publicationIds: [],
+  }];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const mk = (name: string) => {
+    const r = rowsFromGrid([["customers.last_name", "addresses.addr"], [name, "122 Carey St"]],
+      { defaultAction: "add" })[0];
+    r.publication = "voice";
+    return r;
+  };
+  const real = new Set([normalizeStreet("Carey St")]);
+
+  // Without the map: the question, marked for the lookup pass.
+  const asked = planRow(mk("Family Schwartz"), stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(asked.status, "needs_choice");
+  assert.equal(asked.mapCheckable, true);
+
+  // With it: settled.
+  const settled = planRow(mk("Family Schwartz"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), real);
+  assert.equal(settled.status, "blocked");
+  assert.match(settled.message, /real Lakewood street, confirmed on the map/);
+
+  // Name evidence outranks the map: our stop carrying the same surname keeps
+  // the question even though the street is confirmed real.
+  const named: ExistingStop[] = [{ ...stops[0], recipientName: "Schwartz" }];
+  const still = planRow(mk("Family Schwartz"), named, pubs, buildStreetZoneMap(named),
+    new Map(), buildStopIndex(named), undefined, new Map(), real);
+  assert.equal(still.status, "needs_choice");
+  assert.match(still.message, /the name matches/);
+  assert.equal(still.mapCheckable, undefined);
+});

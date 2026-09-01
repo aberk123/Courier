@@ -880,9 +880,62 @@ between-blocks questions are the open routing item in `docs/handoff.md`; they ne
 Amrom and `lakewood-courier-routing`, and an open question must not be closeable
 by one click. 55 rows rather than 69.
 
+**Added 2026-09-01: the no-name near-miss street question carries "Not ours"
+too.** "`CAREY ST` is not one of our streets, and `122 CAROL ST` has no name to
+compare — is this the same street written differently?" is also a fact about
+geography, and with no name on our side the data can never settle it, so without
+a button it re-asks forever. Ari answered that exact pair from a map (Carey St
+runs between 11th and 12th off Clifton; Carol St is off Spruce by Marc Dr): two
+different streets. Only "Not ours" is offered on this question type — "it is
+ours" there means "attach to the address in the dropdown", a choice about this
+week's row, not a recordable fact, and an `ours` ruling would not stop the
+question recurring. The surname-match variant ("…and the name matches") gets no
+button: all four measured cases were real one-letter slips, and the right answer
+is picking the address. 9 such rows on the 27 Aug file; `122 CAREY ST · not
+ours · The Voice` is recorded in production, taking the questions to 187.
+
 Rulings are stored normalised, so one recorded against "Bruce St" also answers
 "BRUCE STREET" next week. A publication-specific ruling beats one that applies to
 every publication, and an address-level one beats a street-level one.
+
+### The map settles the no-name street question when it can (Ari, 2026-09-01)
+
+Ari: *"If I give you access to a map, wouldn't that help with these kinds of
+questions?"* — following his 2026-08-31 directive: *"whenever you're not sure
+whether it's a legitimate street or not, you can check it in Google maps."* He
+settled BRUCE ST and CAREY ST by hand exactly this way.
+
+Built as `src/lib/import/street-check.ts`: at plan time the importer asks the
+**US Census geocoder** (free, no key) about the no-name near-miss rows only —
+never the whole file, capped at 24 lookups — and re-plans with the answers. The
+asymmetry is deliberate and must not be loosened:
+
+- **Confirmed** (the geocoder matched this house on this street, spelled the
+  same, in Lakewood) → the street is real, so per "a street in the file is that
+  street" the row reads *"…is a real Lakewood street, confirmed on the map — not
+  on any of our routes"*. A wrong block here is a missed addition — noticed and
+  fixable — never a silent deletion.
+- **Not found** decides nothing: new construction is missing from map data all
+  the time, so the question stands.
+- **Unavailable** decides nothing: the upload behaves exactly as without the
+  check. Verified on the real screen with the geocoder unreachable — identical
+  numbers, 10-second plan, all questions intact.
+- The geocoder **spell-corrects**, so a match is accepted only when the returned
+  street IS the queried street — Census returning our CAROL ST for the file's
+  CAREY ST is evidence *for* the typo theory, not confirmation.
+- **Name evidence outranks the map**: a surname match with one of our stops
+  keeps the question even on a confirmed-real street. A recorded ruling outranks
+  both.
+
+**What no map answers** (and this check does not touch): which zone serves a
+street, which side or blocks the courier walks, where in the walking order a new
+address goes. Those are Amrom's, and the route sequence is deliberately not
+geographic.
+
+**Caveat, stated plainly:** the development sandbox cannot reach the geocoder
+(egress policy), so the confirmed path is proven by unit tests and the real
+screen only exercised fail-soft. The first production upload is the first live
+run; if Census is ever unreachable from Vercel the behaviour is today's.
 
 ### River Ave is a commercial road (Ari, 2026-08-31)
 

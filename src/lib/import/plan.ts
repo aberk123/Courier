@@ -62,8 +62,12 @@ export function planRoster(
    * `keepAll` skips the trim that keeps the browser payload small. A harness
    * wants every row; the screen only needs the actionable ones plus a sample.
    * Nothing else differs, so a harness and the screen decide identically.
+   *
+   * `realStreets` carries the map-confirmed streets for the second planning
+   * pass — the caller plans once, looks up the `mapCheckable` rows' streets,
+   * and plans again. Passed through to planRow untouched.
    */
-  options: { keepAll?: boolean } = {},
+  options: { keepAll?: boolean; realStreets?: Set<string> } = {},
 ): PlanOutcome {
   const fail = (error: string): PlanOutcome => ({ error, rows: null, summary: null });
 
@@ -144,7 +148,7 @@ export function planRoster(
       seenAtAddress.set(key, index + 1);
       rosterGroup = { fileRows: groups.get(key) ?? [], index };
     }
-    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex);
+    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex, options.realStreets);
   });
 
   if (chosen) {
