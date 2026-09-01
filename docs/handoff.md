@@ -432,6 +432,13 @@ Both are worth knowing because they made that pass weaker than it looked.
     an address in a question's evidence (a count only), and can read (not
     answer) courier-office-audience questions on their own publication.
 
+- **Ari's first pass over the portal produced five follow-the-master-list
+  rulings, all built 2026-09-01** — duplicates count as papers, no-name street
+  questions are gone (and the map check with them), second households are not
+  questions, trailing-A means basement, apartment-first addresses parse. See
+  `docs/domain-notes.md`, "Follow the master list". Measured: removals
+  unchanged, questions 179 → 121, ready 62 → 65, unreadable 13 → 11.
+
 - **Where the weekly import stands, 2026-09-01.** The 2026-08-31 figures were
   verified through the real screen signed in against production; the removal
   count then moved once more when Ari closed the River Ave question (see

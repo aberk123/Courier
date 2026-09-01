@@ -990,7 +990,58 @@ answers are recorded and shown inline at import, and the questions recur.
 double-encoded in their export (the id-repeats vs `extended_addr` "5 COPIES"
 question), and what the 71 synthetic tail rows (`Zone1_1`…`zone2_8`) are.
 
+### Follow the master list: five rulings from Ari's first pass over the portal (2026-09-01)
+
+Ari worked the live questions list the day it shipped and issued five rulings,
+all one principle — the master list is followed, not second-guessed:
+
+1. **A repeated household is two papers.** Shown "one paper or two?" on
+   `18 BRIDGEWOOD AVE`: *"you shouldn't be asking the question because we always
+   follow the master list. Take off all questions that are similar to this."*
+   The SAME_ID/SAME_NAME duplicate machinery is removed; repeated rows count
+   like any rows. The copy-count encoding suspicion stays a question about the
+   FILE in the first packet, not a per-address question. (This supersedes the
+   "deliberately no standing one-paper ruling" caution — a wrong extra paper is
+   the safe side of the asymmetry.)
+2. **A street with no name evidence is its own street — never a question.**
+   Shown `265 BRUCE ST` asking "is this the same street written differently?":
+   *"I already told you that Bruce St is its own street, why are you asking
+   again?"* The no-name near-miss question is retired; without a surname match
+   the row reads "not on any of our routes". The surname-match question
+   (Windemere/Windermere) stays. The residual risk — a typo of our street
+   missed as an addition — is the noticed-and-fixable direction.
+3. **A second household named by the list is real.** Shown "is it a real second
+   household?" on `103 CANARY DR`: *"What's the question on this one? Again,
+   you should be following the master list."* The `new_household` kind is no
+   longer a portal question; the row stays on the import screen only, where the
+   courier office places it in the route.
+4. **A trailing A on a house number is the basement.** *"If you see an A after
+   a house number, then you can assume you can match it to a basement because
+   many times an A is listed when it means a basement."* Applied at group level
+   in `planRoster` (the split-group placement the review mandated): only the
+   letter A, only where we hold the bare number and no lettered address of our
+   own (`105A CANARY DR` and `12A GILA PL` stay exact matches), and never over
+   a floor the row states itself — a stated door remains an order. Where the
+   basement does not already take the paper, the door rule still asks its move
+   question as ever.
+5. **An apartment written before the address is read past.** *"Many times we
+   put the apartment number before the address to make it easier for the staff
+   to find addresses."* `apt a / 93 Harvard Street` and
+   `unit 7202 / 100 Whisper Village Way` now parse; the unit rides along as an
+   instruction and is never invented into a floor.
+
+Measured on the 27 Aug file, removals byte-identical (21 lines at 16
+addresses); questions 179 → 121; ready 62 → 65; unreadable 13 → 11.
+
+**Ruling 2 also retires the map check** built earlier the same day: it existed
+to answer the no-name street question case by case, and the ruling answers it
+categorically, so `street-check.ts` and the plan action's second pass are
+removed (git `bf28608`…`0ca7dc7` has them if the default is ever softened).
+
 ### The map settles the no-name street question when it can (Ari, 2026-09-01)
+
+**Superseded the same day** — see ruling 2 above: the question the map answered
+case by case is now answered categorically, and the lookup is removed.
 
 Ari: *"If I give you access to a map, wouldn't that help with these kinds of
 questions?"* — following his 2026-08-31 directive: *"whenever you're not sure

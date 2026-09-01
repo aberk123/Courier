@@ -11,10 +11,11 @@
  * spreadsheet and the address list; this decides what the upload means. A harness
  * runs the same function the screen does, and any difference is real.
  */
-import type { ParsedRow } from "./parse";
-import { buildQuestions, type QuestionUpsert } from "./questions";
+import type { ParsedRow } from "./parse.ts";
+import { buildQuestions, type QuestionUpsert } from "./questions.ts";
 import {
   additionsLookWrong,
+  normalizeFloorSide,
   buildStopIndex,
   buildStreetZoneMap,
   mergeFloorSides,
@@ -30,7 +31,7 @@ import {
   type PlanRow,
   type RosterFileRow,
   type RosterGroup,
-} from "./match";
+} from "./match.ts";
 
 export type PlanSummary = {
   total: number;
@@ -61,7 +62,8 @@ export type PlanOutcome =
 
 /**
  * Plans an upload. `parsed` is mutated only to stamp the roster's publication on
- * each row, which is how a file with no publication column is read.
+ * each row and to apply the trailing-A basement rule below -- both before
+ * anything is grouped or matched, so every later stage sees one consistent row.
  */
 export function planRoster(
   parsed: ParsedRow[],
@@ -74,12 +76,8 @@ export function planRoster(
    * `keepAll` skips the trim that keeps the browser payload small. A harness
    * wants every row; the screen only needs the actionable ones plus a sample.
    * Nothing else differs, so a harness and the screen decide identically.
-   *
-   * `realStreets` carries the map-confirmed streets for the second planning
-   * pass — the caller plans once, looks up the `mapCheckable` rows' streets,
-   * and plans again. Passed through to planRow untouched.
    */
-  options: { keepAll?: boolean; realStreets?: Set<string> } = {},
+  options: { keepAll?: boolean } = {},
 ): PlanOutcome {
   const fail = (error: string): PlanOutcome => ({ error, rows: null, summary: null, questions: null });
 
@@ -94,6 +92,36 @@ export function planRoster(
 
   const streetZones = buildStreetZoneMap(existing);
 
+  const ourStreets = new Map<string, Set<string>>();
+  for (const stop of existing) {
+    const key = normalizeStreet(stop.street);
+    if (!ourStreets.has(key)) ourStreets.set(key, new Set());
+    ourStreets.get(key)!.add(normalizeHouseNumber(stop.houseNumber));
+  }
+
+  // The trailing-A basement rule (Ari, 2026-09-01): "If you see an A after a
+  // house number, then you can assume you can match it to a basement, because
+  // many times an A is listed when it means a basement." So the file's 68A on
+  // a street where we deliver a plain 68 -- and hold no separate 68A of our own
+  // (105A CANARY DR and 12A GILA PL are real distinct addresses; an exact match
+  // always wins) -- is read as 68, basement. Only the letter A; only when the
+  // row states no floor of its own (a stated door is an order and is never
+  // overwritten); and done HERE, before grouping, or the rewritten row would
+  // count in a group of its own -- the exact split-group defect the review
+  // proved against rewriting inside planRow.
+  for (const row of parsed) {
+    if (!row.street || !row.houseNumber) continue;
+    const lettered = /^(\d+)a$/i.exec(row.houseNumber.trim());
+    if (!lettered) continue;
+    const street = ourStreets.get(normalizeStreet(row.street));
+    if (!street) continue;
+    if (street.has(normalizeHouseNumber(row.houseNumber))) continue; // we hold the lettered address itself
+    if (!street.has(normalizeHouseNumber(lettered[1]))) continue;    // ...and must hold the bare one
+    if (normalizeFloorSide(row.floorSide) || normalizeFloorSide(row.floorSideAlt)) continue;
+    row.houseNumber = lettered[1];
+    row.floorSide = "basement";
+  }
+
   // Which street spellings in THIS upload are our streets written differently is
   // a fact about the whole file, not about one row -- the evidence is whether
   // the file also uses our spelling, and for which house numbers. So it is
@@ -104,12 +132,6 @@ export function planRoster(
     const key = normalizeStreet(row.street);
     if (!fileStreets.has(key)) fileStreets.set(key, new Set());
     fileStreets.get(key)!.add(normalizeHouseNumber(row.houseNumber));
-  }
-  const ourStreets = new Map<string, Set<string>>();
-  for (const stop of existing) {
-    const key = normalizeStreet(stop.street);
-    if (!ourStreets.has(key)) ourStreets.set(key, new Set());
-    ourStreets.get(key)!.add(normalizeHouseNumber(stop.houseNumber));
   }
   const streetRuling = ruleStreetVariants(fileStreets, ourStreets);
 
@@ -160,7 +182,7 @@ export function planRoster(
       seenAtAddress.set(key, index + 1);
       rosterGroup = { fileRows: groups.get(key) ?? [], index };
     }
-    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex, options.realStreets);
+    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex);
   });
 
   if (chosen) {

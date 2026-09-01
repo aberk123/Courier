@@ -33,10 +33,6 @@ const CHOICES: Record<string, { value: string; label: string }[]> = {
     { value: "pass_to_amrom", label: "The address is correct — pass to the Lakewood Courier to place" },
     { value: "not_a_subscriber", label: "Not a live subscription" },
   ],
-  near_miss_street: [
-    { value: "different_street", label: "It really is that street — not a misspelling" },
-    { value: "our_street_misspelled", label: "It is the delivery street misspelled — note which" },
-  ],
   street_identity: [
     { value: "file_street_is_ours", label: "Our list's spelling — same street" },
     { value: "different_road", label: "A different road" },
@@ -44,10 +40,6 @@ const CHOICES: Record<string, { value: string; label: string }[]> = {
   unit_letter: [
     { value: "same_door", label: "Same door" },
     { value: "separate_unit", label: "A separate unit — a real second household" },
-  ],
-  duplicate_lines: [
-    { value: "one_paper", label: "Listed twice — one paper" },
-    { value: "two_papers", label: "Two real subscriptions — two papers" },
   ],
   unreadable_cell: [],
 };

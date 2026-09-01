@@ -34,16 +34,13 @@ export type QuestionKind =
   | "gap_between_blocks"  // falls between two delivered blocks
   | "route_position"      // brand-new door, one zone, needs a place in the walking order
   | "street_spans_zones"  // brand-new door, street lives in several zones
-  | "near_miss_street"    // file street ~ our street, no name to compare
   | "near_miss_named"     // file street ~ our street, surname matches
   | "street_identity"     // one spelling covering our road and another (VINE ST)
   | "unit_letter"         // 132 vs 132A -- same door or a second unit?
-  | "duplicate_lines"     // the list may name this household twice
   | "count_vs_capacity"   // more households listed than the house has
   | "no_current_delivery" // 3+ listed at an address we deliver none of
   | "crowded_address"     // 3+ lines on our side, indistinguishable here
   | "door_conflict"       // the list and the delivery disagree about the door
-  | "new_household"       // a second household at an address we already serve
   | "pick_line"           // several addresses match, pick one
   | "unreadable_cell";    // the address cell itself could not be read
 
@@ -66,12 +63,6 @@ export type PlanRow = {
    */
   street: string;
   houseNumber: string;
-  /**
-   * Set on the no-name near-miss question — the one row shape a map lookup can
-   * settle. The plan action collects these, asks the geocoder, and re-plans
-   * with the confirmed streets. See src/lib/import/street-check.ts.
-   */
-  mapCheckable?: boolean;
   /** Set on every needs_choice row (and unreadable rows): what KIND of question this is. */
   questionKind?: QuestionKind;
   /**
@@ -86,16 +77,6 @@ export type PlanRow = {
    * row at plan time so the person applying sees it without leaving the screen.
    */
   recordedAnswer?: { choice: string; note: string | null; answeredAt: string } | null;
-  /**
-   * The prompt to STORE on /questions when it must differ from `message`. The
-   * import screen is courier-office-only, so its message may name recipients
-   * and describe any line; the stored question is readable by the publication's
-   * scoped staff, and the evidence rule (no recipient names from our stops, no
-   * lines of other publications beyond a count) applies to the prompt too --
-   * review reproduced a Shopper-only recipient's name reaching a Voice user
-   * through exactly this gap.
-   */
-  questionPrompt?: string;
   publicationId: string | null;
   publicationName: string | null;
   /**
@@ -611,85 +592,16 @@ export function settleAddress(
   // with nothing to tell them apart is exactly that ambiguity, so it is asked
   // rather than answered. Two rows naming DIFFERENT doors are distinguishable and
   // are two households.
-  /**
-   * Rows whose identity the list repeats, with the reason -- carried together so
-   * the two places that emit it cannot drift apart, which they did: pass 3 said
-   * one thing and the post-pass overwrote it with another.
-   */
-  const dup = new Map<number, string>();
-
-  /**
-   * An id we will not let decide anything. 71 rows at the tail of the 27 Aug
-   * file carry `Zone1_1`…`zone2_8` instead of a subscriber id -- synthetic,
-   * zone-prefixed and sequence-numbered, and docs/domain-notes.md says no number
-   * from those rows should reach a driver until their provenance is known. 65 of
-   * them land on an address we already hold, so without this they would settle
-   * household identity for 65 real doors.
-   */
-  const usableId = (value: string | null | undefined) =>
-    value && !/^zone\d*_/i.test(value) ? value : null;
-
-  /**
-   * `customers.id` is not one namespace. It is at least eight concatenated
-   * lists, and the B, C, D, E and a sequences ALL start at 1234 -- `B1234`,
-   * `C1234`, `D1234` and `E1234` are four different households at four
-   * different addresses. So "these two ids differ" is guaranteed by
-   * construction across prefixes and carries no information at all.
-   *
-   * Two ids are comparable only within one sequence. Everything else falls back
-   * to the surname, which is weaker but at least means something.
-   *
-   * This was measured after the id rule shipped to a branch: its stated evidence
-   * was "of 32 pairs sharing a surname, all 32 carry different ids", and 30 of
-   * those 32 were namespace artifacts -- 23 comparing a CRM row against the
-   * hand-appended tail block, one comparing two synthetic ids for the same
-   * household filed under two zones. The real evidence base was two pairs.
-   */
-  const prefixOf = (id: string) => (/^([^0-9]*)/.exec(id)?.[1] ?? "").toLowerCase();
-  const comparable = (a: string, b: string) => prefixOf(a) === prefixOf(b);
-  const SAME_ID = "the list carries this subscription more than once at this address — two copies, or the same row twice?";
-  const SAME_NAME = "the list may name this household twice at this address — one paper or two?";
-  for (let i = 0; i < fileRows.length; i++) {
-    for (let j = i + 1; j < fileRows.length; j++) {
-      const idI = usableId(fileRows[i].externalId);
-      const idJ = usableId(fileRows[j].externalId);
-      if (idI && idJ && comparable(idI, idJ)) {
-        // The publication's own subscriber ids settle it, and they are the only
-        // thing that can. DIFFERENT ids are two subscriptions -- "Minna
-        // Goldstone" and "Ari Goldstone" at 2 Shenandoah Drive, sequential ids
-        // for the two Teitelbaums at 67 Finchley Blvd. Measured on the 27 Aug
-        // roster: of 32 pairs sharing a surname at one of our addresses, all 32
-        // carry different ids, so all 20 questions this used to raise were
-        // wrong.
-        //
-        // The SAME id twice is genuinely ambiguous: either the household takes
-        // two copies (docs/domain-notes.md: 25 ids repeat across 53 rows, and
-        // where the file also states a count in text the two agree, so the
-        // repeats ARE the copies) or the export was pasted together with itself.
-        // Asked, not guessed.
-        if (idI !== idJ) continue;
-        dup.set(i, SAME_ID);
-        dup.set(j, SAME_ID);
-        continue;
-      }
-      // No ids in the file: fall back to the surname, which is weaker and errs
-      // toward asking. Only two rows that BOTH name a door, and name different
-      // ones, are distinguishable -- testing one row's door made this asymmetric
-      // in i and j, which flipped six rows on the real roster between a question
-      // and silently adding a line.
-      const surname = surnameOf(fileRows[i].name);
-      if (!surname || surname !== surnameOf(fileRows[j].name)) continue;
-      const di = doorOf(fileRows[i].floorSide);
-      const dj = doorOf(fileRows[j].floorSide);
-      if (di && dj && di !== dj) continue;
-      // Never overwrite a SAME_ID reason with the weaker surname one: whichever
-      // pair was visited last would otherwise win, making the wording depend on
-      // row order. The kind is `ask` either way, but this function's own history
-      // is order-dependence, so it does not get to creep back in as wording.
-      if (!dup.has(i)) dup.set(i, SAME_NAME);
-      if (!dup.has(j)) dup.set(j, SAME_NAME);
-    }
-  }
+  // Duplicate rows are NOT detected or asked about. Ari, 2026-09-01, shown the
+  // "one paper or two?" question on 18 BRIDGEWOOD AVE: "you shouldn't be asking
+  // the question because we always follow the master list. Take off all
+  // questions that are similar to this." The list naming a household twice
+  // means two papers, per the 2026-08-21 count rule -- the copy-count
+  // double-encoding suspicion (25 repeated ids across 53 rows) is the file
+  // question travelling with the first packet, not a per-address question, and
+  // a wrong extra paper is the safe side of the asymmetry. The old SAME_ID /
+  // SAME_NAME machinery lived here; git has it if the packet answer ever says
+  // the repeats are NOT copies.
 
   /** Lines at this address that already carry the publication. */
   const served = ourLines.filter((line) => line.publicationIds.includes(publicationId));
@@ -799,9 +711,7 @@ export function settleAddress(
   const capacity = Math.max(2, ourLines.length);
   for (const i of order) {
     if (out[i]) continue;
-    if (dup.has(i)) {
-      out[i] = { kind: "ask", ask: "duplicate_lines", reason: dup.get(i)! };
-    } else if (fileRows.length > capacity) {
+    if (fileRows.length > capacity) {
       out[i] = {
         kind: "ask",
         ask: "count_vs_capacity",
@@ -830,16 +740,6 @@ export function settleAddress(
     }
   }
 
-  // A row whose identity the list repeats never produces a WRITE. `no_change` is
-  // left alone because nothing is written and the paper is already going; every
-  // other outcome becomes a question. Letting `create` through was an asymmetry
-  // that made six rows on the real roster flip between "one paper or two?" and
-  // silently adding a line, depending on which of the two the export emitted
-  // first.
-  for (const [i, reason] of dup) {
-    if (out[i].kind === "no_change") continue;
-    out[i] = { kind: "ask", ask: "duplicate_lines", reason };
-  }
   return out;
 }
 
@@ -884,12 +784,6 @@ export function planRow(
   rosterGroup?: RosterGroup,
   /** Answers the office has already given. See AddressRuling. */
   rulings: RulingIndex = new Map(),
-  /**
-   * Streets a map lookup confirmed are real Lakewood streets at the row's house
-   * number (normalized). Settles only the no-name near-miss question; see
-   * src/lib/import/street-check.ts for what counts as confirmed.
-   */
-  realStreets: Set<string> = new Set(),
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -1024,43 +918,26 @@ export function planRow(
       const weCarryTheStreet = (index.byStreet.get(street) ?? []).length > 0;
       const key = surnameOf(row.name);
       const named = key ? near.filter((stop) => surnameOf(stop.recipientName) === key) : [];
-      // The map settles the no-name case, when it can. `realStreets` holds the
-      // streets a geocoder CONFIRMED exist in Lakewood at this house number
-      // (src/lib/import/street-check.ts) -- a real street the file names is that
-      // street, per Ari's rule, so the row is not ours. Name evidence outranks
-      // the map: where a surname matches one of ours, the question stands, and
-      // "not found" never decides anything -- absence from the set just leaves
-      // the question below.
-      const mapConfirmedReal = !named.length && realStreets.has(street);
-      // 258 of our active stops carry no recipient name at all, 84 of them Voice
-      // lines, and docs/domain-notes.md records a blank name as normal. Where
-      // there is no name on one side or the other there is no evidence EITHER
-      // WAY, which is not the same as evidence that the streets differ -- so the
-      // question stands rather than the row being decided. It also means a future
-      // master list that renames its name column degrades into questions rather
-      // than silently sending every near-miss to "not on our routes".
-      const noEvidencePossible =
-        near.length > 0 && (!key || near.every((stop) => !surnameOf(stop.recipientName)));
+      // WITHOUT a surname match there is no question: the street is itself.
+      // This used to ask "is this the same street written differently?" when
+      // neither side had a name to compare, and Ari overruled the hedge on
+      // 2026-09-01, shown 265 BRUCE ST asking after Bruce St had already been
+      // settled: "I already told you that Bruce St is its own street, why are
+      // you asking again?" Every instance of that question ever asked -- Bruce,
+      // Carey, Cherry, Mendon, Baron and the rest -- was answered "it is its
+      // own street", by him or by the map. So the default IS the answer, and
+      // the map lookup that existed to answer it case by case is gone with it.
+      // The residual risk is a typo of our street being missed as an addition,
+      // which is the noticed-and-fixable side of the asymmetry.
       if (weCarryTheStreet) {
         // nothing to decide here; the house-number checks below own this case
-      } else if (mapConfirmedReal && noEvidencePossible) {
-        return {
-          ...base,
-          status: "blocked",
-          message:
-            `${row.street.toUpperCase()} is a real Lakewood street, confirmed on the map ` +
-            `— not on any of our routes`,
-        };
-      } else if (named.length || noEvidencePossible) {
-        matches = named.length ? named : near;
+      } else if (named.length) {
+        matches = named;
         const where = [...new Set(matches.map((stop) => stop.street.toUpperCase()))].join(" or ");
-        needsPerson = named.length
-          ? `${row.street.toUpperCase()} is not one of our streets, but ${row.houseNumber} ` +
-            `${where} is, and the name matches — a slip of one or two letters?`
-          : `${row.street.toUpperCase()} is not one of our streets, and ${row.houseNumber} ` +
-            `${where} has no name to compare — is this the same street written differently?`;
-        needsPersonKind = named.length ? "near_miss_named" : "near_miss_street";
-        if (!named.length) base.mapCheckable = true;
+        needsPerson =
+          `${row.street.toUpperCase()} is not one of our streets, but ${row.houseNumber} ` +
+          `${where} is, and the name matches — a slip of one or two letters?`;
+        needsPersonKind = "near_miss_named";
       } else {
         return {
           ...base,
@@ -1222,14 +1099,11 @@ export function planRow(
           `another household at this address${outcome.floorSide ? ` (${outcome.floorSide})` : ""} — ` +
           `add it next to ${labelFor(twin)} in zone ${twin.zoneNumber}. Applying it here would ` +
           `put it at the end of the route, past DONE.`,
-        ...asQuestion(base, "new_household"),
-        // The stored question must not carry labelFor's recipient name (or any
-        // detail of a line that may not carry this publication) -- the office's
-        // question is only whether this second household is real.
-        questionPrompt:
-          `the list names another household at this address` +
-          `${outcome.floorSide ? ` (${outcome.floorSide})` : ""} — is it a real second ` +
-          `household? The courier office will place it in the route.`,
+        // Deliberately NOT a portal question. Ari, 2026-09-01, shown "is it a
+        // real second household?": "What's the question on this one? Again, you
+        // should be following the master list." The list naming another
+        // household IS the answer; only the route placement remains, and that
+        // is the courier office's work on this screen.
       };
     }
     return {
