@@ -1522,3 +1522,64 @@ test("the pick-a-line dropdown lists the cut-first candidates on top", () => {
   assert.ok(choice, "three lines, one file row: the office picks");
   assert.equal(choice!.candidates[0].stopId, "bare", "the bare line is offered first for the cut");
 });
+
+test("a stated door with two same-door lines keeps the named household, both orders", () => {
+  // Review-proven gap: pass 1 picked among door matches by array order, so a
+  // row naming Katz could cut Katz's basement and keep Gold's.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const mk = (id: string, name: string): ExistingStop => ({
+    id, zoneId: "z1", zoneNumber: 1, recipientName: name, houseNumber: "6",
+    street: "LONDON AVE", floorSide: "basement", publicationIds: ["pub-v"],
+  });
+  const file = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Family Katz", "6 London Ave", "Basement"]],
+    { defaultAction: "add" });
+  for (const stops of [[mk("gold", "Gold"), mk("katz", "Katz")], [mk("katz", "Katz"), mk("gold", "Gold")]]) {
+    const out = planRoster(file, stops, pubs, "pub-v");
+    const cut = out.rows!.filter((r) => r.surplusLine);
+    assert.equal(cut.length, 1);
+    assert.equal(cut[0].stopId, "gold", "Katz is on the list; Gold's line is the surplus");
+  }
+});
+
+test("two unlabelled served lines: the named household survives via pass 1b too", () => {
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const mk = (id: string, name: string): ExistingStop => ({
+    id, zoneId: "z1", zoneNumber: 1, recipientName: name, houseNumber: "9",
+    street: "LONDON AVE", floorSide: null, publicationIds: ["pub-v"],
+  });
+  const file = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Family Katz", "9 London Ave", "Basement"]],
+    { defaultAction: "add" });
+  for (const stops of [[mk("gold", "Gold"), mk("katz", "Katz")], [mk("katz", "Katz"), mk("gold", "Gold")]]) {
+    const cut = planRoster(file, stops, pubs, "pub-v").rows!.filter((r) => r.surplusLine);
+    assert.equal(cut.length, 1);
+    assert.equal(cut[0].stopId, "gold");
+  }
+});
+
+test("a stated door falling back to an UNSERVED unlabelled line asks at a crowded address", () => {
+  // Review finding: the unlabelled fallback is a presumption, not a door
+  // match — at a building with 3+ of this publication's lines it is a blind
+  // write and goes to a person rather than silently attaching.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [
+    ...[0, 1, 2].map((i) => ({
+      id: `v${i}`, zoneId: "z1", zoneNumber: 1, recipientName: `TENANT ${i}`, houseNumber: "419",
+      street: "CEDAR BRIDGE AVE", floorSide: "upstairs", publicationIds: ["pub-v"],
+    })),
+    { id: "x", zoneId: "z1", zoneNumber: 1, recipientName: null, houseNumber: "419",
+      street: "CEDAR BRIDGE AVE", floorSide: null, publicationIds: [] },
+  ];
+  const file = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Family New", "419 Cedar Bridge Ave", "Basement"]],
+    { defaultAction: "add" });
+  const out = planRoster(file, stops, pubs, "pub-v");
+  const row = out.rows!.find((r) => r.action === "add")!;
+  assert.equal(row.status, "needs_choice");
+  assert.match(row.message, /lines with this publication — pick which one/);
+  assert.equal(out.rows!.filter((r) => r.surplusLine).length, 0, "the ask holds the cuts");
+});

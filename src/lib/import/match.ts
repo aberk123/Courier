@@ -646,6 +646,23 @@ export function settleAddress(
   const keepFirst = (candidates: ExistingStop[]) =>
     [...candidates].sort((a, b) => keepPriority(b) - keepPriority(a));
 
+  /**
+   * Which SERVED line among `candidates` a row should claim (claiming = that
+   * line keeps its paper). Review-proven twice over: any tier that picks
+   * served[0] makes the cut side depend on stop array order, so the named
+   * household could lose its paper. One ordering, used by every pass: the
+   * row's own surname first, then removable lines before exempt ones, then
+   * Ari's keep rule (upstairs / better-described survives).
+   */
+  const claimServed = (candidates: ExistingStop[], surname: string | null) => {
+    const served2 = candidates.filter((c) => c.publicationIds.includes(publicationId));
+    return (
+      (surname ? keepFirst(served2.filter((c) => surnameOf(c.recipientName) === surname))[0] : undefined) ??
+      keepFirst(served2.filter((c) => c.rosterManaged !== false))[0] ??
+      keepFirst(served2)[0]
+    );
+  };
+
   /** Lines with the publication first, so a met count settles as "no change". */
   const preferServed = (candidates: ExistingStop[]) =>
     candidates.find((line) => line.publicationIds.includes(publicationId)) ?? candidates[0];
@@ -653,11 +670,19 @@ export function settleAddress(
     ourLines.filter((line) => !taken.has(line.id) && extra(line));
 
   // Pass 1: a stated door pairs with the line carrying that door. This is the
-  // pass that stops a paper landing on a door the file contradicts.
+  // pass that stops a paper landing on a door the file contradicts. Among
+  // several lines carrying the door, claimServed keeps the named household's
+  // line -- two served basement lines used to be picked by array order, cutting
+  // Katz's paper on a row that names Katz.
   for (const i of order) {
     const stated = doorOf(fileRows[i].floorSide);
     if (!stated) continue;
-    const line = preferServed(free((candidate) => doorOf(candidate.floorSide) === stated));
+    const doorMatches = free((candidate) => doorOf(candidate.floorSide) === stated);
+    const surname = surnameOf(fileRows[i].name);
+    const line =
+      claimServed(doorMatches, surname) ??
+      (surname ? doorMatches.filter((c) => surnameOf(c.recipientName) === surname)[0] : undefined) ??
+      doorMatches[0];
     if (line) pair(i, line);
   }
 
@@ -670,8 +695,19 @@ export function settleAddress(
   // against a file row naming a door.
   for (const i of order) {
     if (out[i] || !doorOf(fileRows[i].floorSide)) continue;
-    const line = preferServed(free((candidate) => !doorOf(candidate.floorSide)));
-    if (line) pair(i, line);
+    const unlabelled = free((candidate) => !doorOf(candidate.floorSide));
+    const surname = surnameOf(fileRows[i].name);
+    const line =
+      claimServed(unlabelled, surname) ??
+      (surname ? unlabelled.filter((c) => surnameOf(c.recipientName) === surname)[0] : undefined) ??
+      unlabelled[0];
+    // Review finding: an UNSERVED unlabelled line here is a presumption, not a
+    // door match -- the stated door failed to find its line, and "the
+    // unlabelled line is that door" is a guess. At a crowded address that
+    // guess is a blind write and goes to a person; the doctrine cases (a
+    // served unlabelled line pairing as no_change, and any pairing at a
+    // two-family house) are untouched, since blind only bites when crowded.
+    if (line) pair(i, line, !line.publicationIds.includes(publicationId));
   }
 
   // Pass 2: ONLY rows that stated no door. Both sides are silent, so the driver
@@ -691,23 +727,11 @@ export function settleAddress(
     // own surname is on (12 Sheraton Dr · Katz against basement/KATZ). The file
     // states no door, so the driver decides and the served line is the answer.
     const surname = surnameOf(fileRows[i].name);
-    const served2 = free((candidate) => candidate.publicationIds.includes(publicationId));
     const line =
-      // Among SERVED lines, the row's own surname decides first. Review-proven:
-      // with two served lines, taking served[0] made the cut side of the surplus
-      // rule depend on stop array order -- "file names Gold" could stop Gold's
-      // paper and keep Katz's. Claiming means KEEPING, so the named household's
-      // line is claimed when the name distinguishes them.
-      (surname ? keepFirst(served2.filter((c) => surnameOf(c.recipientName) === surname))[0] : undefined) ??
-      // Then any removable served line before an exempt one: an exempt
-      // (rosterManaged=false) line can never be cut, so a claim landed on it is
-      // wasted while the real household's line goes unclaimed -- the exemption
-      // must protect its own line, never redirect a cut onto a neighbour.
-      // Within each tier, claiming keeps the line Ari's rule spares: the
-      // upstairs or better-described line survives (see keepPriority), so where
-      // nothing stronger distinguishes two lines, the bare one takes the cut.
-      keepFirst(served2.filter((c) => c.rosterManaged !== false))[0] ??
-      keepFirst(served2)[0] ??
+      // Among SERVED lines the shared claimServed ordering applies -- surname
+      // first (claiming means KEEPING, so the named household's line is kept),
+      // removable before exempt, then Ari's keep rule.
+      claimServed(free(() => true), surname) ??
       // Where nothing else distinguishes the free lines, a line carrying this
       // row's own surname is the better one. 4 STONEWALL CT: the file names
       // BADOUCH with no door, and we hold basement/GEWIRTZ and upstairs/BADOUCH
