@@ -1634,3 +1634,28 @@ test("the map never decides a wrong-side-of-the-street question", () => {
   assert.equal(planned.questionKind, "wrong_side_parity");
   assert.doesNotMatch(planned.message, /driver passes/);
 });
+
+test("an odd-side house below the covered range is the crossing question, never a placement", () => {
+  // Live-run finding: 143 PINE ST sits below our even 150–270, so the range
+  // branch fired first and the map converted it to "the driver passes it" —
+  // while its odd-side neighbours 151–225 correctly stayed Amrom's crossing
+  // question. The parity test now outranks both the range test and the map.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = ["150", "152", "270"].map((h) => ({
+    id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
+    street: "PINE ST", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Friedman", "143 Pine St"]],
+    { defaultAction: "add" })[0];
+  row.publication = "voice";
+  const near = new Map([["pine st|143", { meters: 20, nearestHouse: "150" }]]);
+  const measured = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), near);
+  assert.equal(measured.questionKind, "wrong_side_parity");
+  assert.doesNotMatch(measured.message, /driver passes/);
+  // Unmeasured, it stays the range question it always was — the parity guard
+  // exists to stop the MAP from deciding a crossing, not to relabel far-away
+  // numbers that merely happen to be odd (1471 OAK ST against even 26–110).
+  const unmeasured = planRow(row, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(unmeasured.questionKind, "out_of_stretch");
+});
