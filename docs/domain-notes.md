@@ -1026,6 +1026,20 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### Which line takes the cut (Ari, 2026-09-01)
+
+*"If you have to choose which one to delete from the courier's list, always
+prioritize one that is upstairs or that has more information, unless there's a
+reason to do otherwise."*
+
+Implemented as `cutPriority`: when a surplus cut must choose between lines that
+nothing stronger distinguishes, the upstairs line goes before other labels, and
+a line carrying more detail (a floor label, a name) goes before a bare one —
+the bare line survives. The "reasons to do otherwise" outrank it exactly where
+they already exist: a stated door pairs first (the door rule), and a surname
+match keeps the named household's line. The pick-a-line dropdown at crowded
+addresses lists candidates in the same cut-first order.
+
 ### Follow the master list: five rulings from Ari's first pass over the portal (2026-09-01)
 
 Ari worked the live questions list the day it shipped and issued five rulings,
