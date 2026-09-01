@@ -439,6 +439,13 @@ Both are worth knowing because they made that pass weaker than it looked.
   `docs/domain-notes.md`, "Follow the master list". Measured: removals
   unchanged, questions 179 → 121, ready 62 → 65, unreadable 13 → 11.
 
+- **The map now measures out-of-stretch questions (Ari, 2026-09-01, the Henry
+  St ruling).** Same-street distances via the Census geocoder: within 150 m the
+  question becomes a placement note on Amrom's list with the measurement shown;
+  further stays a question, annotated. Never applied to parity questions. The
+  sandbox cannot reach the geocoder, so the first deployed upload is the first
+  live run.
+
 - **Other publications' lines no longer count toward "crowded", and the master
   list wins the door (Ari, 2026-09-01, via 16/8 Chelsea Ct and 33 Cushman St).**
   Door conflicts are moves — an add row plus a cut row, never a question; a

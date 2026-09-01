@@ -44,6 +44,15 @@ export type QuestionKind =
   | "pick_line"           // several addresses match, pick one
   | "unreadable_cell";    // the address cell itself could not be read
 
+/**
+ * A measured gap at or under this is "the driver passes it" (Ari, 2026-09-01,
+ * the Henry St ruling): the out-of-stretch question dissolves into a placement
+ * note. Ordinary Lakewood lots are 15–25 m wide, so 150 m is a handful of
+ * houses past the end of a covered stretch — the 1–16 Henry St shape — while
+ * a different part of town stays a question.
+ */
+export const STRETCH_METERS = 150;
+
 /** Tiny stable string hash (djb2) for keys that have no address to key on. */
 export function hashKey(value: string): string {
   let h = 5381;
@@ -84,6 +93,13 @@ export type PlanRow = {
    * removal guard.
    */
   surplusLine?: boolean;
+  /**
+   * On an out-of-stretch or between-blocks question: the covered house numbers
+   * nearest the questioned one, for the map-distance pass. The plan action
+   * geocodes both sides and re-plans with the measured gaps, turning a short
+   * walk into a placement note instead of a question.
+   */
+  measureRefs?: string[];
   publicationId: string | null;
   publicationName: string | null;
   /**
@@ -825,6 +841,14 @@ export function planRow(
   rosterGroup?: RosterGroup,
   /** Answers the office has already given. See AddressRuling. */
   rulings: RulingIndex = new Map(),
+  /**
+   * Measured gaps between a questioned address and the nearest house we
+   * deliver on its street, keyed `street|house` (normalized) — see
+   * src/lib/import/street-distance.ts. Within STRETCH_METERS the driver
+   * passes the address, so "is it ours?" dissolves into a placement note
+   * for the Lakewood Courier.
+   */
+  stretchGaps: Map<string, { meters: number; nearestHouse: string }> = new Map(),
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -1255,12 +1279,32 @@ export function planRow(
     // so the geography questions below have been answered and must not recur.
     const confirmedOurs = ruled?.ruling === "ours";
     if (!confirmedOurs && (asNumber < lo || asNumber > hi)) {
+      const nearestEnd = asNumber < lo ? lo : hi;
+      const gap = stretchGaps.get(`${street}|${house}`);
+      if (gap && gap.meters <= STRETCH_METERS) {
+        // The map says the driver passes it: a few houses past the end of the
+        // covered stretch on the SAME street. "Is it ours?" is answered; what
+        // remains is where it sits in the walk — the Lakewood Courier's
+        // placement question, with the measurement on it.
+        return {
+          ...base,
+          status: "needs_choice",
+          message:
+            `${row.houseNumber} ${row.street.toUpperCase()} is about ${gap.meters} m from ` +
+            `${gap.nearestHouse}, the nearest we deliver — the driver passes it; place it in the route`,
+          newStop: newStopFrom(row, base, zoneCandidates),
+          ...asQuestion(base, "route_position"),
+        };
+      }
       return {
         ...base,
         status: "needs_choice",
-        message: `${row.houseNumber} is outside the ${lo}–${hi} stretch of ${row.street.toUpperCase()} our routes cover — confirm it is on this route before adding it`,
+        message:
+          `${row.houseNumber} is outside the ${lo}–${hi} stretch of ${row.street.toUpperCase()} our routes cover — confirm it is on this route before adding it` +
+          (gap ? ` (measured: about ${gap.meters} m from ${gap.nearestHouse}, the nearest we deliver)` : ""),
         newStop: newStopFrom(row, base, zoneCandidates),
         ...asQuestion(base, "out_of_stretch"),
+        measureRefs: [String(nearestEnd)],
       };
     }
 
@@ -1295,15 +1339,29 @@ export function planRow(
     const below = sorted.filter((n) => n < asNumber).pop();
     const above = sorted.find((n) => n > asNumber);
     if (!confirmedOurs && below !== undefined && above !== undefined && above - below > BLOCK_GAP) {
+      const gap = stretchGaps.get(`${street}|${house}`);
+      if (gap && gap.meters <= STRETCH_METERS) {
+        return {
+          ...base,
+          status: "needs_choice",
+          message:
+            `${row.houseNumber} ${row.street.toUpperCase()} is about ${gap.meters} m from ` +
+            `${gap.nearestHouse}, the nearest we deliver — the driver passes it; place it in the route`,
+          newStop: newStopFrom(row, base, zoneCandidates),
+          ...asQuestion(base, "route_position"),
+        };
+      }
       return {
         ...base,
         status: "needs_choice",
         message:
           `${row.houseNumber} falls in the gap between ${below} and ${above} on ` +
           `${row.street.toUpperCase()} — we deliver both blocks but nothing between them, so it has ` +
-          `no position yet`,
+          `no position yet` +
+          (gap ? ` (measured: about ${gap.meters} m from ${gap.nearestHouse}, the nearest we deliver)` : ""),
         newStop: newStopFrom(row, base, zoneCandidates),
         ...asQuestion(base, "gap_between_blocks"),
+        measureRefs: [String(below), String(above)],
       };
     }
   }
