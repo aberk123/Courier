@@ -32,6 +32,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Link href="/import" className="underline underline-offset-2">
             Import
           </Link>
+          <Link href="/questions" className="underline underline-offset-2">
+            Questions
+          </Link>
           {profile?.is_courier_office ? (
             <Link href="/users" className="underline underline-offset-2">
               Manage users

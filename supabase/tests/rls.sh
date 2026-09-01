@@ -366,9 +366,14 @@ check "an answer cannot be attributed to somebody else" \
        values ('$VOICE','pine st','151','not_ours');" | grep -c 'row-level security')" \
   "1"
 # Changing your mind must replace the old answer, not leave two contradictory
-# ones for row order to choose between.
+# ones for row order to choose between. BOTH statements run in one block so the
+# ON CONFLICT actually fires: the earlier version inserted its fixture in a
+# previous as() call, which rolled back -- so the conflict path (which needs the
+# UPDATE policy) was never exercised, and the missing policy shipped.
 check "a changed answer replaces the old one rather than sitting beside it" \
   "$(as $OFFICE "insert into public.address_rulings (created_by, street, house_number, ruling)
+       values ('$OFFICE','vine ave','106','not_ours');
+     insert into public.address_rulings (created_by, street, house_number, ruling)
        values ('$OFFICE','vine ave','106','ours')
        on conflict (street, house_number, publication_id) do update set ruling = excluded.ruling;
      select count(*) from public.address_rulings where street='vine ave';
@@ -382,6 +387,99 @@ check "the courier office can remove one" \
   "$(as $OFFICE "delete from public.address_rulings where street='vine ave';
      select count(*) from public.address_rulings;")" \
   "0"
+
+
+echo "import_questions (the standing-questions portal)"
+# One fixture, repeated per block because as() rolls back: the office upserts a
+# Voice question and a Shopper question through the same RPC the plan action
+# uses, plus one addressed to the courier office.
+qfix() {  # $1 = publication id, $2 = audience, $3 = fingerprint (default f1)
+  echo "select public.upsert_import_questions(jsonb_build_array(jsonb_build_object(
+    'publicationId','$1','kind','out_of_stretch','street','vine ave','houseNumber','106',
+    'questionKey','out_of_stretch|vine ave|106','prompt','106 is outside 550-736',
+    'fingerprint','${3:-f1}','audience','$2')));"
+}
+
+check "the office records questions through the upsert, and re-planning does not duplicate them" \
+  "$(as $OFFICE "$(qfix $PV voice_office)$(qfix $PV voice_office)
+     select count(*), max(status) from public.import_questions;")" \
+  "1|open"
+check "a Voice staffer sees Voice questions and not another publication's" \
+  "$(as $OFFICE "$(qfix $PV voice_office)$(qfix $PS voice_office f2)
+     set local \"request.jwt.claims\" = '{\"sub\":\"$VOICE\"}';
+     select publication_id = '$PV' from public.import_questions;")" \
+  "t"
+check "a Voice staffer cannot insert into the table directly" \
+  "$(as $VOICE "insert into public.import_questions (publication_id, kind, street, question_key, prompt, fingerprint, audience)
+       values ('$PV','out_of_stretch','x','k','p','f','voice_office');" | grep -c 'row-level security')" \
+  "1"
+check "a Voice staffer's direct update and delete are no-ops" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     set local \"request.jwt.claims\" = '{\"sub\":\"$VOICE\"}';
+     update public.import_questions set status='superseded', audience='amrom';
+     delete from public.import_questions;
+     set local \"request.jwt.claims\" = '{\"sub\":\"$OFFICE\"}';
+     select count(*), status, audience from public.import_questions group by status, audience;")" \
+  "1|open|voice_office"
+check "a Voice staffer answers an open Voice question through the RPC" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     set local \"request.jwt.claims\" = '{\"sub\":\"$VOICE\"}';
+     select public.answer_import_question(id, 'typo_will_fix', 'street was misspelled') from public.import_questions;
+     select status, answer->>'choice', answered_by = '$VOICE' from public.import_questions;")" \
+  "answered|typo_will_fix|t"
+check "a Voice staffer cannot answer another publication's question" \
+  "$(as $OFFICE "$(qfix $PS voice_office)
+     set local \"request.jwt.claims\" = '{\"sub\":\"$VOICE\"}';
+     select public.answer_import_question(id, 'typo_will_fix', null)
+       from public.import_questions where false; -- they cannot even see it to get its id
+     select public.answer_import_question((select id from public.import_questions), 'typo_will_fix', null);" \
+     | grep -c 'question not found')" \
+  "1"
+check "a Voice staffer cannot answer a question addressed to the courier office" \
+  "$(as $OFFICE "$(qfix $PV courier_office)
+     set local \"request.jwt.claims\" = '{\"sub\":\"$VOICE\"}';
+     select public.answer_import_question(id, 'typo_will_fix', null) from public.import_questions;" \
+     | grep -c 'not yours to answer')" \
+  "1"
+check "an answered question cannot be answered again" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     select public.answer_import_question(id, 'first', null) from public.import_questions;
+     select public.answer_import_question(id, 'second', null) from public.import_questions;" \
+     | grep -c 'no longer open')" \
+  "1"
+check "pass_to_amrom retags the audience and leaves the question OPEN" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     set local \"request.jwt.claims\" = '{\"sub\":\"$VOICE\"}';
+     select public.answer_import_question(id, 'pass_to_amrom', 'route question') from public.import_questions;
+     select status, audience from public.import_questions;")" \
+  "open|amrom"
+check "re-planning the same facts leaves an answered question answered" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     select public.answer_import_question(id, 'typo_will_fix', null) from public.import_questions;
+     $(qfix $PV voice_office)
+     select status from public.import_questions;")" \
+  "answered"
+check "changed facts reopen an answered question" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     select public.answer_import_question(id, 'typo_will_fix', null) from public.import_questions;
+     $(qfix $PV voice_office f2)
+     select status, answer->>'choice' from public.import_questions;")" \
+  "open|typo_will_fix"
+check "supersede retires unseen questions for THAT publication only" \
+  "$(as $OFFICE "$(qfix $PV voice_office)$(qfix $PS voice_office f2)
+     select public.supersede_import_questions('$PV', '[]'::jsonb);
+     select status from public.import_questions order by status;")" \
+  "1,open,superseded"
+check "a superseded question that re-arises reopens" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     select public.supersede_import_questions('$PV', '[]'::jsonb);
+     $(qfix $PV voice_office)
+     select status from public.import_questions;")" \
+  "1,open"
+check "answered-without-an-answer is rejected by the table itself" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     update public.import_questions set status='answered';" | grep -c 'import_questions_answer_complete')" \
+  "1"
 
 echo
 printf 'ceil %d passed, %d failed\n' "$pass" "$fail" | sed 's/^ceil //'

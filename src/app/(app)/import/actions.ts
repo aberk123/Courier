@@ -30,6 +30,20 @@ export type PlanState = {
   rows: PlanRow[] | null;
   fileName: string | null;
   summary: PlanSummary | null;
+  /**
+   * Every question key the FULL plan raised — not just the trimmed rows the
+   * browser holds. Posted back with Apply so supersede keeps the right set: the
+   * unreadable-cell questions live in the trimmed-away sample, and superseding
+   * from the visible rows alone would wrongly retire them.
+   */
+  questionKeys?: string[];
+  /**
+   * How many standing questions this plan recorded on /questions, or null when
+   * recording failed. Recording is fail-soft — a portal hiccup must not stop
+   * the office reviewing an upload — but a silent failure would strand the
+   * whole questions workflow, so the screen says which happened.
+   */
+  questionsSaved?: number | null;
 };
 export type ApplyState = { error: string | null; applied: number | null; skipped: number | null };
 
@@ -177,11 +191,12 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   // A truncated or failed read must stop the run, not quietly plan against
   // whatever arrived: everything the roster did not mention looks like a
   // cancellation, and everything already on the route looks new.
+  let supabase: Awaited<ReturnType<typeof loadContext>>["supabase"];
   let existing: ExistingStop[];
   let publications: { id: string; code: string; name: string }[];
   let addressRulings: AddressRuling[];
   try {
-    ({ existing, publications, addressRulings } = await loadContext());
+    ({ supabase, existing, publications, addressRulings } = await loadContext());
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Could not read the current address list.",
@@ -216,7 +231,69 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   if (outcome.error) {
     return { error: outcome.error, rows: null, fileName: file.name, summary: null };
   }
-  return { error: null, rows: outcome.rows, fileName: file.name, summary: outcome.summary };
+
+  // Persist the plan's open questions so they can be answered on /questions,
+  // outside the import cycle, and join back any answers already recorded so
+  // the person applying sees them beside the rows. Roster uploads only: an
+  // action-column file resolves inline at review time, and its rows have no
+  // single publication to key questions on. Fail-soft in both directions — a
+  // portal hiccup must not stop the upload — but never silently: the screen
+  // reports which happened.
+  let questionsSaved: number | null = null;
+  if (rosterPublication && outcome.rows) {
+    try {
+      const questions = outcome.questions ?? [];
+      if (questions.length) {
+        const { error } = await supabase.rpc("upsert_import_questions", {
+          p_rows: questions.map((q) => ({
+            publicationId: q.publicationId,
+            kind: q.kind,
+            street: q.street,
+            houseNumber: q.houseNumber,
+            questionKey: q.questionKey,
+            prompt: q.prompt,
+            evidence: q.evidence,
+            fingerprint: q.fingerprint,
+            audience: q.audience,
+          })),
+        });
+        if (error) throw new Error(error.message);
+      }
+      questionsSaved = questions.length;
+
+      const { data: answered } = await supabase
+        .from("import_questions")
+        .select("question_key, answer, answered_at")
+        .eq("publication_id", rosterPublication)
+        .eq("status", "answered");
+      if (answered?.length) {
+        const byKey = new Map(answered.map((q) => [q.question_key, q]));
+        for (const row of outcome.rows) {
+          const hit = row.questionKey ? byKey.get(row.questionKey) : undefined;
+          if (hit) {
+            const answer = hit.answer as { choice?: string; note?: string | null } | null;
+            row.recordedAnswer = {
+              choice: answer?.choice ?? "",
+              note: answer?.note ?? null,
+              answeredAt: hit.answered_at as string,
+            };
+          }
+        }
+      }
+    } catch (error) {
+      console.error("recording standing questions failed:", error);
+      questionsSaved = null;
+    }
+  }
+
+  return {
+    error: null,
+    rows: outcome.rows,
+    fileName: file.name,
+    summary: outcome.summary,
+    questionsSaved,
+    questionKeys: (outcome.questions ?? []).map((q) => q.questionKey),
+  };
 }
 
 export async function applyImport(_prev: ApplyState, formData: FormData): Promise<ApplyState> {
@@ -401,6 +478,27 @@ export async function applyImport(_prev: ApplyState, formData: FormData): Promis
 
   // Recorded last, so the number on the undo button is what actually landed.
   await supabase.from("import_runs").update({ applied_count: applied }).eq("id", runId);
+
+  // A clean apply means a person accepted this plan as the real weekly file and
+  // both look-wrong guards passed — so standing questions this plan did NOT
+  // raise are retired. Publication-scoped: applying a Voice roster touches no
+  // other publication's questions. Deliberately NOT done at plan time (a junk
+  // upload would mass-supersede real questions), and skipped entirely when the
+  // apply stopped early above. Superseded questions that re-arise — including
+  // after undo_import_run — reopen at the next plan. Fail-soft: retiring
+  // questions must never make a completed apply look failed.
+  const appliedPublication = String(formData.get("rosterPublication") ?? "").trim();
+  if (appliedPublication) {
+    try {
+      const keepKeys = JSON.parse(String(formData.get("questionKeys") ?? "[]")) as string[];
+      await supabase.rpc("supersede_import_questions", {
+        p_publication_id: appliedPublication,
+        p_keep_keys: keepKeys,
+      });
+    } catch (error) {
+      console.error("retiring standing questions failed:", error);
+    }
+  }
 
   revalidatePath("/", "layout");
   return { error: null, applied, skipped };

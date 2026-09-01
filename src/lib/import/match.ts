@@ -19,6 +19,41 @@ export type ExistingStop = {
 
 export type Candidate = { stopId: string; label: string; zoneNumber: number };
 
+/**
+ * Machine-readable identity of a question, so an answer recorded against it can
+ * be found again next week. The prose message is for people and gets reworded;
+ * the kind never does. Grouping rule learned from review: a question that is
+ * the same real-world question must map to ONE kind however many code paths
+ * emit it -- both "has this household moved?" shapes are door_conflict, both
+ * duplicate-detection reasons are duplicate_lines -- or the key flips between
+ * weeks and the recorded answer is orphaned.
+ */
+export type QuestionKind =
+  | "out_of_stretch"      // house number beyond the covered stretch of our street
+  | "wrong_side_parity"   // every number we deliver is one parity, this is the other
+  | "gap_between_blocks"  // falls between two delivered blocks
+  | "route_position"      // brand-new door, one zone, needs a place in the walking order
+  | "street_spans_zones"  // brand-new door, street lives in several zones
+  | "near_miss_street"    // file street ~ our street, no name to compare
+  | "near_miss_named"     // file street ~ our street, surname matches
+  | "street_identity"     // one spelling covering our road and another (VINE ST)
+  | "unit_letter"         // 132 vs 132A -- same door or a second unit?
+  | "duplicate_lines"     // the list may name this household twice
+  | "count_vs_capacity"   // more households listed than the house has
+  | "no_current_delivery" // 3+ listed at an address we deliver none of
+  | "crowded_address"     // 3+ lines on our side, indistinguishable here
+  | "door_conflict"       // the list and the delivery disagree about the door
+  | "new_household"       // a second household at an address we already serve
+  | "pick_line"           // several addresses match, pick one
+  | "unreadable_cell";    // the address cell itself could not be read
+
+/** Tiny stable string hash (djb2) for keys that have no address to key on. */
+export function hashKey(value: string): string {
+  let h = 5381;
+  for (let i = 0; i < value.length; i++) h = ((h << 5) + h + value.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
 export type PlanRow = {
   rowNumber: number;
   action: ParsedRow["action"];
@@ -37,6 +72,20 @@ export type PlanRow = {
    * with the confirmed streets. See src/lib/import/street-check.ts.
    */
   mapCheckable?: boolean;
+  /** Set on every needs_choice row (and unreadable rows): what KIND of question this is. */
+  questionKind?: QuestionKind;
+  /**
+   * Stable identity of the question across uploads: kind|street|house, never
+   * candidate ids, counts or row indices — those move while the question stays
+   * the same question. Several file rows at one address share one key on
+   * purpose: the office settles the ADDRESS once, not each row.
+   */
+  questionKey?: string;
+  /**
+   * An answer the office recorded on the questions page, joined back onto the
+   * row at plan time so the person applying sees it without leaving the screen.
+   */
+  recordedAnswer?: { choice: string; note: string | null; answeredAt: string } | null;
   publicationId: string | null;
   publicationName: string | null;
   /**
@@ -473,7 +522,7 @@ export type AddressOutcome =
   | { kind: "no_change"; stopId: string }
   | { kind: "attach"; stopId: string }
   | { kind: "create"; floorSide: string | null }
-  | { kind: "ask"; reason: string };
+  | { kind: "ask"; reason: string; ask: QuestionKind };
 
 /** Compares a floor label from either side on the same footing. */
 const doorOf = (value: string | null) =>
@@ -642,7 +691,7 @@ export function settleAddress(
       return;
     }
     if (crowded) {
-      out[index] = { kind: "ask", reason: `this address has ${ourLines.length} lines — pick which one` };
+      out[index] = { kind: "ask", ask: "crowded_address", reason: `this address has ${ourLines.length} lines — pick which one` };
       return;
     }
     // The line the file names does not carry the publication. Whether that is an
@@ -663,6 +712,7 @@ export function settleAddress(
     const elsewhere = served.map((line2) => doorOf(line2.floorSide) ?? "no label").join(" and ");
     out[index] = {
       kind: "ask",
+      ask: "door_conflict",
       reason:
         `the list names the ${doorOf(line.floorSide) ?? "unlabelled"} unit, but the paper goes to ` +
         `the ${elsewhere} — has this household moved? Nothing is stopped without you saying so.`,
@@ -740,16 +790,17 @@ export function settleAddress(
   for (const i of order) {
     if (out[i]) continue;
     if (dup.has(i)) {
-      out[i] = { kind: "ask", reason: dup.get(i)! };
+      out[i] = { kind: "ask", ask: "duplicate_lines", reason: dup.get(i)! };
     } else if (fileRows.length > capacity) {
       out[i] = {
         kind: "ask",
+        ask: "count_vs_capacity",
         reason:
           `the list has ${fileRows.length} households at this address but the house has ` +
           `${ourLines.length} — check the list before adding`,
       };
     } else if (crowded) {
-      out[i] = { kind: "ask", reason: `this address has ${ourLines.length} lines — add this one by hand` };
+      out[i] = { kind: "ask", ask: "crowded_address", reason: `this address has ${ourLines.length} lines — add this one by hand` };
     } else if (doorOf(fileRows[i].floorSide) && served.length >= fileRows.length) {
       // The file names a door we hold no line for, and the address already gets
       // as many papers as the list asks for. Creating the door would send one
@@ -757,6 +808,7 @@ export function settleAddress(
       // shape as in pair(), reached from the other side.
       out[i] = {
         kind: "ask",
+        ask: "door_conflict",
         reason:
           `the list names the ${doorOf(fileRows[i].floorSide)} unit, which we have no line for, ` +
           `and the address already gets ${served.length} — has this household moved?`,
@@ -776,7 +828,7 @@ export function settleAddress(
   // first.
   for (const [i, reason] of dup) {
     if (out[i].kind === "no_change") continue;
-    out[i] = { kind: "ask", reason };
+    out[i] = { kind: "ask", ask: "duplicate_lines", reason };
   }
   return out;
 }
@@ -846,7 +898,16 @@ export function planRow(
     floorSide: mergeFloorSides(row.floorSide, row.floorSideAlt),
   };
 
-  if (row.problem) return { ...base, message: row.problem, unreadable: true };
+  if (row.problem) {
+    return {
+      ...base,
+      message: row.problem,
+      unreadable: true,
+      questionKind: "unreadable_cell",
+      // No parseable address to key on, so the raw cell text is the identity.
+      questionKey: `unreadable_cell|${hashKey(`${row.houseNumber} ${row.street} ${row.name ?? ""}`)}`,
+    };
+  }
 
   // Resolve publication (required for add/remove, optional for change)
   let publication: { id: string; code: string; name: string } | undefined;
@@ -895,6 +956,7 @@ export function planRow(
   // applied. `needsPerson` carries the reason through to the review screen.
   let fuzzy = false;
   let needsPerson: string | null = null;
+  let needsPersonKind: QuestionKind = "pick_line";
   const onOur = (ourStreet: string) => index.byStreetAndHouse.get(`${ourStreet}|${house}`) ?? [];
 
   if (!matches.length) {
@@ -911,7 +973,10 @@ export function planRow(
       fuzzy = matches.length > 0;
     } else if (ruled?.ruling === "unresolved") {
       matches = onOur(ruled.ourStreet);
-      if (matches.length) needsPerson = ruled.why;
+      if (matches.length) {
+        needsPerson = ruled.why;
+        needsPersonKind = "street_identity";
+      }
     } else {
       // No ruling at all: the base word itself differs. That is sometimes a typo
       // ("SHENENDOAH DR" for SHENANDOAH DR) and sometimes a real road we simply
@@ -984,6 +1049,7 @@ export function planRow(
             `${where} is, and the name matches — a slip of one or two letters?`
           : `${row.street.toUpperCase()} is not one of our streets, and ${row.houseNumber} ` +
             `${where} has no name to compare — is this the same street written differently?`;
+        needsPersonKind = named.length ? "near_miss_named" : "near_miss_street";
         if (!named.length) base.mapCheckable = true;
       } else {
         return {
@@ -1008,6 +1074,7 @@ export function planRow(
     });
     if (letterKin.length) {
       matches = letterKin;
+      needsPersonKind = "unit_letter";
       needsPerson = `we deliver to ${letterKin
         .map((stop) => stop.houseNumber)
         .join(" and ")} on this street, not ${row.houseNumber} — same door or a second unit?`;
@@ -1045,11 +1112,13 @@ export function planRow(
         status: "needs_choice",
         candidates,
         message: `${matches.length} addresses match — pick one`,
+        ...asQuestion(base, needsPerson ? needsPersonKind : "pick_line"),
       };
     }
     const stop = matches[0];
     if (needsPerson) {
-      return { ...base, status: "needs_choice", stopId: stop.id, candidates, message: needsPerson };
+      return { ...base, status: "needs_choice", stopId: stop.id, candidates, message: needsPerson,
+        ...asQuestion(base, needsPersonKind) };
     }
     if (row.action === "remove" && publication && !stop.publicationIds.includes(publication.id)) {
       return {
@@ -1143,6 +1212,7 @@ export function planRow(
           `another household at this address${outcome.floorSide ? ` (${outcome.floorSide})` : ""} — ` +
           `add it next to ${labelFor(twin)} in zone ${twin.zoneNumber}. Applying it here would ` +
           `put it at the end of the route, past DONE.`,
+        ...asQuestion(base, "new_household"),
       };
     }
     return {
@@ -1154,6 +1224,7 @@ export function planRow(
         zoneNumber: line.zoneNumber,
       })),
       message: outcome.reason,
+      ...asQuestion(base, outcome.ask),
       // atAddress.length, not 0: if the office answers this question by picking
       // "Add as a new address", applyImport compares the live line count against
       // this. Hardcoded 0 made it decide the premise had moved and skip the row
@@ -1165,7 +1236,8 @@ export function planRow(
   if (matches.length === 1) {
     const stop = matches[0];
     if (needsPerson) {
-      return { ...base, status: "needs_choice", stopId: stop.id, candidates, message: needsPerson };
+      return { ...base, status: "needs_choice", stopId: stop.id, candidates, message: needsPerson,
+        ...asQuestion(base, needsPersonKind) };
     }
     if (publication && stop.publicationIds.includes(publication.id)) {
       return {
@@ -1199,6 +1271,7 @@ export function planRow(
         ? `${needsPerson} And ${matches.length} addresses match — pick one, or add it as a new address.`
         : `${matches.length} addresses match — pick one, or add it as a new address`,
       newStop: newStopFrom(row, base, streetZones.get(street) ?? []),
+      ...asQuestion(base, needsPerson ? needsPersonKind : "pick_line"),
     };
   }
 
@@ -1221,6 +1294,7 @@ export function planRow(
       message:
         `the list has ${rosterGroup.fileRows.length} households at this address and we deliver to ` +
         `none of them — check the list before adding any`,
+      ...asQuestion(base, "no_current_delivery"),
     };
   }
 
@@ -1254,6 +1328,7 @@ export function planRow(
         status: "needs_choice",
         message: `${row.houseNumber} is outside the ${lo}–${hi} stretch of ${row.street.toUpperCase()} our routes cover — confirm it is on this route before adding it`,
         newStop: newStopFrom(row, base, zoneCandidates),
+        ...asQuestion(base, "out_of_stretch"),
       };
     }
 
@@ -1278,6 +1353,7 @@ export function planRow(
           `every ${row.street.toUpperCase()} number we deliver is ${sorted[0] % 2 === 0 ? "even" : "odd"} ` +
           `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
         newStop: newStopFrom(row, base, zoneCandidates),
+        ...asQuestion(base, "wrong_side_parity"),
       };
     }
 
@@ -1295,6 +1371,7 @@ export function planRow(
           `${row.street.toUpperCase()} — we deliver both blocks but nothing between them, so it has ` +
           `no position yet`,
         newStop: newStopFrom(row, base, zoneCandidates),
+        ...asQuestion(base, "gap_between_blocks"),
       };
     }
   }
@@ -1346,6 +1423,15 @@ export function planRow(
           `Applying it here would put it at the end, past DONE.`
         : "new address — this street spans several zones, pick one",
     newStop: newStopFrom(row, base, zoneCandidates),
+    ...asQuestion(base, zoneCandidates.length === 1 ? "route_position" : "street_spans_zones"),
+  };
+}
+
+/** Question identity for a needs_choice (or unreadable) row. */
+function asQuestion(base: PlanRow, kind: QuestionKind): Pick<PlanRow, "questionKind" | "questionKey"> {
+  return {
+    questionKind: kind,
+    questionKey: `${kind}|${normalizeStreet(base.street)}|${normalizeHouseNumber(base.houseNumber)}`,
   };
 }
 
