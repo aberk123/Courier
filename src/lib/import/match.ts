@@ -1278,9 +1278,30 @@ export function planRow(
     // `ours` means the office has already confirmed this address is on the route,
     // so the geography questions below have been answered and must not recur.
     const confirmedOurs = ruled?.ruling === "ours";
+    const sortedAll = [...new Set(numbersOnStreet)].sort((a, b) => a - b);
+    const paritiesAll = new Set(sortedAll.map((n) => n % 2));
+    const wrongSide = paritiesAll.size === 1 && !paritiesAll.has(asNumber % 2);
+
     if (!confirmedOurs && (asNumber < lo || asNumber > hi)) {
       const nearestEnd = asNumber < lo ? lo : hi;
       const gap = stretchGaps.get(`${street}|${house}`);
+      if (gap && gap.meters <= STRETCH_METERS && wrongSide) {
+        // Near enough that the driver passes it -- but on the side of the
+        // street he does not deliver. The map never decides whether he
+        // crosses, so this is the crossing question, same as its in-range
+        // neighbours. Live-run finding: 143/147 PINE ST sit below the even
+        // 150-270 stretch and were converted to placements while 151-225
+        // correctly stayed Amrom's crossing question.
+        return {
+          ...base,
+          status: "needs_choice",
+          message:
+            `every ${row.street.toUpperCase()} number we deliver is ${sortedAll[0] % 2 === 0 ? "even" : "odd"} ` +
+            `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
+          newStop: newStopFrom(row, base, zoneCandidates),
+          ...asQuestion(base, "wrong_side_parity"),
+        };
+      }
       if (gap && gap.meters <= STRETCH_METERS) {
         // The map says the driver passes it: a few houses past the end of the
         // covered stretch on the SAME street. "Is it ours?" is answered; what
@@ -1308,6 +1329,20 @@ export function planRow(
       };
     }
 
+    // One side of the street. Every number we deliver shares a parity and this
+    // one does not -- a new side, not infill.
+    if (!confirmedOurs && wrongSide) {
+      return {
+        ...base,
+        status: "needs_choice",
+        message:
+          `every ${row.street.toUpperCase()} number we deliver is ${sortedAll[0] % 2 === 0 ? "even" : "odd"} ` +
+          `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
+        newStop: newStopFrom(row, base, zoneCandidates),
+        ...asQuestion(base, "wrong_side_parity"),
+      };
+    }
+
     // Inside the range is not the same as inside a delivered block. Zone 2's
     // Pine St is 150-152 and then 198-270, all even; a global lo..hi test passes
     // 151, 185, 201 and 233 because they sit between 150 and 270. Measured on
@@ -1317,21 +1352,6 @@ export function planRow(
     //
     // Two cheap discriminators, both from the numbers alone:
     const sorted = [...new Set(numbersOnStreet)].sort((a, b) => a - b);
-
-    // One side of the street. Every number we deliver shares a parity and this
-    // one does not -- a new side, not infill.
-    const parities = new Set(sorted.map((n) => n % 2));
-    if (!confirmedOurs && parities.size === 1 && !parities.has(asNumber % 2)) {
-      return {
-        ...base,
-        status: "needs_choice",
-        message:
-          `every ${row.street.toUpperCase()} number we deliver is ${sorted[0] % 2 === 0 ? "even" : "odd"} ` +
-          `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
-        newStop: newStopFrom(row, base, zoneCandidates),
-        ...asQuestion(base, "wrong_side_parity"),
-      };
-    }
 
     // A gap between two blocks. The street is reached at more than one point in
     // the route and this number falls between them, so there is no neighbour to
