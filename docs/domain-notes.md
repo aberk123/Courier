@@ -1026,6 +1026,38 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### The map measures whether the driver passes an address (Ari, 2026-09-01)
+
+Ari, shown 1–16 Henry St queued as out-of-stretch questions while we deliver
+28–111 on the same short block (with a map screenshot): *"it's worth it for you
+to have access to a map so that you can see the actual route that the delivery
+guy travels. You can see if the address in question is being passed by the
+delivery guy."*
+
+This is the narrow map use that IS sound, distinct from the two that are not:
+the map still never decides walking order (the sequence is Amrom's), and never
+decides wrong-side-parity (whether the driver crosses is a walking-pattern
+fact). What it decides is geometry on the SAME street: how far a questioned
+house number sits from the nearest house we already deliver.
+
+Built as `src/lib/import/street-distance.ts`: at plan time the out-of-stretch
+and between-blocks questions are geocoded (US Census, coordinates this time)
+against the covered ends of their street, and:
+
+- **Within 150 m** (a handful of Lakewood lots): the driver passes it. "Is it
+  ours?" dissolves — the row becomes a `route_position` placement note on
+  Amrom's list, with the measurement on it ("16 HENRY ST is about 78 m from
+  28, the nearest we deliver — the driver passes it; place it in the route").
+- **Further**: the question stands, annotated with the measured distance so
+  whoever answers sees the geography at a glance.
+- **Unmeasurable** (service down, geocoder spell-corrected, address unknown to
+  the map): decides nothing; the question stands unannotated. Same fail-soft
+  and spell-correction discipline as the retired street-existence check, plus
+  a circuit breaker so a dead service is paid for once, not per lookup.
+
+The dev sandbox cannot reach the geocoder, so the measured path is pinned by
+unit tests and first runs live on the deployed app.
+
 ### Other publications' lines are invisible to a reconciliation, and the master list wins the door (Ari, 2026-09-01)
 
 Two more rulings from Ari's pass over the live portal, both "why is this still

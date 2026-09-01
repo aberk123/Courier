@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllPages } from "@/lib/fetch-all";
 import { parseCsv, rowsFromGrid, type ParsedRow } from "@/lib/import/parse";
 import { planRoster, type PlanSummary } from "@/lib/import/plan";
+import { measureStretchGaps } from "@/lib/import/street-distance";
 export type { PlanSummary };
 import {
   normalizeHouseNumber,
@@ -209,7 +210,25 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   // src/lib/import/plan.ts -- this used to be 150 lines inline, which meant the
   // only way to measure it was to reimplement it, and the reimplementation
   // drifted six rows away from what the screen showed.
-  const outcome = planRoster(parsed, existing, publications, rosterPublication || null, addressRulings);
+  let outcome = planRoster(parsed, existing, publications, rosterPublication || null, addressRulings);
+
+  // Second pass with the map's measurements. Out-of-stretch and between-blocks
+  // questions carry the covered house numbers nearest them; the geocoder
+  // measures the gap, and a short walk dissolves the question into a placement
+  // note for the Lakewood Courier (Ari, 2026-09-01, the Henry St ruling).
+  // Fails soft in every direction by leaving the plan exactly as pass one made
+  // it — unmeasurable never decides anything.
+  const measurable = (outcome.rows ?? [])
+    .filter((row) => row.measureRefs?.length)
+    .map((row) => ({ street: row.street, houseNumber: row.houseNumber, refs: row.measureRefs! }));
+  if (measurable.length) {
+    const stretchGaps = await measureStretchGaps(measurable);
+    if (stretchGaps.size) {
+      const repass = planRoster(parsed, existing, publications, rosterPublication || null,
+        addressRulings, { stretchGaps });
+      if (!repass.error) outcome = repass;
+    }
+  }
 
   if (outcome.error) {
     return { error: outcome.error, rows: null, fileName: file.name, summary: null };

@@ -1583,3 +1583,54 @@ test("a stated door falling back to an UNSERVED unlabelled line asks at a crowde
   assert.match(row.message, /lines with this publication — pick which one/);
   assert.equal(out.rows!.filter((r) => r.surplusLine).length, 0, "the ask holds the cuts");
 });
+
+test("a measured short gap turns 'is it ours?' into a placement note for the Courier", () => {
+  // Ari, 2026-09-01, the Henry St ruling: we deliver 28–111; the list wants 16;
+  // the map shows it a few houses down the same short block — "you can see if
+  // the address in question is being passed by the delivery guy."
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = ["28", "40", "111"].map((h) => ({
+    id: `h${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
+    street: "HENRY ST", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Katz", "16 Henry St"]],
+    { defaultAction: "add" })[0];
+  row.publication = "voice";
+
+  // Without a measurement: the question, carrying its reference house.
+  const asked = planRow(row, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(asked.questionKind, "out_of_stretch");
+  assert.deepEqual(asked.measureRefs, ["28"]);
+
+  // Measured close: the driver passes it — a route placement, not a question.
+  const near = new Map([["henry st|16", { meters: 78, nearestHouse: "28" }]]);
+  const placed = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), near);
+  assert.equal(placed.questionKind, "route_position");
+  assert.match(placed.message, /about 78 m from 28.*driver passes it/);
+  assert.ok(placed.newStop);
+
+  // Measured far: still a question, with the distance shown.
+  const far = new Map([["henry st|16", { meters: 900, nearestHouse: "28" }]]);
+  const kept = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), far);
+  assert.equal(kept.questionKind, "out_of_stretch");
+  assert.match(kept.message, /measured: about 900 m/);
+});
+
+test("the map never decides a wrong-side-of-the-street question", () => {
+  // Whether the driver crosses is a walking-pattern fact, not a geometric one.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = ["150", "152", "270"].map((h) => ({
+    id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
+    street: "PINE ST", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Stern", "151 Pine St"]],
+    { defaultAction: "add" })[0];
+  row.publication = "voice";
+  const near = new Map([["pine st|151", { meters: 15, nearestHouse: "150" }]]);
+  const planned = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), near);
+  assert.equal(planned.questionKind, "wrong_side_parity");
+  assert.doesNotMatch(planned.message, /driver passes/);
+});
