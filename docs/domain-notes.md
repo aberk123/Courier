@@ -895,12 +895,24 @@ our 7 River Ave addresses, 6 are businesses (Leisure Chateau, Silvino's Auto,
 Lipa's Auto Service, Ocean Dental, Styled Child, Wig Authorities, Princeton
 Dineros) and one is residential (`809 River Ave · Preschel`).
 
-This sits against the 2026-08-30 ruling that commercial drops are cancelled like
-anyone else, and the two need reconciling before the first apply: under that
-ruling the six businesses should be cancelled, and `covered()` currently prevents
-it because the master list names none of our River Ave addresses. **Open — Ari
-has not been asked which he wants.** The `address_rulings` table is where the
-answer belongs once he gives it.
+This sat against the 2026-08-30 ruling that commercial drops are cancelled like
+anyone else, because `covered()` required the master list to name at least one
+address *we hold* on the street before absences on it counted — and on River Ave
+it names only `611`, which is not ours. **Closed (Ari, 2026-09-01):** *"if it's
+commercial and it's being removed, why shouldn't it be listed as being
+removed?"* — the unlisted River Ave addresses are removals like any other.
+`covered()` now asks only whether the file names the street at all (strict
+spelling, same as before); the "names an address we hold" clause is gone, since
+a commercial road's rows will rarely be ours and the clause held back exactly
+the removals Ari wants. A street the file never names at all — exactly, or as a
+bare base word that could only be that street (the suffix rule's uniqueness test
+now applies here too, so a bare `PINE` covers nothing while we deliver both Pine
+St and Pine Blvd) — is still protected: a wholly absent street is the signature
+of a file that did not include that part of town. No street we deliver is
+currently in that state. Measured on the 27 Aug file this adds 12 removal lines at the 7
+River Ave addresses (21 lines at 16 addresses in all), and changes nothing else.
+Note one of the 12 is residential — `809 River Ave · Preschel` — and it is a
+correct removal under the rule: the address is not in the file.
 
 ### A street in the file is that street, unless something says otherwise (Ari, 2026-08-31)
 
@@ -930,6 +942,15 @@ Everything else had none: `BRUCE ST`, `BARON CT`, `CHERRY ST`, `CAREY ST`,
 do not cover, and all now read as "not on any of our routes" rather than as a
 question. That took the questions from 222 to 179 and moved 43 rows into the
 bucket they belonged in.
+
+**Carey St confirmed real (Ari, 2026-09-01, with a Google Maps screenshot):** it
+runs between 11th St and 12th St near Clifton and Lexington Aves. The file
+carries 70+ Carey St rows; we deliver nowhere on it. The one address it shares
+with our Carol St coverage, 207, is two different households — the file has
+`207 CAREY ST · Rottenberg`, we hold `207 CAROL ST · Schonbrun` — so the
+`207 Carol St` removal is genuine churn and stands. One question remains by
+design: `122 CAREY ST · Family Schwartz` against our unnamed `122 CAROL ST`,
+where there is no name on our side to compare.
 
 **One trap this closes.** `BRUCE ST` had a delayed failure: answer "yes, add it"
 and the address joins the route, but next week the file still spells it `BRUCE

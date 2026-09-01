@@ -296,9 +296,7 @@ test("a stop the roster does not manage is never removed by absence", () => {
   const stops = [
     stop("shop", "203", "RIVER AVE", false),
     stop("home", "611", "RIVER AVE", true),
-    // Listed in the file, so the street is genuinely covered. Without one of our
-    // own addresses appearing, absence on the street means nothing -- see
-    // covered().
+    // Listed in the file, so this one is kept while its unlisted neighbour goes.
     stop("kept", "809", "RIVER AVE", true),
   ];
   const out = planRosterRemovals(
@@ -508,9 +506,9 @@ test("an address the master list does not carry loses EVERY line, not one (Ari, 
     houseNumber: "809", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
   stops.push({ id: "listed", zoneId: "z5", zoneNumber: 5, recipientName: "Green",
     houseNumber: "611", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
-  // The roster names 611, which we hold -- so the street really is covered and
-  // absence on it means something. Naming only an address we do NOT hold would
-  // leave the street uncovered: see the River Ave finding in covered().
+  // The roster names River Ave, so absence on it means something. Since Ari's
+  // 2026-09-01 River Ave ruling, naming the street at all is what covers it --
+  // the named address no longer has to be one we hold.
   const fileStreets = streets({ "RIVER AVE": ["611"] });
   const removals = planRosterRemovals(stops, { id: "pub-v", name: "The Voice" }, fileStreets, 100);
   assert.equal(removals.length, 6, "five lines at 962 plus one at 809; 611 is listed and kept");
@@ -787,6 +785,26 @@ test("a street the roster never names is NOT covered, even by a street one lette
   assert.equal(planRosterRemovals(pine, pub, streets({ "PINE": ["150"] }), 1).length, 2);
 });
 
+test("a bare base word covers a street only when we deliver exactly one street with that base", () => {
+  // The real file drops suffixes (PONDEROSA, 6 SHENANDOAH), and the delivery
+  // area holds same-base pairs like PINE ST / PINE BLVD and OAK ST / OAK LN. A
+  // bare PINE row could be Pine Blvd's with the suffix dropped, and covering a
+  // street is what ENABLES removals on it -- so with two PINE streets on the
+  // round, bare PINE covers neither. This is the recorded suffix rule ("a
+  // missing suffix may match only when exactly one of our streets has that base
+  // name") pointed at the removal direction.
+  const pub = { id: "pub-v", name: "The Voice" };
+  const mk = (id: string, house: string, street: string): ExistingStop => ({
+    id, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: house,
+    street, floorSide: null, publicationIds: ["pub-v"],
+  });
+  const both = [mk("ps1", "150", "PINE ST"), mk("ps2", "152", "PINE ST"), mk("pb1", "3", "PINE BLVD")];
+  assert.equal(planRosterRemovals(both, pub, streets({ "PINE": ["1"] }), 1).length, 0);
+  // With only one PINE street on the round, the bare word can only mean it.
+  const one = [mk("ps1", "150", "PINE ST"), mk("ps2", "152", "PINE ST")];
+  assert.equal(planRosterRemovals(one, pub, streets({ "PINE": ["150"] }), 1).length, 1);
+});
+
 test("a new door on the other side of an all-even street is a question, not a creation", () => {
   // 12 of the 18 brand-new doors on the 27 Aug roster were odd-side Pine St
   // 151-233, against 21 stops all even 150-270. A single lo..hi range passed
@@ -1039,20 +1057,22 @@ test("a subscriber id only means something within its own sequence", () => {
   assert.deepEqual(within.map((o) => o.kind).sort(), ["attach", "no_change"]);
 });
 
-test("a street counts as covered only when the file names an address we deliver to", () => {
+test("one roster row on a street covers it, even at an address we do not hold", () => {
   // The 27 Aug file has exactly one River Ave row in 19,621 -- 611 River Ave, an
-  // address we do not hold -- and that made the street covered, so all 7 of our
-  // River Ave addresses became cancellations. River Ave is Route 9. Measured
-  // across every street we deliver it is the only one at zero: the next lowest
-  // is Clairmont Ct at 5 of 7.
+  // address we do not hold. An earlier rule read that as the publication failing
+  // to send us the street and held all 7 of our River Ave addresses back from
+  // removal. Ari corrected it (2026-08-31/2026-09-01): River Ave is a commercial
+  // road, so one subscriber row is expected, and its unlisted addresses are
+  // removals like any other. Only a street the file never names at all is
+  // protected -- see the RIDER ST test above.
   const stops: ExistingStop[] = ["203", "227", "962"].map((h) => ({
     id: `r${h}`, zoneId: "z5", zoneNumber: 5, recipientName: `House ${h}`, houseNumber: h,
     street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
   }));
   const pub = { id: "pub-v", name: "The Voice" };
-  // Names the street, but not one address we hold: no evidence they sent it.
-  assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["611"] }), 1).length, 0);
-  // Names one we hold: now absence on the street means something.
+  // One row at an address we do not hold still covers the street.
+  assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["611"] }), 1).length, 3);
+  // Naming one we hold keeps that one and removes the rest, as before.
   assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["227"] }), 1).length, 2);
 });
 
