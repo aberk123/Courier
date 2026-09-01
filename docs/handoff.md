@@ -487,11 +487,33 @@ Both are worth knowing because they made that pass weaker than it looked.
   tail rows now count as papers where they duplicate a CRM row at one address;
   the provenance question travels with the first packet.
 
-- **Where the weekly import stands, 2026-09-01.** The 2026-08-31 figures were
-  verified through the real screen signed in against production; the removal
-  count then moved once more when Ari closed the River Ave question (see
-  `docs/domain-notes.md`, "River Ave is a commercial road"), measured through
-  the real `planRoster` on the same file:
+- **Where the weekly import stands, 2026-09-01 (end of day).** Verified live
+  on the deployed site against production, after the both-sides / both-directions
+  / house-takes-two rulings (PR #31) and the skip-row visibility fix (PR #32):
+
+  ```
+  19,705 rows · 135 to apply · 106 need a choice · 11 we could not read
+         · 59 standing questions recorded (57 open + 2 answered cedar dr)
+  ```
+
+  What the day's rulings retired: all 11 Oak St 1400s self-answered as a
+  different part of town (~1.4 km, FAR rule); all 14 count_vs_capacity
+  questions became visible "beyond the house" skip rows; 109 Rena Ln closed
+  by the bidirectional A-rule; Pine St odds closed by the zone-35 rulings.
+  9 out-of-stretch questions converted to "driver passes it" placements for
+  Amrom (5 Henry St low numbers, 545 Howard Dr at 13 m, 13 Juniper Ln at 9 m).
+  New on the removal side: `505 MARC DR · STEINBERG` is a surplus cut.
+
+  Two honest residues: **Marc Dr (8, 40, 50, 358, 402, 406) is unmeasurable**
+  — the Census geocoder returns nothing for any Marc Dr address, targets and
+  reference houses alike, so per "unmeasurable decides nothing" the six stand
+  as unannotated questions; and **4 Henry St** measured 205 m from 93 because
+  its true nearest reference (28) failed to geocode that run, so it sits in
+  the middle band while its neighbours converted — a re-plan may close it.
+  The 8 Henry St 200s (416–489 m, middle band) remain Ari's open call.
+
+  The prior figures, kept for the audit trail — measured through the real
+  `planRoster` on the same file before those rulings landed:
 
   ```
   19,642 rows · 62 to apply · 187 need a choice · 1,257 already correct
