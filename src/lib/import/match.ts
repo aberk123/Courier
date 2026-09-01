@@ -693,8 +693,20 @@ export function settleAddress(
     // own surname is on (12 Sheraton Dr · Katz against basement/KATZ). The file
     // states no door, so the driver decides and the served line is the answer.
     const surname = surnameOf(fileRows[i].name);
+    const served2 = free((candidate) => candidate.publicationIds.includes(publicationId));
     const line =
-      free((candidate) => candidate.publicationIds.includes(publicationId))[0] ??
+      // Among SERVED lines, the row's own surname decides first. Review-proven:
+      // with two served lines, taking served[0] made the cut side of the surplus
+      // rule depend on stop array order -- "file names Gold" could stop Gold's
+      // paper and keep Katz's. Claiming means KEEPING, so the named household's
+      // line is claimed when the name distinguishes them.
+      (surname ? served2.filter((c) => surnameOf(c.recipientName) === surname)[0] : undefined) ??
+      // Then any removable served line before an exempt one: an exempt
+      // (rosterManaged=false) line can never be cut, so a claim landed on it is
+      // wasted while the real household's line goes unclaimed -- the exemption
+      // must protect its own line, never redirect a cut onto a neighbour.
+      served2.filter((c) => c.rosterManaged !== false)[0] ??
+      served2[0] ??
       // Where nothing else distinguishes the free lines, a line carrying this
       // row's own surname is the better one. 4 STONEWALL CT: the file names
       // BADOUCH with no door, and we hold basement/GEWIRTZ and upstairs/BADOUCH

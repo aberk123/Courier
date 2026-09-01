@@ -23,6 +23,7 @@ import {
   mergeFloorSides,
   normalizeHouseNumber,
   normalizeStreet,
+  stripStreetSuffix,
   planRosterRemovals,
   planRow,
   removalsLookWrong,
@@ -178,8 +179,17 @@ export function planRoster(
   }
   const seenAtAddress = new Map<string, number>();
   /** Addresses where some row is still a question — surplus is never removed
-   * under an open question. */
+   * under an open question. Review-proven: the question's own row can sit at a
+   * DIFFERENT key than the address it is about (the file's 132B asks the
+   * unit_letter question about our 132), so the keys of every stop a question
+   * row points at — its match and its candidates — are held too. */
   const keyHasQuestion = new Set<string>();
+  const addressKeyOfStop = new Map(
+    existing.map((stop) => [
+      stop.id,
+      `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`,
+    ]),
+  );
   const rows = parsed.map((row, i) => {
     let rosterGroup: RosterGroup | undefined;
     const key = rowKeys[i];
@@ -189,9 +199,27 @@ export function planRoster(
       rosterGroup = { fileRows: groups.get(key) ?? [], index };
     }
     const planned = planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex);
-    if (key && (planned.status === "needs_choice" || planned.unreadable)) keyHasQuestion.add(key);
+    if (planned.status === "needs_choice") {
+      if (key) keyHasQuestion.add(key);
+      if (planned.stopId) keyHasQuestion.add(addressKeyOfStop.get(planned.stopId) ?? "");
+      for (const candidate of planned.candidates) {
+        keyHasQuestion.add(addressKeyOfStop.get(candidate.stopId) ?? "");
+      }
+    }
     return planned;
   });
+
+  // An unreadable row is a claimant nobody could place: "Maple Avenue 12 ·
+  // Katz" may be the very household whose line the surplus rule is about to
+  // cut, sitting one row up as "could not read". Review-proven with the real
+  // parser. So a surplus on any street an unreadable cell mentions is a choice
+  // for a person, not a ready cut, until the office fixes the cell. (A row with
+  // no address text at all can claim nothing identifiable and holds nothing.)
+  const unreadableTexts = chosen
+    ? parsed
+        .filter((row) => row.problem && (row.street || row.houseNumber))
+        .map((row) => normalizeStreet(`${row.houseNumber} ${row.street}`))
+    : [];
 
   if (chosen) {
     const addressesWith = new Set(
@@ -220,11 +248,17 @@ export function planRoster(
       if (!atAddress.length) continue;
       const outcomes = settleAddress(atAddress, fileRows, chosen.id);
       const surplus = surplusServedLines(atAddress, outcomes, chosen.id);
+      const streetBase = atAddress.length
+        ? stripStreetSuffix(normalizeStreet(atAddress[0].street))
+        : "";
+      const heldByUnreadable =
+        streetBase.length > 0 && unreadableTexts.some((text) => text.includes(streetBase));
       for (const line of surplus) {
         const label = `${line.houseNumber} ${line.street}` +
           `${line.floorSide ? ` (${line.floorSide})` : ""}` +
           `${line.recipientName ? ` · ${line.recipientName}` : ""}`;
         const crowded = atAddress.length > 2;
+        const ready = !crowded && !heldByUnreadable;
         removals.push({
           rowNumber: surplusRowNumber++,
           action: "remove",
@@ -233,20 +267,24 @@ export function planRoster(
           houseNumber: line.houseNumber,
           publicationId: chosen.id,
           publicationName: chosen.name,
-          status: crowded ? "needs_choice" : "ready",
+          status: ready ? "ready" : "needs_choice",
           message: crowded
             ? `the new ${chosen.name} list has ${fileRows.length} at this address but ` +
               `${atAddress.length} lines receive it — pick which line stops`
-            : `on the new ${chosen.name} list ${fileRows.length === 1 ? "once" : `${fileRows.length} times`}, ` +
-              `but more lines receive it — stop this one`,
-          candidates: crowded
-            ? surplus.map((s) => ({
+            : heldByUnreadable
+              ? `on the new ${chosen.name} list ${fileRows.length === 1 ? "once" : `${fileRows.length} times`}, ` +
+                `but more lines receive it — and an unreadable row in the file mentions this street, ` +
+                `so confirm it is not this household before stopping the line`
+              : `on the new ${chosen.name} list ${fileRows.length === 1 ? "once" : `${fileRows.length} times`}, ` +
+                `but more lines receive it — stop this one`,
+          candidates: ready
+            ? []
+            : surplus.map((s) => ({
                 stopId: s.id,
                 label: `${s.houseNumber} ${s.street}${s.floorSide ? ` · ${s.floorSide}` : ""}${s.recipientName ? ` · ${s.recipientName}` : ""}`,
                 zoneNumber: s.zoneNumber,
-              }))
-            : [],
-          stopId: crowded ? null : line.id,
+              })),
+          stopId: ready ? line.id : null,
           newStop: null,
           instructions: null,
           floorSide: line.floorSide,
@@ -273,6 +311,12 @@ export function planRoster(
     const surplusAddresses = new Set(
       removals.filter((r) => r.surplusLine).map(addressOf),
     ).size;
+    // Recorded intent (review, 2026-09-01): once the database mirrors an
+    // applied week, this limit should drop toward the whole-address guard's 5%
+    // -- the floor of 60 exists for the first count-sync only. A per-line cut
+    // is exactly as severe as a whole-address removal for that household; the
+    // "copy" framing must not be read as milder. Known shape that sails under
+    // both guards: an export deduplicated to one row per address.
     const surplusCheck = surplusLookWrong(surplusAddresses, addressesWith);
     if (surplusCheck.tripped) {
       return fail(
