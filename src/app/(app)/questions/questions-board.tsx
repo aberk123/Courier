@@ -93,8 +93,9 @@ function QuestionCard({
     <li className="rounded-xl border border-black/10 p-4 dark:border-white/10">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-medium">
-          {question.house_number ? `${question.house_number} ` : ""}
-          {question.street.toUpperCase()}
+          {question.street
+            ? `${question.house_number ? `${question.house_number} ` : ""}${question.street.toUpperCase()}`
+            : "An address we could not read"}
         </span>
         <span className="text-xs text-black/50 dark:text-white/50">{publicationName}</span>
       </div>
