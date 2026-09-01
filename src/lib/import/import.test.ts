@@ -1615,14 +1615,14 @@ test("a measured short gap turns 'is it ours?' into a placement note for the Cou
   assert.match(placed.message, /about 78 m from 28.*driver passes it/);
   assert.ok(placed.newStop);
 
-  // Measured in the middle band: still a question, with the distance shown.
-  // (900 m and beyond now answers itself as a different part of town — see
-  // the FAR_METERS test.)
-  const far = new Map([["henry st|16", { meters: 450, nearestHouse: "28" }]]);
+  // Measured further but under FAR_METERS: still a placement, not a question
+  // (Ari, 2026-09-01, on the Henry St 200s: "Same street same route, move the
+  // Henry St line"). Only FAR self-answers and only unmeasured still asks.
+  const mid = new Map([["henry st|16", { meters: 450, nearestHouse: "28" }]]);
   const kept = planRow(row, stops, pubs, buildStreetZoneMap(stops),
-    new Map(), buildStopIndex(stops), undefined, new Map(), far);
-  assert.equal(kept.questionKind, "out_of_stretch");
-  assert.match(kept.message, /measured: about 450 m/);
+    new Map(), buildStopIndex(stops), undefined, new Map(), mid);
+  assert.equal(kept.questionKind, "route_position");
+  assert.match(kept.message, /about 450 m from 28.*same street, same route/);
 });
 
 test("the other side of a regular street is a placement, and a split road is settled by rulings", () => {
@@ -1677,8 +1677,8 @@ test("a near wrong-parity address below the range converts, flagged with its sid
 test("a same-street address measured far answers itself: a different part of town", () => {
   // Ari, 2026-09-01, the Oak St ruling: "You should be able to answer the Oak
   // St questions as well using the map. Make this a general rule." Oak's 1400s
-  // measured 893–1,363 m from our 26–110. The middle band (Henry St's 200s at
-  // 435–489 m) stays a genuine question.
+  // measured 893–1,363 m from our 26–110. Anything measured under FAR is a
+  // placement ("Same street same route" — the Henry St line ruling).
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const stops: ExistingStop[] = ["26", "28", "110"].map((h) => ({
     id: `o${h}`, zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: h,
@@ -1693,10 +1693,35 @@ test("a same-street address measured far answers itself: a different part of tow
   assert.equal(answered.status, "blocked");
   assert.match(answered.message, /1\.3 km.*different part of town/);
   const middle = new Map([["oak st|1471", { meters: 460, nearestHouse: "110" }]]);
-  const question = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+  const placed = planRow(row, stops, pubs, buildStreetZoneMap(stops),
     new Map(), buildStopIndex(stops), undefined, new Map(), middle);
-  assert.equal(question.questionKind, "out_of_stretch");
-  assert.match(question.message, /measured: about 460 m/);
+  assert.equal(placed.questionKind, "route_position");
+  assert.match(placed.message, /about 460 m from 110.*same street, same route/);
+});
+
+test("a measured gap between blocks is a placement too — never a different part of town", () => {
+  // The 611 River Ave shape: we deliver 203–227 and 809–962, and 611 falls in
+  // between. Bracketed by blocks we deliver, so measured under FAR it is a
+  // placement ("Same street same route"); unmeasured it stays the gap
+  // question, carrying both bracket houses as references.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = ["203", "227", "809", "962"].map((h) => ({
+    id: `r${h}`, zoneId: "z5", zoneNumber: 5, recipientName: null, houseNumber: h,
+    street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Roth", "611 River Ave"]],
+    { defaultAction: "add" })[0];
+  row.publication = "voice";
+
+  const asked = planRow(row, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(asked.questionKind, "gap_between_blocks");
+  assert.deepEqual(asked.measureRefs, ["227", "809"]);
+
+  const measured = new Map([["river ave|611", { meters: 620, nearestHouse: "809" }]]);
+  const placed = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), measured);
+  assert.equal(placed.questionKind, "route_position");
+  assert.match(placed.message, /about 620 m from 809.*same street, same route/);
 });
 
 test("the A rule runs both ways: the file's bare number matches our lettered basement", () => {
