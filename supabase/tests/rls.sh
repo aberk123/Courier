@@ -465,6 +465,12 @@ check "changed facts reopen an answered question" \
      $(qfix $PV voice_office f2)
      select status, answer->>'choice' from public.import_questions;")" \
   "open|typo_will_fix"
+check "a will-fix promise reopens when the same question arises again" \
+  "$(as $OFFICE "$(qfix $PV voice_office)
+     select public.answer_import_question(id, 'will_fix_at_source', 'correcting our export') from public.import_questions;
+     $(qfix $PV voice_office)
+     select status, answer->>'choice' from public.import_questions;")" \
+  "open|will_fix_at_source"
 check "supersede retires unseen questions for THAT publication only" \
   "$(as $OFFICE "$(qfix $PV voice_office)$(qfix $PS voice_office f2)
      select public.supersede_import_questions('$PV', '[]'::jsonb);
