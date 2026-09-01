@@ -990,6 +990,42 @@ answers are recorded and shown inline at import, and the questions recur.
 double-encoded in their export (the id-repeats vs `extended_addr` "5 COPIES"
 question), and what the 71 synthetic tail rows (`Zone1_1`…`zone2_8`) are.
 
+### One address, one count: surplus courier lines are removals (2026-09-01)
+
+Breindy Herman (Voice office), relayed by Ari: *"A lot of the questions are
+that the courier delivers a few to one address, but it's only on the master
+list once. It should look at the master list and only go according to the
+addresses that are on it — if it's on the master list once, the address should
+only receive one."* Ari: *"If it's showing up once on the master list from the
+Voice, why wouldn't you count it as a removal from the courier list?"*
+
+This was the last direction the count rule did not yet run in. Built:
+
+- After an address settles, any of our lines carrying the publication that the
+  master list's rows did not claim is proposed for removal — one review row per
+  line, exactly like a whole-address removal. Nothing applies without a person.
+- **Held back while the address has any open question** (a door conflict, a
+  street question): removing under an open question would preempt the person.
+- **At an address with more than two lines the office picks which line stops**
+  ("never written to blind" stands — apartment detail is invisible to the
+  importer), via a candidates dropdown on the review screen.
+- `roster_managed = false` lines keep their exemption from absence-based
+  removal.
+- **Its own tripwire** (`surplusLookWrong`, floor 60 / 10% of the publication's
+  addresses): a file cut off mid-address inflates surpluses where a truncated
+  file inflates whole-address removals, so the two guards watch different
+  failure signatures. The whole-address guard actually tripped on the first
+  measurement (16 + 50 = 66 > 55) before the split — the first count-sync is
+  legitimately large because the zones were seeded from the courier's sheets,
+  not the publication's counts.
+
+Measured on the 27 Aug file: **54 surplus lines at 50 addresses** (37 ready,
+17 pick-a-line at crowded addresses), whole-address removals unchanged at 21
+lines / 16 addresses, questions unchanged at 121. And the counter-example that
+proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
+— is NOT removed, because the master list names Freund there twice, so both
+lines stand.
+
 ### Follow the master list: five rulings from Ari's first pass over the portal (2026-09-01)
 
 Ari worked the live questions list the day it shipped and issued five rulings,

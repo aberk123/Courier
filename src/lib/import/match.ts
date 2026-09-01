@@ -77,6 +77,13 @@ export type PlanRow = {
    * row at plan time so the person applying sees it without leaving the screen.
    */
   recordedAnswer?: { choice: string; note: string | null; answeredAt: string } | null;
+  /**
+   * Marks a removal row proposed because the master list names the address
+   * fewer times than we deliver it — a copy cut, not a whole-address stop.
+   * Feeds its own tripwire (surplusLookWrong), separate from the whole-address
+   * removal guard.
+   */
+  surplusLine?: boolean;
   publicationId: string | null;
   publicationName: string | null;
   /**
@@ -1375,6 +1382,39 @@ function newStopFrom(
  *    stopped, so this does not guess. The cost is that a house going from two
  *    copies to one is not detected here.
  */
+/**
+ * Which of our lines the master list leaves without a row, at an address the
+ * list DOES carry. Ari, 2026-09-01, relaying Breindy Herman of the Voice
+ * office: "the courier delivers a few to one address, but it's only on the
+ * master list once... if it's on the master list once, the address should only
+ * receive one" — and Ari: "why wouldn't you count it as a removal from the
+ * courier list?" So the surplus is proposed for removal, one review row per
+ * line, exactly like a whole-address removal.
+ *
+ * Derived from settleAddress's OWN outcomes rather than recomputing the
+ * pairing, so the two can never drift: a served line no outcome claimed is
+ * surplus. Never while anything at the address is still a question — an ask
+ * means the pairing itself is unsettled, and removing under an open question
+ * would preempt the person. Lines marked rosterManaged=false keep their
+ * standing exemption from absence-based removal.
+ */
+export function surplusServedLines(
+  ourLines: ExistingStop[],
+  outcomes: AddressOutcome[],
+  publicationId: string,
+): ExistingStop[] {
+  if (outcomes.some((o) => o.kind === "ask")) return [];
+  const claimed = new Set(
+    outcomes.flatMap((o) => (o.kind === "no_change" || o.kind === "attach" ? [o.stopId] : [])),
+  );
+  return ourLines.filter(
+    (line) =>
+      line.publicationIds.includes(publicationId) &&
+      line.rosterManaged !== false &&
+      !claimed.has(line.id),
+  );
+}
+
 export function planRosterRemovals(
   stops: ExistingStop[],
   publication: { id: string; name: string },
@@ -1534,6 +1574,25 @@ export function additionsLookWrong(
 ): { tripped: boolean; limit: number } {
   const limit = Math.max(40, Math.round(publicationAddresses * 0.15));
   return { tripped: additions > limit, limit };
+}
+
+/**
+ * The tripwire for surplus-line removals, separate from the whole-address one
+ * because the failure signatures differ: a TRUNCATED file inflates
+ * whole-address removals (streets vanish), while a file cut mid-address
+ * inflates surpluses (addresses present with fewer rows). Calibrated like the
+ * additions guard rather than the whole-address one, because the first
+ * count-sync against the master list is genuinely large -- the zones were
+ * seeded from the courier's sheets, not the publication's counts. Measured on
+ * the 27 Aug file: 50 surplus addresses on the first run. Like the removals
+ * guard, this naturally tightens once the database mirrors an applied week.
+ */
+export function surplusLookWrong(
+  surplusAddresses: number,
+  publicationAddresses: number,
+): { tripped: boolean; limit: number } {
+  const limit = Math.max(60, Math.round(publicationAddresses * 0.1));
+  return { tripped: surplusAddresses > limit, limit };
 }
 
 export function removalsLookWrong(
