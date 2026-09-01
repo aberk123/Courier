@@ -1026,6 +1026,20 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### The odd side of Pine St is zone 35 (Ari, 2026-09-01)
+
+*"The odd numbers on Pine St are on zone 35 — not any of the zones we are
+currently working with."* This settles the largest block of route questions:
+the odd-side additions (143, 147, 151, 175, 185, 189, 189A, 201, 221, 225,
+233) are recorded as `not_ours` address rulings (publication-wide — it is a
+fact about geography), note naming zone 35. Zone 2's Pine St remains the even
+150–270 side only.
+
+A NEW odd Pine St number in a future file will still raise the crossing
+question once — rulings are per-address by design — and the answer is the
+same: zone 35. Worth remembering when zone 35 is ever onboarded: these
+addresses are its, and the rulings should be lifted then.
+
 ### The map measures whether the driver passes an address (Ari, 2026-09-01)
 
 Ari, shown 1–16 Henry St queued as out-of-stretch questions while we deliver

@@ -439,6 +439,10 @@ Both are worth knowing because they made that pass weaker than it looked.
   `docs/domain-notes.md`, "Follow the master list". Measured: removals
   unchanged, questions 179 → 121, ready 62 → 65, unreadable 13 → 11.
 
+- **The odd side of Pine St is zone 35 (Ari, 2026-09-01)** — not ours. All 11
+  odd-side addresses carry `not_ours` rulings; the route-2 crossing question is
+  settled. Lift the rulings if zone 35 is ever onboarded.
+
 - **The map now measures out-of-stretch questions (Ari, 2026-09-01, the Henry
   St ruling).** Same-street distances via the Census geocoder: within 150 m the
   question becomes a placement note on Amrom's list with the measurement shown;
