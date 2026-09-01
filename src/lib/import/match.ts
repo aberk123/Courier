@@ -51,6 +51,18 @@ export type QuestionKind =
  */
 export const STRETCH_METERS = 150;
 
+/**
+ * The far side of the same rule (Ari, 2026-09-01, the Oak St / Marc Dr
+ * ruling: "You should be able to answer the Oak St questions as well using
+ * the map. Make this a general rule"): a same-street address measured this far
+ * from anything we deliver is a different part of town, and the question
+ * answers itself as not-ours. Oak St's 1400s measured 893–1,363 m from our
+ * 26–110; Henry St's 200s at 435–489 m stay in the middle band, a genuine
+ * question. Wrong here is a missed addition — noticed and fixable — never a
+ * silent deletion.
+ */
+export const FAR_METERS = 800;
+
 /** Tiny stable string hash (djb2) for keys that have no address to key on. */
 export function hashKey(value: string): string {
   let h = 5381;
@@ -771,16 +783,20 @@ export function settleAddress(
   // Pass 3: everything still unsettled -- more households listed than lines
   // held, or a stated door we hold no line for. A HOUSE holds two apartments,
   // and Ari, 2026-09-01: "If a house only has two apartments and we list three
-  // or more, only take two. Unlesss it's an apartment building." So creates at
-  // an address with two or fewer lines stop once two lines exist; the excess
-  // rows are shown as skipped, never asked about. An address already holding
-  // three or more lines IS an apartment building and is exempt (its doorless
-  // creates still ask, per the crowded rule).
+  // or more, only take two. Unless it's an apartment building." The cap counts
+  // PAPERS THIS PLAN SETTLES (paired rows plus creates), never the house's
+  // physical lines: review-proven, counting lines let a two-row list end at
+  // ONE paper when a stated door claimed no line while an unrelated line was
+  // being cut -- an undercount printed under a false "two papers go" message.
+  // An address already holding three or more lines IS an apartment building
+  // and is exempt (its doorless creates still ask, per the crowded rule).
   const isHouse = ourLines.length <= 2;
   let created = 0;
+  const papersSettled = () =>
+    out.filter((o) => o && (o.kind === "no_change" || o.kind === "attach")).length + created;
   for (const i of order) {
     if (out[i]) continue;
-    if (isHouse && ourLines.length + created >= 2) {
+    if (isHouse && papersSettled() >= 2) {
       out[i] = {
         kind: "skip",
         reason:
@@ -1297,6 +1313,16 @@ export function planRow(
     if (!confirmedOurs && (asNumber < lo || asNumber > hi)) {
       const nearestEnd = asNumber < lo ? lo : hi;
       const gap = stretchGaps.get(`${street}|${house}`);
+      if (gap && gap.meters >= FAR_METERS) {
+        return {
+          ...base,
+          status: "blocked",
+          message:
+            `${row.houseNumber} ${row.street.toUpperCase()} is about ` +
+            `${(gap.meters / 1000).toFixed(1)} km from ${gap.nearestHouse}, the nearest we ` +
+            `deliver — a different part of town, not on our routes`,
+        };
+      }
       if (gap && gap.meters <= STRETCH_METERS) {
         // A regular street is walked on both sides (Ari, 2026-09-01: "there's
         // no reason why the driver wouldn't go to both sides of the street"),
@@ -1329,7 +1355,14 @@ export function planRow(
           (gap ? ` (measured: about ${gap.meters} m from ${gap.nearestHouse}, the nearest we deliver)` : ""),
         newStop: newStopFrom(row, base, zoneCandidates),
         ...asQuestion(base, "out_of_stretch"),
-        measureRefs: [String(nearestEnd)],
+        // The nearest covered end plus backups: the geocoder not knowing one
+        // reference house killed every Marc Dr measurement, because a target
+        // with no measured reference gets no distance at all.
+        measureRefs: [
+          String(nearestEnd),
+          String(sortedAll[Math.floor(sortedAll.length / 2)]),
+          String(asNumber < lo ? hi : lo),
+        ].filter((v, i, all) => all.indexOf(v) === i),
       };
     }
 

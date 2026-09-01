@@ -66,5 +66,6 @@ test("measureStretchGaps fails soft and returns the smallest gap per address", a
     down,
   );
   assert.equal(none.size, 0);
-  assert.ok(calls <= 6, `circuit breaker should stop early, made ${calls} calls`);
+  // Each of the parallel workers may fire once before the breaker trips.
+  assert.ok(calls <= 8, `circuit breaker should stop early, made ${calls} calls`);
 });

@@ -73,9 +73,9 @@ export function metersBetween(
 
 export type StretchGap = { meters: number; nearestHouse: string };
 
-const LOOKUP_CAP = 80;
+const LOOKUP_CAP = 130;
 const LOOKUP_TIMEOUT_MS = 2000;
-const CONCURRENCY = 6;
+const CONCURRENCY = 8;
 /** The service being down is paid once, not per lookup. */
 const CONSECUTIVE_FAILURE_LIMIT = 4;
 
@@ -103,7 +103,7 @@ export async function measureStretchGaps(
   // (14 Henry St questions share the same two ends), so the lookup cap holds.
   for (const target of targets.slice(0, 50)) {
     want(target.street, target.houseNumber);
-    for (const ref of target.refs.slice(0, 2)) want(target.street, ref);
+    for (const ref of target.refs.slice(0, 3)) want(target.street, ref);
   }
   const queue = [...wanted.entries()].slice(0, LOOKUP_CAP);
 
