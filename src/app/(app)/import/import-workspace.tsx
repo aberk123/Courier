@@ -115,7 +115,10 @@ export function ImportWorkspace({
   );
   // "Settled" = nothing for the office to do: an address we do not deliver to,
   // or one that already has the publication. Correct outcomes, but noise.
-  const settled = (row: PlanRow) => row.status === "blocked" || row.status === "no_change";
+  // Beyond-the-house skips are blocked rows but NOT noise: they are the only
+  // carrier of the apartment-building escape hatch, so they stay visible.
+  const settled = (row: PlanRow) =>
+    (row.status === "blocked" || row.status === "no_change") && !/beyond the house/.test(row.message);
   const visibleRows = useMemo(
     () => (showSettled ? rows : rows.filter((row) => !settled(row))),
     [rows, showSettled],
