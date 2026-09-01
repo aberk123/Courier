@@ -31,7 +31,6 @@ export type QuestionRow = {
 const CHOICES: Record<string, { value: string; label: string }[]> = {
   out_of_stretch: [
     { value: "pass_to_amrom", label: "The address is correct — pass to the Lakewood Courier to place" },
-    { value: "typo_will_fix", label: "A mistake in our list — we will correct it" },
     { value: "not_a_subscriber", label: "Not a live subscription" },
   ],
   near_miss_street: [
@@ -50,7 +49,20 @@ const CHOICES: Record<string, { value: string; label: string }[]> = {
     { value: "one_paper", label: "Listed twice — one paper" },
     { value: "two_papers", label: "Two real subscriptions — two papers" },
   ],
-  unreadable_cell: [{ value: "fixed_in_master_list", label: "Fixed in our system for next week's list" }],
+  unreadable_cell: [],
+};
+
+/**
+ * On every question the publication's office can answer: fixing the address in
+ * THEIR system beats teaching this one to ignore it (Ari, 2026-09-01) — the
+ * next export then simply stops flagging it. The choice value is load-bearing:
+ * the plan-time upsert reopens a will_fix_at_source answer whenever the same
+ * question arises again, because arising again means the export still shows
+ * the problem and the promise did not land.
+ */
+const WILL_FIX = {
+  value: "will_fix_at_source",
+  label: "We will correct this in our own system — the next export won't have it",
 };
 
 const GENERIC_CHOICES = [{ value: "checked_see_note", label: "Checked — the answer is in the note" }];
@@ -82,11 +94,16 @@ function QuestionCard({
   const evidence = question.evidence ?? {};
   const canAnswer =
     question.status === "open" && (isCourierOffice || question.audience === "voice_office");
+  const kindChoices = CHOICES[question.kind] ?? GENERIC_CHOICES;
   const choices = [
-    ...(CHOICES[question.kind] ?? GENERIC_CHOICES),
+    ...kindChoices,
+    // Always offered: fixing the source beats recording a workaround.
+    WILL_FIX,
     // Passing a question on is always available and is not an answer: the
     // question stays open, addressed to the Lakewood Courier instead.
-    ...(question.audience === "amrom" ? [] : [{ value: "pass_to_amrom", label: "This is a route question — pass to the Lakewood Courier" }]),
+    ...(question.audience === "amrom" || kindChoices.some((c) => c.value === "pass_to_amrom")
+      ? []
+      : [{ value: "pass_to_amrom", label: "This is a route question — pass to the Lakewood Courier" }]),
   ];
 
   return (
@@ -133,9 +150,20 @@ function QuestionCard({
           Passed on with a note: {question.answer.note}
         </p>
       ) : null}
-      {/* A reopened question: the facts changed under an answer, so the old
-          answer shows rather than the office re-answering blind. */}
-      {question.status === "open" && question.answer && question.answer.choice !== "pass_to_amrom" ? (
+      {/* A reopened question: the old answer shows rather than the office
+          re-answering blind. A reopened will-fix is its own message — the
+          question coming back IS the news that the fix did not land. */}
+      {question.status === "open" && question.answer?.choice === "will_fix_at_source" ? (
+        <p className="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
+          You said this would be corrected in your system
+          {question.answer.note ? ` (${question.answer.note})` : ""}, but this week&rsquo;s list
+          still shows it.
+        </p>
+      ) : null}
+      {question.status === "open" &&
+      question.answer &&
+      question.answer.choice !== "pass_to_amrom" &&
+      question.answer.choice !== "will_fix_at_source" ? (
         <p className="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
           Previously answered: {question.answer.choice}
           {question.answer.note ? ` — ${question.answer.note}` : ""}. The facts have changed since,

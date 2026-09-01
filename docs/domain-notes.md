@@ -960,6 +960,17 @@ recipient names ever, no other publications' letters, no special_instructions,
 and a line for another publication appears only as a count. RLS hides such
 stops from a scoped user; this table must not become a way around it.
 
+**"We will fix it in our own database" is always offered, and it follows up
+on itself (Ari, 2026-09-01).** *"It may be better for them to correct it in the
+database so that it exports better next time rather than just teaching the
+system to ignore it."* Every question the publication's office can answer
+carries the choice — and unlike every other answer, a `will_fix_at_source`
+answer REOPENS whenever the same question arises again, whatever the
+fingerprint says: arising again means the export still shows the problem and
+the promise did not land. The reopened card says so. Fixing the source is the
+preferred outcome — the question then never re-arises and the next clean apply
+retires it.
+
 **Scoped staff write through `answer_import_question()` only** — SECURITY
 DEFINER, checks publication access, open status, and voice_office audience
 itself; they hold no direct INSERT/UPDATE/DELETE on the table. Courier office
