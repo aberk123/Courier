@@ -648,9 +648,9 @@ export function settleAddress(
     };
   };
 
-  /** Claim order = keep order: lowest cut priority first (stable). */
+  /** Claim order = keep order: highest keep priority first (stable). */
   const keepFirst = (candidates: ExistingStop[]) =>
-    [...candidates].sort((a, b) => cutPriority(a) - cutPriority(b));
+    [...candidates].sort((a, b) => keepPriority(b) - keepPriority(a));
 
   /** Lines with the publication first, so a met count settles as "no change". */
   const preferServed = (candidates: ExistingStop[]) =>
@@ -709,10 +709,9 @@ export function settleAddress(
       // (rosterManaged=false) line can never be cut, so a claim landed on it is
       // wasted while the real household's line goes unclaimed -- the exemption
       // must protect its own line, never redirect a cut onto a neighbour.
-      // Within each tier, claiming keeps the line Ari's cut rule would spare:
-      // the upstairs or better-described line is left for the cut (see
-      // cutPriority), so where nothing stronger distinguishes two lines, the
-      // bare one survives.
+      // Within each tier, claiming keeps the line Ari's rule spares: the
+      // upstairs or better-described line survives (see keepPriority), so where
+      // nothing stronger distinguishes two lines, the bare one takes the cut.
       keepFirst(served2.filter((c) => c.rosterManaged !== false))[0] ??
       keepFirst(served2)[0] ??
       // Where nothing else distinguishes the free lines, a line carrying this
@@ -1422,14 +1421,16 @@ function newStopFrom(
  * When the master list forces a choice of which line to CUT, this orders it.
  * Ari, 2026-09-01: "If you have to choose which one to delete from the
  * courier's list, always prioritize one that is upstairs or that has more
- * information, unless there's a reason to do otherwise." Higher = cut first:
- * an upstairs line goes before other labels, and a line carrying more detail
- * (a floor label, a name) goes before a bare one. The "reasons to do
- * otherwise" outrank it where they exist -- a stated door pairs in pass 1 and
- * a surname match claims first in pass 2, so this only decides among lines
- * nothing stronger distinguishes.
+ * information" -- and, asked which way that sentence points, "I meant the
+ * opposite" of deleting them: the upstairs or better-described line is the one
+ * KEPT. Higher = keep first: an upstairs line survives before other labels,
+ * and a line carrying more detail (a floor label, a name) survives before a
+ * bare one -- the bare line takes the cut. The "reasons to do otherwise"
+ * outrank it where they exist -- a stated door pairs in pass 1 and a surname
+ * match claims first in pass 2, so this only decides among lines nothing
+ * stronger distinguishes.
  */
-export function cutPriority(line: ExistingStop): number {
+export function keepPriority(line: ExistingStop): number {
   return (
     (normalizeFloorSide(line.floorSide) === "upstairs" ? 2 : 0) +
     (line.floorSide ? 1 : 0) +

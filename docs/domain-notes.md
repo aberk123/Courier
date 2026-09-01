@@ -1030,15 +1030,19 @@ lines stand.
 
 *"If you have to choose which one to delete from the courier's list, always
 prioritize one that is upstairs or that has more information, unless there's a
-reason to do otherwise."*
+reason to do otherwise."* Asked which way the sentence points — delete that
+line, or keep it — Ari: *"I meant the opposite"* of deleting it. **The upstairs
+or better-described line is KEPT; the bare line takes the cut.** (Recorded with
+the exchange because the first implementation read it the other way for about
+an hour, never merged.)
 
-Implemented as `cutPriority`: when a surplus cut must choose between lines that
-nothing stronger distinguishes, the upstairs line goes before other labels, and
-a line carrying more detail (a floor label, a name) goes before a bare one —
-the bare line survives. The "reasons to do otherwise" outrank it exactly where
-they already exist: a stated door pairs first (the door rule), and a surname
-match keeps the named household's line. The pick-a-line dropdown at crowded
-addresses lists candidates in the same cut-first order.
+Implemented as `keepPriority`: when a surplus cut must choose between lines
+that nothing stronger distinguishes, the upstairs line survives before other
+labels, and a line carrying more detail (a floor label, a name) survives before
+a bare one. The "reasons to do otherwise" outrank it exactly where they already
+exist: a stated door pairs first (the door rule), and a surname match keeps the
+named household's line whatever its detail. The pick-a-line dropdown at crowded
+addresses lists candidates cut-first — barest on top.
 
 ### Follow the master list: five rulings from Ari's first pass over the portal (2026-09-01)
 

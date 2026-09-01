@@ -1464,11 +1464,9 @@ test("an unreadable row naming the street downgrades that street's cut to a choi
   assert.equal(cuts[0].stopId, null);
 });
 
-test("when the master list forces a cut, the upstairs or better-described line goes first", () => {
-  // Ari, 2026-09-01: "If you have to choose which one to delete from the
-  // courier's list, always prioritize one that is upstairs or that has more
-  // information, unless there's a reason to do otherwise." So between a bare
-  // line and an upstairs line with a name, the bare line survives the cut.
+test("when the master list forces a cut, the upstairs or better-described line is KEPT", () => {
+  // Ari, 2026-09-01, clarified "I meant the opposite" of deleting them: the
+  // upstairs or better-described line survives; the bare line takes the cut.
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const stops: ExistingStop[] = [
     { id: "rich", zoneId: "z1", zoneNumber: 1, recipientName: "FREUND", houseNumber: "18",
@@ -1483,18 +1481,25 @@ test("when the master list forces a cut, the upstairs or better-described line g
     const out = planRoster(file, order, pubs, "pub-v");
     const cut = out.rows!.filter((r) => r.surplusLine);
     assert.equal(cut.length, 1);
-    assert.equal(cut[0].stopId, "rich", "the upstairs line with a name is the one that goes");
+    assert.equal(cut[0].stopId, "bare", "the bare line goes; upstairs with a name survives");
   }
 
   // "Unless there's a reason to do otherwise": a surname match is such a
-  // reason — the named household keeps its paper even on the richer line.
+  // reason — the file naming the bare line's household keeps THAT line, and
+  // the richer line takes the cut instead.
+  const namedStops: ExistingStop[] = [
+    { id: "rich", zoneId: "z1", zoneNumber: 1, recipientName: "FREUND", houseNumber: "18",
+      street: "BRIDGEWOOD AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "levy", zoneId: "z1", zoneNumber: 1, recipientName: "LEVY", houseNumber: "18",
+      street: "BRIDGEWOOD AVE", floorSide: null, publicationIds: ["pub-v"] },
+  ];
   const named = rowsFromGrid(
-    [["customers.last_name", "addresses.addr"], ["Freund", "18 Bridgewood Ave"]],
+    [["customers.last_name", "addresses.addr"], ["Levy", "18 Bridgewood Ave"]],
     { defaultAction: "add" });
-  const kept = planRoster(named, stops, pubs, "pub-v");
+  const kept = planRoster(named, namedStops, pubs, "pub-v");
   const namedCut = kept.rows!.filter((r) => r.surplusLine);
   assert.equal(namedCut.length, 1);
-  assert.equal(namedCut[0].stopId, "bare", "Freund is on the list, so Freund's line stays");
+  assert.equal(namedCut[0].stopId, "rich", "Levy is on the list, so Levy's plainer line stays");
 });
 
 test("the pick-a-line dropdown lists the cut-first candidates on top", () => {
@@ -1513,5 +1518,5 @@ test("the pick-a-line dropdown lists the cut-first candidates on top", () => {
     stops, pubs, "pub-v");
   const choice = out.rows!.find((r) => r.surplusLine && r.status === "needs_choice");
   assert.ok(choice, "three lines, one file row: the office picks");
-  assert.equal(choice!.candidates[0].stopId, "up", "upstairs+name is offered first for the cut");
+  assert.equal(choice!.candidates[0].stopId, "bare", "the bare line is offered first for the cut");
 });
