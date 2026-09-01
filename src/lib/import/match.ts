@@ -57,8 +57,10 @@ export const STRETCH_METERS = 150;
  * the map. Make this a general rule"): a same-street address measured this far
  * from anything we deliver is a different part of town, and the question
  * answers itself as not-ours. Oak St's 1400s measured 893–1,363 m from our
- * 26–110; Henry St's 200s at 435–489 m stay in the middle band, a genuine
- * question. Wrong here is a missed addition — noticed and fixable — never a
+ * 26–110. There is no middle band any more — "Same street same route, move
+ * the Henry St line" (Ari, 2026-09-01) made everything measured under this a
+ * placement — so this is now the only line, and only an UNMEASURED address
+ * still asks. Wrong here is a missed addition — noticed and fixable — never a
  * silent deletion.
  */
 export const FAR_METERS = 800;
@@ -1323,7 +1325,7 @@ export function planRow(
             `deliver — a different part of town, not on our routes`,
         };
       }
-      if (gap && gap.meters <= STRETCH_METERS) {
+      if (gap && gap.meters < FAR_METERS) {
         // A regular street is walked on both sides (Ari, 2026-09-01: "there's
         // no reason why the driver wouldn't go to both sides of the street"),
         // so a near wrong-parity address converts like any other -- flagged
@@ -1333,16 +1335,19 @@ export function planRow(
         const sideNote = wrongSide
           ? ` (note: the ${asNumber % 2 === 0 ? "even" : "odd"} side — we currently deliver only the other)`
           : "";
-        // The map says the driver passes it: a few houses past the end of the
-        // covered stretch on the SAME street. "Is it ours?" is answered; what
-        // remains is where it sits in the walk — the Lakewood Courier's
-        // placement question, with the measurement on it.
+        // Anything measured short of FAR_METERS on the same street is ours
+        // (Ari, 2026-09-01, on the Henry St 200s: "Same street same route,
+        // move the Henry St line"). "Is it ours?" is answered; what remains is
+        // where it sits in the walk — the Lakewood Courier's placement
+        // question, with the measurement on it. Unmeasurable still asks.
         return {
           ...base,
           status: "needs_choice",
           message:
             `${row.houseNumber} ${row.street.toUpperCase()} is about ${gap.meters} m from ` +
-            `${gap.nearestHouse}, the nearest we deliver — the driver passes it; place it in the route${sideNote}`,
+            `${gap.nearestHouse}, the nearest we deliver — ` +
+            `${gap.meters <= STRETCH_METERS ? "the driver passes it" : "same street, same route"}` +
+            `; place it in the route${sideNote}`,
           newStop: newStopFrom(row, base, zoneCandidates),
           ...asQuestion(base, "route_position"),
         };
@@ -1401,13 +1406,19 @@ export function planRow(
     const above = sorted.find((n) => n > asNumber);
     if (!confirmedOurs && below !== undefined && above !== undefined && above - below > BLOCK_GAP) {
       const gap = stretchGaps.get(`${street}|${house}`);
-      if (gap && gap.meters <= STRETCH_METERS) {
+      if (gap && gap.meters < FAR_METERS) {
+        // Same rule as out-of-stretch: measured short of FAR_METERS on the
+        // same street is ours (Ari, 2026-09-01). FAR is kept as a question
+        // here rather than a self-answer, because a gap number is bracketed
+        // by blocks we deliver — "different part of town" cannot be right.
         return {
           ...base,
           status: "needs_choice",
           message:
             `${row.houseNumber} ${row.street.toUpperCase()} is about ${gap.meters} m from ` +
-            `${gap.nearestHouse}, the nearest we deliver — the driver passes it; place it in the route`,
+            `${gap.nearestHouse}, the nearest we deliver — ` +
+            `${gap.meters <= STRETCH_METERS ? "the driver passes it" : "same street, same route"}` +
+            `; place it in the route`,
           newStop: newStopFrom(row, base, zoneCandidates),
           ...asQuestion(base, "route_position"),
         };

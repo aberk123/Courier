@@ -1032,16 +1032,24 @@ lines stand.
 You should be able to answer the Oak St questions as well using the map. Make
 this a general rule and I shouldn't have to tell you every time."*
 
-The general rule, three bands on the measured same-street gap:
+The general rule, as first stated, had three bands on the measured
+same-street gap; **the middle band was retired the same day** when Ari was
+shown Henry St's 200s (435–489 m) standing as annotated questions: *"Same
+street same route, move the Henry St line."* Two bands remain:
 
-- **≤ 150 m**: the driver passes it — a placement note for the Lakewood
-  Courier (already built).
+- **Under 800 m**: ours — a placement note for the Lakewood Courier, with the
+  distance shown. Within 150 m it reads "the driver passes it"; further it
+  reads "same street, same route", so the office can still see which kind of
+  claim the map is making.
 - **≥ 800 m**: a different part of town — the row answers itself as "not on
   our routes" (Oak St's 1400s measured 893–1,363 m from our 26–110). Wrong
   here is a missed addition, noticed and fixable.
-- **Between**: a genuine question, annotated with the distance (Henry St's
-  200s at 435–489 m live here — several blocks past Clinton St, and whether
-  that is still route 2's walk is Ari's/Amrom's call, not geometry's).
+- **Unmeasured decides nothing**: an address the geocoder cannot place stays
+  a question (Marc Dr, whose addresses Census does not know at all).
+
+A number bracketed by two blocks we deliver (the 611 River Ave shape) never
+self-answers as far — "different part of town" cannot be right between our own
+blocks — so measured-far gaps stay questions.
 
 Marc Dr had NO measurements because the geocoder did not know its reference
 houses (504/604) and one dead reference killed the street — each question now
