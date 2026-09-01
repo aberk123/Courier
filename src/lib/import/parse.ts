@@ -110,9 +110,24 @@ function buildHeaderMap(headers: string[]) {
  * this; the 13 that do not are reversed ("Meadowood Road 429") or glued
  * ("1OMNI CT"), and become blocked rows rather than guesses.
  */
-export function splitAddress(value: string): { houseNumber: string; street: string } | null {
-  const m = value.trim().match(/^([0-9]+[A-Za-z]?)\s+(.+)$/);
-  return m ? { houseNumber: m[1], street: m[2].trim() } : null;
+export function splitAddress(
+  value: string,
+): { houseNumber: string; street: string; unit?: string } | null {
+  let text = value.trim();
+  // The apartment written FIRST: "apt a / 93 Harvard Street", "unit 7202 / 100
+  // Whisper Village Way". Ari, 2026-09-01: the Voice office puts the apartment
+  // number before the address on purpose, so the address is whatever follows
+  // it. The unit is kept -- it rides along as an instruction, never guessed
+  // into a floor.
+  const prefixed = text.match(/^(?:apt|apartment|unit|#)\s*\.?\s*([A-Za-z0-9-]+)\s*[\/,–—-]?\s+(.+)$/i);
+  let unit: string | undefined;
+  if (prefixed) {
+    unit = prefixed[1];
+    text = prefixed[2].trim();
+  }
+  const m = text.match(/^([0-9]+[A-Za-z]?)\s+(.+)$/);
+  if (!m) return null;
+  return { houseNumber: m[1], street: m[2].trim(), ...(unit ? { unit } : {}) };
 }
 
 function resolveAction(value: string): ParsedRow["action"] {
@@ -192,11 +207,13 @@ export function rowsFromGrid(grid: string[][], options: GridOptions = {}): Parse
 
     // No house-number column: the address is one cell, so split it.
     let unsplittable = false;
+    let unit: string | undefined;
     if (!houseNumber && street) {
       const parts = splitAddress(street);
       if (parts) {
         houseNumber = parts.houseNumber;
         street = parts.street;
+        unit = parts.unit;
       } else {
         unsplittable = true;
       }
@@ -225,7 +242,11 @@ export function rowsFromGrid(grid: string[][], options: GridOptions = {}): Parse
       floorSide: cell(row, map.floorSide) || null,
       floorSideAlt: cell(row, altFloorIndex) || null,
       externalId: cell(row, externalIdIndex) || null,
-      instructions: cell(row, map.instructions) || null,
+      // A unit split off the front of the address rides along as an
+      // instruction -- never invented into a floor label.
+      instructions: [unit ? `Apt ${unit}` : null, cell(row, map.instructions) || null]
+        .filter(Boolean)
+        .join("; ") || null,
       problem: problems.length ? problems.join(", ") : undefined,
     };
   });

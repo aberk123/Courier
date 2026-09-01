@@ -27,7 +27,7 @@ const row = (over: Partial<PlanRow>): PlanRow => ({
     { stopId: "s2", label: "1 EAGLE LN · basement · HIDDEN SHOPPER (zone 1)", zoneNumber: 1 },
   ],
   stopId: null, newStop: null, instructions: null, floorSide: "basement",
-  questionKind: "new_household", questionKey: "new_household|eagle ln|1",
+  questionKind: "crowded_address", questionKey: "crowded_address|eagle ln|1",
   ...over,
 });
 
@@ -73,6 +73,7 @@ test("audiences follow Ari's split: master-list questions to the office, routes 
   const kinds: [PlanRow["questionKind"], string][] = [
     ["out_of_stretch", "voice_office"],
     ["door_conflict", "voice_office"],
+    ["unit_letter", "voice_office"],
     ["unreadable_cell", "voice_office"],
     ["wrong_side_parity", "amrom"],
     ["route_position", "amrom"],
@@ -98,12 +99,13 @@ test("rows that are not questions produce nothing", () => {
   assert.equal(buildQuestions(settled, "pub-v", stops).length, 0);
 });
 
-test("the REAL planRow's new_household question never carries a hidden line's name", () => {
-  // Reproduces the reviewed leak with the real code path, not a hand-written
-  // row: our only line at the address is Shopper-only with a recipient name a
-  // Voice-scoped user must never see (the 999 HIDDEN LANE invariant). The
-  // import-screen MESSAGE may name it -- that screen is courier-office-only --
-  // but the stored question (prompt + evidence) must not.
+test("a second household from the master list is not a portal question at all", () => {
+  // Ari, 2026-09-01, shown "is it a real second household?": "What's the
+  // question on this one? Again, you should be following the master list." The
+  // list naming another household IS the answer; only the route placement
+  // remains, which is the courier office's work on the import screen. So the
+  // row stays needs_choice there but produces nothing on /questions -- which
+  // also removes the only prompt that ever embedded a recipient name.
   const stops: ExistingStop[] = [{
     id: "hidden", zoneId: "z1", zoneNumber: 1, recipientName: "HIDDEN SHOPPER",
     houseNumber: "1", street: "EAGLE LN", floorSide: "upstairs", publicationIds: ["pub-s"],
@@ -122,11 +124,7 @@ test("the REAL planRow's new_household question never carries a hidden line's na
     fileRow, stops, pubs, buildStreetZoneMap(stops), new Map(), buildStopIndex(stops),
     { fileRows: [{ floorSide: "basement", name: "Family Pernikoff", externalId: null }], index: 0 },
   );
-  assert.equal(planned.questionKind, "new_household");
-  // The import-screen message names the line -- courier office only.
-  assert.match(planned.message, /HIDDEN SHOPPER/);
-  // The stored question does not, anywhere.
-  const [q] = buildQuestions([planned], "pub-v", stops);
-  assert.doesNotMatch(JSON.stringify(q), /HIDDEN|SHOPPER/i);
-  assert.match(q.prompt, /another household at this address \(basement\)/);
+  assert.equal(planned.status, "needs_choice");
+  assert.equal(planned.questionKind, undefined);
+  assert.equal(buildQuestions([planned], "pub-v", stops).length, 0);
 });
