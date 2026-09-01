@@ -30,7 +30,6 @@ export type Candidate = { stopId: string; label: string; zoneNumber: number };
  */
 export type QuestionKind =
   | "out_of_stretch"      // house number beyond the covered stretch of our street
-  | "wrong_side_parity"   // every number we deliver is one parity, this is the other
   | "gap_between_blocks"  // falls between two delivered blocks
   | "route_position"      // brand-new door, one zone, needs a place in the walking order
   | "street_spans_zones"  // brand-new door, street lives in several zones
@@ -1285,24 +1284,16 @@ export function planRow(
     if (!confirmedOurs && (asNumber < lo || asNumber > hi)) {
       const nearestEnd = asNumber < lo ? lo : hi;
       const gap = stretchGaps.get(`${street}|${house}`);
-      if (gap && gap.meters <= STRETCH_METERS && wrongSide) {
-        // Near enough that the driver passes it -- but on the side of the
-        // street he does not deliver. The map never decides whether he
-        // crosses, so this is the crossing question, same as its in-range
-        // neighbours. Live-run finding: 143/147 PINE ST sit below the even
-        // 150-270 stretch and were converted to placements while 151-225
-        // correctly stayed Amrom's crossing question.
-        return {
-          ...base,
-          status: "needs_choice",
-          message:
-            `every ${row.street.toUpperCase()} number we deliver is ${sortedAll[0] % 2 === 0 ? "even" : "odd"} ` +
-            `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
-          newStop: newStopFrom(row, base, zoneCandidates),
-          ...asQuestion(base, "wrong_side_parity"),
-        };
-      }
       if (gap && gap.meters <= STRETCH_METERS) {
+        // A regular street is walked on both sides (Ari, 2026-09-01: "there's
+        // no reason why the driver wouldn't go to both sides of the street"),
+        // so a near wrong-parity address converts like any other -- flagged
+        // with its side, because the exceptions are split roads like Pine St
+        // (odd side = zone 35, settled by rulings), and Amrom is the one who
+        // spots the next such road from this note.
+        const sideNote = wrongSide
+          ? ` (note: the ${asNumber % 2 === 0 ? "even" : "odd"} side — we currently deliver only the other)`
+          : "";
         // The map says the driver passes it: a few houses past the end of the
         // covered stretch on the SAME street. "Is it ours?" is answered; what
         // remains is where it sits in the walk — the Lakewood Courier's
@@ -1312,7 +1303,7 @@ export function planRow(
           status: "needs_choice",
           message:
             `${row.houseNumber} ${row.street.toUpperCase()} is about ${gap.meters} m from ` +
-            `${gap.nearestHouse}, the nearest we deliver — the driver passes it; place it in the route`,
+            `${gap.nearestHouse}, the nearest we deliver — the driver passes it; place it in the route${sideNote}`,
           newStop: newStopFrom(row, base, zoneCandidates),
           ...asQuestion(base, "route_position"),
         };
@@ -1329,17 +1320,21 @@ export function planRow(
       };
     }
 
-    // One side of the street. Every number we deliver shares a parity and this
-    // one does not -- a new side, not infill.
+    // The other side of the street, within the covered range. A regular street
+    // is walked on both sides (Ari, 2026-09-01), so this is a placement, not a
+    // question -- flagged with its side so Amrom can spot the exception: a
+    // split road like Pine St, whose odd side is zone 35 and settled by
+    // rulings. "I think this is an exception rather than the rule."
     if (!confirmedOurs && wrongSide) {
       return {
         ...base,
         status: "needs_choice",
         message:
           `every ${row.street.toUpperCase()} number we deliver is ${sortedAll[0] % 2 === 0 ? "even" : "odd"} ` +
-          `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
+          `(${lo}–${hi}) and ${row.houseNumber} is not, but a regular street is walked on both sides — ` +
+          `place it in the route, or tell us this side belongs to another route`,
         newStop: newStopFrom(row, base, zoneCandidates),
-        ...asQuestion(base, "wrong_side_parity"),
+        ...asQuestion(base, "route_position"),
       };
     }
 

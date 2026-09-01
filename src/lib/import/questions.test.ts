@@ -75,7 +75,6 @@ test("audiences follow Ari's split: master-list questions to the office, routes 
     ["door_conflict", "voice_office"],
     ["unit_letter", "voice_office"],
     ["unreadable_cell", "voice_office"],
-    ["wrong_side_parity", "amrom"],
     ["route_position", "amrom"],
     ["near_miss_named", "courier_office"],
   ];

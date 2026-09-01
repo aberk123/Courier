@@ -1026,6 +1026,26 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### A regular street is walked on both sides (Ari, 2026-09-01)
+
+*"The map should usually be able to decide a crossing. If it's a regular
+street, there's no reason why the driver wouldn't go to both sides of the
+street. Specifically Pine Street is a very busy road, and there's developments
+on both sides of the road, so it makes sense to break it up and have somebody
+else do the different developments. But I think this is an exception rather
+than the rule."*
+
+This retires the crossing QUESTION entirely (`wrong_side_parity` is no longer
+emitted). A wrong-parity address — in range, or out of range but map-measured
+near — is a `route_position` placement note on Amrom's list like any other
+addition, **flagged with which side it is on** ("note: the odd side — we
+currently deliver only the other"), because the exceptions are split roads and
+Amrom is the one who spots the next Pine from that flag. Exceptions are
+RECORDED, not asked: Pine St's odd side carries `not_ours` rulings (zone 35,
+section above) which outrank everything, and any future split road is handled
+the same way — Amrom says the side belongs elsewhere, the office records the
+rulings.
+
 ### The odd side of Pine St is zone 35 (Ari, 2026-09-01)
 
 *"The odd numbers on Pine St are on zone 35 — not any of the zones we are

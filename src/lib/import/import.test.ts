@@ -1618,8 +1618,12 @@ test("a measured short gap turns 'is it ours?' into a placement note for the Cou
   assert.match(kept.message, /measured: about 900 m/);
 });
 
-test("the map never decides a wrong-side-of-the-street question", () => {
-  // Whether the driver crosses is a walking-pattern fact, not a geometric one.
+test("the other side of a regular street is a placement, and a split road is settled by rulings", () => {
+  // Ari, 2026-09-01: "there's no reason why the driver wouldn't go to both
+  // sides of the street... Pine Street is a very busy road [odd side = zone
+  // 35]... this is an exception rather than the rule." So a wrong-parity
+  // address is a placement note for Amrom, flagged with its side -- and the
+  // recorded exception (a not_ours ruling) still blocks it outright.
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const stops: ExistingStop[] = ["150", "152", "270"].map((h) => ({
     id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
@@ -1628,18 +1632,24 @@ test("the map never decides a wrong-side-of-the-street question", () => {
   const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Stern", "151 Pine St"]],
     { defaultAction: "add" })[0];
   row.publication = "voice";
-  const near = new Map([["pine st|151", { meters: 15, nearestHouse: "150" }]]);
-  const planned = planRow(row, stops, pubs, buildStreetZoneMap(stops),
-    new Map(), buildStopIndex(stops), undefined, new Map(), near);
-  assert.equal(planned.questionKind, "wrong_side_parity");
-  assert.doesNotMatch(planned.message, /driver passes/);
-});
 
-test("an odd-side house below the covered range is the crossing question, never a placement", () => {
-  // Live-run finding: 143 PINE ST sits below our even 150–270, so the range
-  // branch fired first and the map converted it to "the driver passes it" —
-  // while its odd-side neighbours 151–225 correctly stayed Amrom's crossing
-  // question. The parity test now outranks both the range test and the map.
+  const placed = planRow(row, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(placed.questionKind, "route_position");
+  assert.match(placed.message, /walked on both sides/);
+  assert.ok(placed.newStop);
+
+  // The exception: Pine's odd side carries not_ours rulings (zone 35) that
+  // outrank everything, so the real 151 PINE ST never even gets this far.
+  const ruled = buildRulingIndex([
+    { street: "pine st", houseNumber: "151", publicationId: null, ruling: "not_ours",
+      note: "odd side is zone 35" },
+  ]);
+  const blocked = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, ruled);
+  assert.equal(blocked.status, "blocked");
+  assert.match(blocked.message, /you told us so/);
+});
+test("a near wrong-parity address below the range converts, flagged with its side", () => {
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const stops: ExistingStop[] = ["150", "152", "270"].map((h) => ({
     id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
@@ -1651,11 +1661,9 @@ test("an odd-side house below the covered range is the crossing question, never 
   const near = new Map([["pine st|143", { meters: 20, nearestHouse: "150" }]]);
   const measured = planRow(row, stops, pubs, buildStreetZoneMap(stops),
     new Map(), buildStopIndex(stops), undefined, new Map(), near);
-  assert.equal(measured.questionKind, "wrong_side_parity");
-  assert.doesNotMatch(measured.message, /driver passes/);
-  // Unmeasured, it stays the range question it always was — the parity guard
-  // exists to stop the MAP from deciding a crossing, not to relabel far-away
-  // numbers that merely happen to be odd (1471 OAK ST against even 26–110).
+  assert.equal(measured.questionKind, "route_position");
+  assert.match(measured.message, /driver passes it.*odd side/);
+  // Unmeasured and far it stays the range question it always was.
   const unmeasured = planRow(row, stops, pubs, buildStreetZoneMap(stops));
   assert.equal(unmeasured.questionKind, "out_of_stretch");
 });
