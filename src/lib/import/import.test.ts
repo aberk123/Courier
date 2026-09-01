@@ -25,6 +25,7 @@ import {
   buildStopIndex,
   buildRulingIndex,
   settleAddress,
+  surplusServedLines,
   type ExistingStop,
 } from "./match.ts";
 import { rowsFromGrid, splitAddress } from "./parse.ts";
@@ -617,22 +618,31 @@ test("no door is ever invented — a silent file gets a silent line", () => {
   assert.equal(created?.kind === "create" ? created.floorSide : "MISSING", null);
 });
 
-test("a house holding more than two lines is never written to blind", () => {
-  // 419 CEDAR BRIDGE AVE carries 23 deliveries and apartment numbers live in the
-  // instructions column, which the matcher does not load. So the lines are
-  // indistinguishable and choosing between them by id order is a coin toss.
-  const stops: ExistingStop[] = Array.from({ length: 5 }, (_, i) => ({
+test("a blind write at a crowded address asks — counting only this publication's lines", () => {
+  // 419 CEDAR BRIDGE AVE carries 23 deliveries and apartment numbers live in
+  // the instructions column, which the matcher does not load — so an UNDIRECTED
+  // write there goes to a person. But the crowd is counted per publication:
+  // Ari, 2026-09-01, shown 16 CHELSEA CT asking because a Shopper/BP line made
+  // the address look crowded: "there is also one for other publications — that
+  // should not be taken into consideration when we're discussing The Voice
+  // list."
+  const mk = (i: number, pubs: string[]): ExistingStop => ({
     id: `apt${i}`, zoneId: "z1", zoneNumber: 1, recipientName: null, houseNumber: "419",
-    street: "CEDAR BRIDGE AVE", floorSide: null,
-    publicationIds: i < 2 ? ["pub-v"] : [],
-  }));
-  const fileRows = Array.from({ length: 4 }, (_, i) => ({ floorSide: null, name: `Family ${"ABCD"[i]}ronowitz` }));
-  const settled = settleAddress(stops, fileRows, "pub-v");
-  assert.equal(settled.filter((o) => o.kind === "no_change").length, 2);
-  assert.equal(settled.filter((o) => o.kind === "ask").length, 2, "the rest go to a person");
-  assert.equal(settled.filter((o) => o.kind === "attach" || o.kind === "create").length, 0);
-});
+    street: "CEDAR BRIDGE AVE", floorSide: null, publicationIds: pubs,
+  });
+  // Four Voice lines: crowded for The Voice, so undirected extra rows ask.
+  const voiceCrowd = [0, 1, 2, 3].map((i) => mk(i, ["pub-v"])).concat([mk(4, [])]);
+  const fileRows = Array.from({ length: 5 }, (_, i) => ({ floorSide: null, name: `Family ${"ABCDE"[i]}ronowitz` }));
+  const settled = settleAddress(voiceCrowd, fileRows, "pub-v");
+  assert.equal(settled.filter((o) => o.kind === "no_change").length, 4);
+  assert.equal(settled.filter((o) => o.kind === "ask").length, 1, "the undirected fifth goes to a person");
 
+  // Two Voice lines beside three other-publication lines: NOT crowded for The
+  // Voice — the other publications are not taken into consideration.
+  const otherCrowd = [0, 1].map((i) => mk(i, ["pub-v"])).concat([2, 3, 4].map((i) => mk(i, ["pub-s"])));
+  const two = settleAddress(otherCrowd, fileRows.slice(0, 3), "pub-v");
+  assert.equal(two.filter((o) => o.kind === "ask").length, 0);
+});
 test("the list naming one household twice IS two papers — the master list is followed", () => {
   // Ari, 2026-09-01, shown "one paper or two?" on 18 BRIDGEWOOD AVE: "you
   // shouldn't be asking the question because we always follow the master list.
@@ -666,12 +676,13 @@ test("two households sharing a surname but naming different doors are two househ
   assert.equal(settled[1].kind, "attach");
 });
 
-test("a household named at a door we do not serve, where a sibling door is served, is a move", () => {
-  // 5 GRASSMERE ST: the file names the basement; the paper goes upstairs. One
-  // listed, one delivered -- counting says nothing to do, and the basement gets
-  // nothing. Attaching would send two papers where the list asks for one. It is
-  // neither: it looks like a move between the units, and settling it means
-  // stopping a delivery, which is never done without a person.
+test("the master list wins the door: the move is an attach, not a question", () => {
+  // 5 GRASSMERE ST: the file names the basement; the paper goes upstairs. This
+  // used to ask "has this household moved?" — Ari, 2026-09-01, shown 33 CUSHMAN
+  // ST still asking: "a conflict between the master list and the courier's list
+  // — you should always be following the master list. Why is it still on the
+  // question list?" So the row attaches at the named door, and the upstairs
+  // line goes unclaimed — surplusServedLines turns it into a visible cut row.
   const stops: ExistingStop[] = [
     { id: "up", zoneId: "z3", zoneNumber: 3, recipientName: "COHEN", houseNumber: "5",
       street: "GRASSMERE ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
@@ -679,11 +690,10 @@ test("a household named at a door we do not serve, where a sibling door is serve
       street: "GRASSMERE ST", floorSide: "basement", publicationIds: [] },
   ];
   const settled = settleAddress(stops, [{ floorSide: "Basement", name: "Lan" }], "pub-v");
-  assert.equal(settled[0].kind, "ask");
-  assert.match(settled[0].kind === "ask" ? settled[0].reason : "", /has this household moved/);
-  assert.match(settled[0].kind === "ask" ? settled[0].reason : "", /Nothing is stopped without you/);
+  assert.equal(settled[0].kind, "attach");
+  assert.equal(settled[0].kind === "attach" ? settled[0].stopId : "", "bs");
+  assert.deepEqual(surplusServedLines(stops, settled, "pub-v").map((l) => l.id), ["up"]);
 });
-
 test("the same door mismatch IS a plain addition when the list asks for more papers", () => {
   const stops: ExistingStop[] = [
     { id: "up", zoneId: "z3", zoneNumber: 3, recipientName: "COHEN", houseNumber: "5",
@@ -727,20 +737,29 @@ test("where the count is already met, the paper is credited to the line that has
   assert.deepEqual(settled, [{ kind: "no_change", stopId: "b-has" }]);
 });
 
-test("a genuine door contradiction still asks — both doors labelled, and they disagree", () => {
-  // The guard against the fix above going too far: where BOTH lines carry a
-  // label, an unmatched stated door really is a contradiction.
+test("both halves of a move surface as review rows through the real planner", () => {
+  // The whole move, end to end: the file names the basement once; we serve the
+  // upstairs. The plan shows an add row at the basement AND a cut row for the
+  // upstairs line — the master list followed, nothing silent, nothing asked.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const stops: ExistingStop[] = [
-    { id: "up", zoneId: "z3", zoneNumber: 3, recipientName: "COHEN", houseNumber: "5",
-      street: "GRASSMERE ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
-    { id: "bs", zoneId: "z3", zoneNumber: 3, recipientName: "LAN", houseNumber: "5",
-      street: "GRASSMERE ST", floorSide: "basement", publicationIds: [] },
+    { id: "up", zoneId: "z3", zoneNumber: 3, recipientName: "SCHACHTER", houseNumber: "33",
+      street: "CUSHMAN ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs", zoneId: "z3", zoneNumber: 3, recipientName: "SABEL", houseNumber: "33",
+      street: "CUSHMAN ST", floorSide: "basement", publicationIds: ["pub-b"] },
   ];
-  const settled = settleAddress(stops, [{ floorSide: "Basement", name: "Lan" }], "pub-v");
-  assert.equal(settled[0].kind, "ask");
-  assert.match(settled[0].kind === "ask" ? settled[0].reason : "", /moved/);
+  const file = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Suri & Lazer Sabel", "33 Cushman St", "Basement"]],
+    { defaultAction: "add" });
+  const out = planRoster(file, stops, pubs, "pub-v");
+  const add = out.rows!.find((r) => r.action === "add")!;
+  assert.equal(add.status, "ready");
+  assert.equal(add.stopId, "bs");
+  const cut = out.rows!.filter((r) => r.surplusLine);
+  assert.equal(cut.length, 1);
+  assert.equal(cut[0].stopId, "up");
 });
-
 test("counting repeated identities is order-independent", () => {
   // The old duplicate machinery's history was order-dependence; the follow-the-
   // master-list rule must not reintroduce it. Both orders settle identically.
@@ -1308,7 +1327,7 @@ test("a line the master list leaves without a row becomes a removal", () => {
   assert.match(removals[0].message, /on the new The Voice list once/);
 });
 
-test("equal counts leave nothing surplus, and an open question holds removals back", () => {
+test("equal counts leave nothing surplus", () => {
   const stops: ExistingStop[] = [
     { id: "up", zoneId: "z1", zoneNumber: 1, recipientName: "FREUND", houseNumber: "18",
       street: "BRIDGEWOOD AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
@@ -1316,29 +1335,12 @@ test("equal counts leave nothing surplus, and an open question holds removals ba
       street: "BRIDGEWOOD AVE", floorSide: "basement", publicationIds: ["pub-v"] },
   ];
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
-  // Two rows, two lines: nothing surplus.
   const even = planRoster(rowsFromGrid(
     [["customers.last_name", "addresses.addr"],
      ["Yehuda Freund", "18 Bridgewood Ave"], ["Yehuda Freund", "18 Bridgewood Ave"]],
     { defaultAction: "add" }), stops, pubs, "pub-v");
   assert.equal(even.rows!.filter((r) => r.action === "remove").length, 0);
-
-  // A door conflict is an open question, so the surplus is held back: the file
-  // names a door the served line does not carry.
-  const conflictStops: ExistingStop[] = [
-    { id: "up2", zoneId: "z1", zoneNumber: 1, recipientName: "COHEN", houseNumber: "5",
-      street: "GRASSMERE ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
-    { id: "bs2", zoneId: "z1", zoneNumber: 1, recipientName: "LAN", houseNumber: "5",
-      street: "GRASSMERE ST", floorSide: "basement", publicationIds: [] },
-  ];
-  const conflicted = planRoster(rowsFromGrid(
-    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
-     ["Lan", "5 Grassmere St", "Basement"]],
-    { defaultAction: "add" }), conflictStops, pubs, "pub-v");
-  assert.equal(conflicted.rows!.filter((r) => r.action === "remove").length, 0);
-  assert.ok(conflicted.rows!.some((r) => /has this household moved/.test(r.message)));
 });
-
 test("at an address with more than two lines the office picks which line stops", () => {
   // "An address holding more than two lines is never written to blind" still
   // stands: the surplus is proposed as a choice with the candidate lines, not
