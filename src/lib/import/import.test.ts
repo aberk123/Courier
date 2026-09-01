@@ -296,9 +296,7 @@ test("a stop the roster does not manage is never removed by absence", () => {
   const stops = [
     stop("shop", "203", "RIVER AVE", false),
     stop("home", "611", "RIVER AVE", true),
-    // Listed in the file, so the street is genuinely covered. Without one of our
-    // own addresses appearing, absence on the street means nothing -- see
-    // covered().
+    // Listed in the file, so this one is kept while its unlisted neighbour goes.
     stop("kept", "809", "RIVER AVE", true),
   ];
   const out = planRosterRemovals(
@@ -1039,20 +1037,22 @@ test("a subscriber id only means something within its own sequence", () => {
   assert.deepEqual(within.map((o) => o.kind).sort(), ["attach", "no_change"]);
 });
 
-test("a street counts as covered only when the file names an address we deliver to", () => {
+test("one roster row on a street covers it, even at an address we do not hold", () => {
   // The 27 Aug file has exactly one River Ave row in 19,621 -- 611 River Ave, an
-  // address we do not hold -- and that made the street covered, so all 7 of our
-  // River Ave addresses became cancellations. River Ave is Route 9. Measured
-  // across every street we deliver it is the only one at zero: the next lowest
-  // is Clairmont Ct at 5 of 7.
+  // address we do not hold. An earlier rule read that as the publication failing
+  // to send us the street and held all 7 of our River Ave addresses back from
+  // removal. Ari corrected it (2026-08-31/2026-09-01): River Ave is a commercial
+  // road, so one subscriber row is expected, and its unlisted addresses are
+  // removals like any other. Only a street the file never names at all is
+  // protected -- see the RIDER ST test above.
   const stops: ExistingStop[] = ["203", "227", "962"].map((h) => ({
     id: `r${h}`, zoneId: "z5", zoneNumber: 5, recipientName: `House ${h}`, houseNumber: h,
     street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"],
   }));
   const pub = { id: "pub-v", name: "The Voice" };
-  // Names the street, but not one address we hold: no evidence they sent it.
-  assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["611"] }), 1).length, 0);
-  // Names one we hold: now absence on the street means something.
+  // One row at an address we do not hold still covers the street.
+  assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["611"] }), 1).length, 3);
+  // Naming one we hold keeps that one and removes the rest, as before.
   assert.equal(planRosterRemovals(stops, pub, streets({ "RIVER AVE": ["227"] }), 1).length, 2);
 });
 

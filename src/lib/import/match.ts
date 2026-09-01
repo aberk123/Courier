@@ -1394,26 +1394,25 @@ export function planRosterRemovals(
   };
 
   /**
-   * A street counts as covered only when the roster names at least one address we
-   * ACTUALLY DELIVER TO on it. Naming the street is not enough.
+   * A street the roster names at all is covered, however few rows it carries.
    *
-   * The 27 Aug file contains exactly one River Ave row in 19,621 -- `611 River
-   * Ave`, an address we do not hold -- and that single row made the street
-   * covered, so all 7 of our River Ave addresses (12 Voice lines) became
-   * cancellations. River Ave is Route 9. Measured across every street we
-   * deliver, it is the only one where the file names none of our addresses: the
-   * next lowest is Clairmont Ct at 5 of 7, and every other street is at 88% or
-   * better. So "did they send us this street" separates cleanly on one address,
-   * and a percentage threshold is not needed.
+   * This used to also require the roster to name at least one address WE hold on
+   * the street, added when the 27 Aug file's single River Ave row (`611 River
+   * Ave`, not ours) looked like the publication failing to send us that street.
+   * Ari corrected the premise (2026-08-31): River Ave is a commercial road, so
+   * one subscriber row there is expected -- and ruled (2026-09-01) that its
+   * unlisted addresses are removals like any other: *"if it's commercial and
+   * it's being removed, why shouldn't it be listed as being removed?"* A road
+   * whose rows are mostly businesses will rarely name an address we hold, so
+   * that extra clause held back exactly the removals Ari wants. See
+   * docs/domain-notes.md, "River Ave is a commercial road".
+   *
+   * A street the roster never names AT ALL stays protected: that is the
+   * signature of a truncated or partial file, and cancelling a whole street on
+   * silence is the one mistake nobody reports. Measured on the 27 Aug file, no
+   * street we deliver is in that state.
    */
-  const covered = (street: string) => {
-    if (!namesTheStreet(street)) return false;
-    for (const stop of stops) {
-      if (normalizeStreet(stop.street) !== normalizeStreet(street)) continue;
-      if (listedUnderAnySpelling(stop.street, stop.houseNumber, fileStreets)) return true;
-    }
-    return false;
-  };
+  const covered = namesTheStreet;
 
   /** Addresses already ruled on, so `covered` and the spelling scan run once each. */
   const decided = new Map<string, boolean>();

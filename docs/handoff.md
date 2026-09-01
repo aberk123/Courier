@@ -404,19 +404,22 @@ Both are worth knowing because they made that pass weaker than it looked.
 
 ## What is open
 
-- **Where the weekly import stands, 2026-08-31.** Verified through the real screen
-  signed in against production, not from a harness:
+- **Where the weekly import stands, 2026-09-01.** The 2026-08-31 figures were
+  verified through the real screen signed in against production; the removal
+  count then moved once more when Ari closed the River Ave question (see
+  `docs/domain-notes.md`, "River Ave is a commercial road"), measured through
+  the real `planRoster` on the same file:
 
   ```
-  19,630 rows · 50 to apply · 188 need a choice · 1,257 already correct
+  19,630 rows · 62 to apply · 188 need a choice · 1,257 already correct
          · 18,122 not on our routes · 13 we could not read
   ```
 
-  50 to apply = 41 additions + 9 removals. Nothing is auto-created; every new
-  address names the line it should sit beside and waits. The 9 removals are each
-  absent from a street the master list covers densely, with both neighbours
-  present. Both guards pass without tripping: removals 9 of 1,102 against a limit
-  of 55, additions 41 against 165.
+  62 to apply = 41 additions + 21 removal lines at 16 addresses — the 12 lines
+  beyond the previous 9 are the seven River Ave addresses `covered()` had been
+  holding back. Nothing is auto-created; every new address names the line it
+  should sit beside and waits. Both guards pass without tripping: removals 16
+  of 1,102 against a limit of 55, additions 41 against 165.
 
   Terminology (Ari, 2026-08-31): the **master list** is the spreadsheet The Voice
   sends; the **zones** are what is in the system.
@@ -476,12 +479,13 @@ Both are worth knowing because they made that pass weaker than it looked.
   The older "111 additions / 68 needing a choice" is invalidated and not
   recoverable — see `docs/domain-notes.md`. Three things are unresolved:
 
-  - **River Ave is a coverage failure, not churn.** The file contains exactly
-    **one** River Ave row in 19,621 — `611 River Ave` — while we hold 7 River Ave
-    addresses across 15 stops. `covered()` passes on that single row, so all 7
-    become removals, including the residential `809 River Ave · Preschel`. A main
-    Lakewood artery represented by one row means the publication did not send us
-    that street. Do not apply.
+  - **River Ave — resolved (Ari, 2026-09-01).** The single `611 River Ave` row
+    is expected, not a coverage failure: the road is commercial. Its unlisted
+    addresses are removals like any other, including the residential
+    `809 River Ave · Preschel`. `covered()` no longer requires the file to name
+    an address we hold — see `docs/domain-notes.md`, "River Ave is a commercial
+    road". The removals now show on the review screen; nothing is applied
+    without a person.
   - **The 71 tail rows** (`Zone1_1`…`zone2_8`, grid rows 19552–19622) move the
     result by **+6 additions, −10 removals, +16 needing a choice**. The earlier
     "about 40 additions and 25 removals" was measured on truncated zones 1 and 2
