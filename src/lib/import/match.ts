@@ -648,6 +648,10 @@ export function settleAddress(
     };
   };
 
+  /** Claim order = keep order: highest keep priority first (stable). */
+  const keepFirst = (candidates: ExistingStop[]) =>
+    [...candidates].sort((a, b) => keepPriority(b) - keepPriority(a));
+
   /** Lines with the publication first, so a met count settles as "no change". */
   const preferServed = (candidates: ExistingStop[]) =>
     candidates.find((line) => line.publicationIds.includes(publicationId)) ?? candidates[0];
@@ -700,13 +704,16 @@ export function settleAddress(
       // rule depend on stop array order -- "file names Gold" could stop Gold's
       // paper and keep Katz's. Claiming means KEEPING, so the named household's
       // line is claimed when the name distinguishes them.
-      (surname ? served2.filter((c) => surnameOf(c.recipientName) === surname)[0] : undefined) ??
+      (surname ? keepFirst(served2.filter((c) => surnameOf(c.recipientName) === surname))[0] : undefined) ??
       // Then any removable served line before an exempt one: an exempt
       // (rosterManaged=false) line can never be cut, so a claim landed on it is
       // wasted while the real household's line goes unclaimed -- the exemption
       // must protect its own line, never redirect a cut onto a neighbour.
-      served2.filter((c) => c.rosterManaged !== false)[0] ??
-      served2[0] ??
+      // Within each tier, claiming keeps the line Ari's rule spares: the
+      // upstairs or better-described line survives (see keepPriority), so where
+      // nothing stronger distinguishes two lines, the bare one takes the cut.
+      keepFirst(served2.filter((c) => c.rosterManaged !== false))[0] ??
+      keepFirst(served2)[0] ??
       // Where nothing else distinguishes the free lines, a line carrying this
       // row's own surname is the better one. 4 STONEWALL CT: the file names
       // BADOUCH with no door, and we hold basement/GEWIRTZ and upstairs/BADOUCH
@@ -1410,6 +1417,27 @@ function newStopFrom(
  * would preempt the person. Lines marked rosterManaged=false keep their
  * standing exemption from absence-based removal.
  */
+/**
+ * When the master list forces a choice of which line to CUT, this orders it.
+ * Ari, 2026-09-01: "If you have to choose which one to delete from the
+ * courier's list, always prioritize one that is upstairs or that has more
+ * information" -- and, asked which way that sentence points, "I meant the
+ * opposite" of deleting them: the upstairs or better-described line is the one
+ * KEPT. Higher = keep first: an upstairs line survives before other labels,
+ * and a line carrying more detail (a floor label, a name) survives before a
+ * bare one -- the bare line takes the cut. The "reasons to do otherwise"
+ * outrank it where they exist -- a stated door pairs in pass 1 and a surname
+ * match claims first in pass 2, so this only decides among lines nothing
+ * stronger distinguishes.
+ */
+export function keepPriority(line: ExistingStop): number {
+  return (
+    (normalizeFloorSide(line.floorSide) === "upstairs" ? 2 : 0) +
+    (line.floorSide ? 1 : 0) +
+    (line.recipientName ? 1 : 0)
+  );
+}
+
 export function surplusServedLines(
   ourLines: ExistingStop[],
   outcomes: AddressOutcome[],

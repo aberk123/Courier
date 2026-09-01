@@ -18,6 +18,7 @@ import {
   normalizeFloorSide,
   settleAddress,
   surplusServedLines,
+  keepPriority,
   buildStopIndex,
   buildStreetZoneMap,
   mergeFloorSides,
@@ -279,7 +280,7 @@ export function planRoster(
                 `but more lines receive it — stop this one`,
           candidates: ready
             ? []
-            : surplus.map((s) => ({
+            : [...surplus].sort((a, b) => keepPriority(a) - keepPriority(b)).map((s) => ({
                 stopId: s.id,
                 label: `${s.houseNumber} ${s.street}${s.floorSide ? ` · ${s.floorSide}` : ""}${s.recipientName ? ` · ${s.recipientName}` : ""}`,
                 zoneNumber: s.zoneNumber,
