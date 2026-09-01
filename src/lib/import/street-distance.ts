@@ -99,7 +99,9 @@ export async function measureStretchGaps(
     if (!wanted.has(key)) wanted.set(key, { street, houseNumber });
     return key;
   };
-  for (const target of targets.slice(0, 30)) {
+  // 50 targets covers the current file's 46 with room; refs dedupe per street
+  // (14 Henry St questions share the same two ends), so the lookup cap holds.
+  for (const target of targets.slice(0, 50)) {
     want(target.street, target.houseNumber);
     for (const ref of target.refs.slice(0, 2)) want(target.street, ref);
   }
