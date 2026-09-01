@@ -254,11 +254,20 @@ export function planRoster(
         : "";
       const heldByUnreadable =
         streetBase.length > 0 && unreadableTexts.some((text) => text.includes(streetBase));
+      // The pick-a-line choice exists for a cut a person can actually improve:
+      // more than two of THIS publication's lines (other publications' lines do
+      // not count -- Ari, 2026-09-01), and surplus lines that differ from one
+      // another. Identical surplus lines are interchangeable, so picking among
+      // them is noise and the cut is ready.
+      const pubLineCount = atAddress.filter((l) => l.publicationIds.includes(chosen.id)).length;
+      const distinctSurplus = new Set(
+        surplus.map((s) => `${normalizeFloorSide(s.floorSide) ?? ""}|${(s.recipientName ?? "").toLowerCase()}`),
+      ).size;
       for (const line of surplus) {
         const label = `${line.houseNumber} ${line.street}` +
           `${line.floorSide ? ` (${line.floorSide})` : ""}` +
           `${line.recipientName ? ` · ${line.recipientName}` : ""}`;
-        const crowded = atAddress.length > 2;
+        const crowded = pubLineCount > 2 && distinctSurplus > 1;
         const ready = !crowded && !heldByUnreadable;
         removals.push({
           rowNumber: surplusRowNumber++,
@@ -271,7 +280,7 @@ export function planRoster(
           status: ready ? "ready" : "needs_choice",
           message: crowded
             ? `the new ${chosen.name} list has ${fileRows.length} at this address but ` +
-              `${atAddress.length} lines receive it — pick which line stops`
+              `${pubLineCount} lines receive it — pick which line stops`
             : heldByUnreadable
               ? `on the new ${chosen.name} list ${fileRows.length === 1 ? "once" : `${fileRows.length} times`}, ` +
                 `but more lines receive it — and an unreadable row in the file mentions this street, ` +

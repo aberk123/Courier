@@ -589,9 +589,13 @@ export function settleAddress(
   // A house has two apartments. More than two lines is either a real block --
   // 419 CEDAR BRIDGE AVE carries 23 -- or a duplicate in our own records, and
   // apartment numbers live in the instructions column which this never sees. So
-  // above two lines nothing is WRITTEN: an address already covered still reports
-  // no change, but attaching or creating goes to a person.
-  const crowded = ourLines.length > 2;
+  // above two lines a BLIND write goes to a person. Counted per publication:
+  // Ari, 2026-09-01, shown 16 CHELSEA CT asking because a Shopper/BP line made
+  // the address look crowded: "there is also one for other publications — that
+  // should not be taken into consideration when we're discussing The Voice
+  // list." Door-directed writes are never blind and never ask.
+  const pubLines = ourLines.filter((line) => line.publicationIds.includes(publicationId));
+  const crowded = pubLines.length > 2;
 
   // The list naming one household twice is the unanswered copy-count question in
   // docs/domain-notes.md -- 25 customer ids repeat across 53 surplus rows, and
@@ -610,47 +614,54 @@ export function settleAddress(
   // SAME_NAME machinery lived here; git has it if the packet answer ever says
   // the repeats are NOT copies.
 
-  /** Lines at this address that already carry the publication. */
-  const served = ourLines.filter((line) => line.publicationIds.includes(publicationId));
-
-  const pair = (index: number, line: ExistingStop) => {
+  const pair = (index: number, line: ExistingStop, blind = false) => {
     taken.add(line.id);
     if (line.publicationIds.includes(publicationId)) {
       out[index] = { kind: "no_change", stopId: line.id };
       return;
     }
-    if (crowded) {
-      out[index] = { kind: "ask", ask: "crowded_address", reason: `this address has ${ourLines.length} lines — pick which one` };
+    // Only a BLIND write at a crowded address asks. A door-directed pairing is
+    // never blind -- the master list said which door.
+    if (blind && crowded) {
+      out[index] = {
+        kind: "ask",
+        ask: "crowded_address",
+        reason: `this address has ${pubLines.length} lines with this publication — pick which one`,
+      };
       return;
     }
-    // The line the file names does not carry the publication. Whether that is an
-    // ADDITION or a MOVE depends on the count, and the two rules Ari gave pull
-    // apart here. The file names the basement at 5 GRASSMERE ST; we deliver to
-    // the upstairs. Counting says one and one, nothing to do -- but then the
-    // household the file names gets nothing. Attaching says the basement should
-    // have it -- but that is two papers where the list asks for one.
-    //
-    // So it is neither: the household looks to have moved between the units, and
-    // settling it means STOPPING a delivery, which is never done silently. Where
-    // the file genuinely asks for more papers than we deliver, it is a plain
-    // addition and no one needs to be asked.
-    if (fileRows.length > served.length) {
-      out[index] = { kind: "attach", stopId: line.id };
-      return;
-    }
-    const elsewhere = served.map((line2) => doorOf(line2.floorSide) ?? "no label").join(" and ");
-    out[index] = {
-      kind: "ask",
-      ask: "door_conflict",
-      reason:
-        `the list names the ${doorOf(line.floorSide) ?? "unlabelled"} unit, but the paper goes to ` +
-        `the ${elsewhere} — has this household moved? Nothing is stopped without you saying so.`,
-    };
+    // The master list wins the door. This used to be the "has this household
+    // moved?" question when the counts already matched; Ari, 2026-09-01, shown
+    // 33 CUSHMAN ST still asking: "an example of a conflict between the master
+    // list and the courier's list — you should always be following the master
+    // list. Why is it still on the question list?" So the paper is attached at
+    // the door the list names, and the line it leaves behind goes unclaimed --
+    // surplusServedLines turns that into a visible removal row, so the MOVE is
+    // an add row plus a cut row on the review screen, applied by a person,
+    // never a question.
+    out[index] = { kind: "attach", stopId: line.id };
   };
 
   /** Claim order = keep order: highest keep priority first (stable). */
   const keepFirst = (candidates: ExistingStop[]) =>
     [...candidates].sort((a, b) => keepPriority(b) - keepPriority(a));
+
+  /**
+   * Which SERVED line among `candidates` a row should claim (claiming = that
+   * line keeps its paper). Review-proven twice over: any tier that picks
+   * served[0] makes the cut side depend on stop array order, so the named
+   * household could lose its paper. One ordering, used by every pass: the
+   * row's own surname first, then removable lines before exempt ones, then
+   * Ari's keep rule (upstairs / better-described survives).
+   */
+  const claimServed = (candidates: ExistingStop[], surname: string | null) => {
+    const served2 = candidates.filter((c) => c.publicationIds.includes(publicationId));
+    return (
+      (surname ? keepFirst(served2.filter((c) => surnameOf(c.recipientName) === surname))[0] : undefined) ??
+      keepFirst(served2.filter((c) => c.rosterManaged !== false))[0] ??
+      keepFirst(served2)[0]
+    );
+  };
 
   /** Lines with the publication first, so a met count settles as "no change". */
   const preferServed = (candidates: ExistingStop[]) =>
@@ -659,11 +670,19 @@ export function settleAddress(
     ourLines.filter((line) => !taken.has(line.id) && extra(line));
 
   // Pass 1: a stated door pairs with the line carrying that door. This is the
-  // pass that stops a paper landing on a door the file contradicts.
+  // pass that stops a paper landing on a door the file contradicts. Among
+  // several lines carrying the door, claimServed keeps the named household's
+  // line -- two served basement lines used to be picked by array order, cutting
+  // Katz's paper on a row that names Katz.
   for (const i of order) {
     const stated = doorOf(fileRows[i].floorSide);
     if (!stated) continue;
-    const line = preferServed(free((candidate) => doorOf(candidate.floorSide) === stated));
+    const doorMatches = free((candidate) => doorOf(candidate.floorSide) === stated);
+    const surname = surnameOf(fileRows[i].name);
+    const line =
+      claimServed(doorMatches, surname) ??
+      (surname ? doorMatches.filter((c) => surnameOf(c.recipientName) === surname)[0] : undefined) ??
+      doorMatches[0];
     if (line) pair(i, line);
   }
 
@@ -676,8 +695,19 @@ export function settleAddress(
   // against a file row naming a door.
   for (const i of order) {
     if (out[i] || !doorOf(fileRows[i].floorSide)) continue;
-    const line = preferServed(free((candidate) => !doorOf(candidate.floorSide)));
-    if (line) pair(i, line);
+    const unlabelled = free((candidate) => !doorOf(candidate.floorSide));
+    const surname = surnameOf(fileRows[i].name);
+    const line =
+      claimServed(unlabelled, surname) ??
+      (surname ? unlabelled.filter((c) => surnameOf(c.recipientName) === surname)[0] : undefined) ??
+      unlabelled[0];
+    // Review finding: an UNSERVED unlabelled line here is a presumption, not a
+    // door match -- the stated door failed to find its line, and "the
+    // unlabelled line is that door" is a guess. At a crowded address that
+    // guess is a blind write and goes to a person; the doctrine cases (a
+    // served unlabelled line pairing as no_change, and any pairing at a
+    // two-family house) are untouched, since blind only bites when crowded.
+    if (line) pair(i, line, !line.publicationIds.includes(publicationId));
   }
 
   // Pass 2: ONLY rows that stated no door. Both sides are silent, so the driver
@@ -697,23 +727,11 @@ export function settleAddress(
     // own surname is on (12 Sheraton Dr · Katz against basement/KATZ). The file
     // states no door, so the driver decides and the served line is the answer.
     const surname = surnameOf(fileRows[i].name);
-    const served2 = free((candidate) => candidate.publicationIds.includes(publicationId));
     const line =
-      // Among SERVED lines, the row's own surname decides first. Review-proven:
-      // with two served lines, taking served[0] made the cut side of the surplus
-      // rule depend on stop array order -- "file names Gold" could stop Gold's
-      // paper and keep Katz's. Claiming means KEEPING, so the named household's
-      // line is claimed when the name distinguishes them.
-      (surname ? keepFirst(served2.filter((c) => surnameOf(c.recipientName) === surname))[0] : undefined) ??
-      // Then any removable served line before an exempt one: an exempt
-      // (rosterManaged=false) line can never be cut, so a claim landed on it is
-      // wasted while the real household's line goes unclaimed -- the exemption
-      // must protect its own line, never redirect a cut onto a neighbour.
-      // Within each tier, claiming keeps the line Ari's rule spares: the
-      // upstairs or better-described line survives (see keepPriority), so where
-      // nothing stronger distinguishes two lines, the bare one takes the cut.
-      keepFirst(served2.filter((c) => c.rosterManaged !== false))[0] ??
-      keepFirst(served2)[0] ??
+      // Among SERVED lines the shared claimServed ordering applies -- surname
+      // first (claiming means KEEPING, so the named household's line is kept),
+      // removable before exempt, then Ari's keep rule.
+      claimServed(free(() => true), surname) ??
       // Where nothing else distinguishes the free lines, a line carrying this
       // row's own surname is the better one. 4 STONEWALL CT: the file names
       // BADOUCH with no door, and we hold basement/GEWIRTZ and upstairs/BADOUCH
@@ -729,7 +747,10 @@ export function settleAddress(
         : undefined) ??
       preferServed(free((candidate) => !doorOf(candidate.floorSide))) ??
       preferServed(free(() => true));
-    if (line) pair(i, line);
+    // Reaching an UNSERVED line here means nothing directed the choice -- no
+    // door, no surname -- so at a crowded address it is the blind write that
+    // goes to a person.
+    if (line) pair(i, line, !line.publicationIds.includes(publicationId));
   }
 
   // Pass 3: everything still unsettled -- more households listed than lines held,
@@ -745,19 +766,13 @@ export function settleAddress(
           `the list has ${fileRows.length} households at this address but the house has ` +
           `${ourLines.length} — check the list before adding`,
       };
-    } else if (crowded) {
-      out[i] = { kind: "ask", ask: "crowded_address", reason: `this address has ${ourLines.length} lines — add this one by hand` };
-    } else if (doorOf(fileRows[i].floorSide) && served.length >= fileRows.length) {
-      // The file names a door we hold no line for, and the address already gets
-      // as many papers as the list asks for. Creating the door would send one
-      // too many; leaving it sends the paper to the wrong door. Same "moved"
-      // shape as in pair(), reached from the other side.
+    } else if (crowded && !doorOf(fileRows[i].floorSide)) {
+      // A door-stated row creating its door is never blind; only the doorless
+      // create at a crowded address goes to a person.
       out[i] = {
         kind: "ask",
-        ask: "door_conflict",
-        reason:
-          `the list names the ${doorOf(fileRows[i].floorSide)} unit, which we have no line for, ` +
-          `and the address already gets ${served.length} — has this household moved?`,
+        ask: "crowded_address",
+        reason: `this address has ${pubLines.length} lines with this publication — add this one by hand`,
       };
     } else {
       // The stated door is carried onto the new line, because the driver follows

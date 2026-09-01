@@ -1026,6 +1026,37 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### Other publications' lines are invisible to a reconciliation, and the master list wins the door (Ari, 2026-09-01)
+
+Two more rulings from Ari's pass over the live portal, both "why is this still
+a question":
+
+**16 / 8 Chelsea Ct** — *"we have one on file and that should be the one that's
+kept; everything else should be taken away. The question list says that there
+is also one for other publications — that should not be taken into
+consideration when we're discussing The Voice list."* The crowded-address
+guard counted every line at the address, so a Shopper/BP line made a two-line
+Voice reconciliation look like a three-line blind write. Now the crowd is
+counted **per publication**, and only a genuinely BLIND write (no door, no
+surname directing it) at an address with more than two of THIS publication's
+lines asks. The surplus pick-a-line choice likewise: only when the
+publication's own lines exceed two AND the surplus lines differ from each
+other — identical duplicate lines are interchangeable and cut ready.
+
+**33 Cushman St** — *"an example of a conflict between the master list and the
+courier's list. You should always be following the master list. Why is it
+still on the question list?"* The "has this household moved?" question is
+retired, in both its shapes. The master list wins the door: the row attaches
+(or creates) at the door the list names, and the line it leaves behind becomes
+a visible surplus-cut row — **the move is an add row plus a cut row on the
+review screen**, applied by a person, never a question. Where the add is a
+CREATE that still needs route placement, the cut is automatically held back by
+the open-question rule until the office places it, so a paper never stops
+before its replacement door exists. This supersedes the "Where counting and
+the door disagree, nothing is written" clause of the 2026-08-31 door ruling —
+the door remains an order; what changed is that the master list's order is now
+followed rather than asked about.
+
 ### Which line takes the cut (Ari, 2026-09-01)
 
 *"If you have to choose which one to delete from the courier's list, always
@@ -1239,7 +1270,9 @@ Three consequences, all now in `settleAddress`:
 - **No label is ever invented, and a new line carries the door the file stated.**
   A silent file gets a silent line, per the existing "never invent a label" rule.
 
-**Where counting and the door disagree, nothing is written.** The list names the
+**Where counting and the door disagree, nothing is written.** *(Superseded
+2026-09-01 — see "the master list wins the door" below: the move now happens as
+an add row plus a cut row, still applied by a person.)* The list names the
 basement at `5 GRASSMERE ST`; the paper goes upstairs. Counting says one and one,
 nothing to do — and the named household gets nothing. Attaching says the basement
 should have it — and that is two papers where one is asked for. Neither is safe,
