@@ -1294,3 +1294,43 @@ test("the no-name near-miss street question is settled by a recorded answer", ()
   assert.equal(settled.status, "blocked");
   assert.match(settled.message, /you told us so/);
 });
+
+test("a map-confirmed real street settles the no-name near-miss question", () => {
+  // Same fixture as the recorded-answer test above: the file's 122 CAREY ST
+  // against our unnamed 122 CAROL ST. With the map confirming CAREY ST is a
+  // real Lakewood street, Ari's rule applies with evidence: it is that street,
+  // so the row is not ours -- blocked, no weekly question. The map must NOT
+  // outrank name evidence, and its absence must change nothing.
+  const stops: ExistingStop[] = [{
+    id: "c122", zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: "122",
+    street: "CAROL ST", floorSide: null, publicationIds: [],
+  }];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const mk = (name: string) => {
+    const r = rowsFromGrid([["customers.last_name", "addresses.addr"], [name, "122 Carey St"]],
+      { defaultAction: "add" })[0];
+    r.publication = "voice";
+    return r;
+  };
+  const real = new Set([normalizeStreet("Carey St")]);
+
+  // Without the map: the question, marked for the lookup pass.
+  const asked = planRow(mk("Family Schwartz"), stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(asked.status, "needs_choice");
+  assert.equal(asked.mapCheckable, true);
+
+  // With it: settled.
+  const settled = planRow(mk("Family Schwartz"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), real);
+  assert.equal(settled.status, "blocked");
+  assert.match(settled.message, /real Lakewood street, confirmed on the map/);
+
+  // Name evidence outranks the map: our stop carrying the same surname keeps
+  // the question even though the street is confirmed real.
+  const named: ExistingStop[] = [{ ...stops[0], recipientName: "Schwartz" }];
+  const still = planRow(mk("Family Schwartz"), named, pubs, buildStreetZoneMap(named),
+    new Map(), buildStopIndex(named), undefined, new Map(), real);
+  assert.equal(still.status, "needs_choice");
+  assert.match(still.message, /the name matches/);
+  assert.equal(still.mapCheckable, undefined);
+});

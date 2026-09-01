@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllPages } from "@/lib/fetch-all";
 import { parseCsv, rowsFromGrid, type ParsedRow } from "@/lib/import/parse";
 import { planRoster, type PlanSummary } from "@/lib/import/plan";
+import { checkStreetsExist } from "@/lib/import/street-check";
 export type { PlanSummary };
 import {
   normalizeHouseNumber,
@@ -194,7 +195,24 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
   // src/lib/import/plan.ts -- this used to be 150 lines inline, which meant the
   // only way to measure it was to reimplement it, and the reimplementation
   // drifted six rows away from what the screen showed.
-  const outcome = planRoster(parsed, existing, publications, rosterPublication || null, addressRulings);
+  let outcome = planRoster(parsed, existing, publications, rosterPublication || null, addressRulings);
+
+  // Second pass with the map's answers. The no-name near-miss questions ("is
+  // CAREY ST the same street as our CAROL ST written differently?") are the one
+  // row shape a map settles, and Ari's rule is to check: a confirmed real street
+  // is that street, not a misspelling of ours. Fails soft in every direction --
+  // lookup unreachable, street not found, or nothing checkable -- by leaving the
+  // plan exactly as pass one made it. See src/lib/import/street-check.ts.
+  const checkable = (outcome.rows ?? []).filter((row) => row.mapCheckable);
+  if (checkable.length) {
+    const realStreets = await checkStreetsExist(checkable);
+    if (realStreets.size) {
+      const repass = planRoster(parsed, existing, publications, rosterPublication || null,
+        addressRulings, { realStreets });
+      if (!repass.error) outcome = repass;
+    }
+  }
+
   if (outcome.error) {
     return { error: outcome.error, rows: null, fileName: file.name, summary: null };
   }

@@ -412,7 +412,7 @@ Both are worth knowing because they made that pass weaker than it looked.
 
   ```
   19,642 rows · 62 to apply · 187 need a choice · 1,257 already correct
-         · 18,122 not on our routes · 13 we could not read
+         · 18,123 not on our routes · 13 we could not read
   ```
 
   (The row total counts the 21 appended removal rows. The questions were 188

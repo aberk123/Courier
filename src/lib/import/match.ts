@@ -31,6 +31,12 @@ export type PlanRow = {
    */
   street: string;
   houseNumber: string;
+  /**
+   * Set on the no-name near-miss question — the one row shape a map lookup can
+   * settle. The plan action collects these, asks the geocoder, and re-plans
+   * with the confirmed streets. See src/lib/import/street-check.ts.
+   */
+  mapCheckable?: boolean;
   publicationId: string | null;
   publicationName: string | null;
   /**
@@ -816,6 +822,12 @@ export function planRow(
   rosterGroup?: RosterGroup,
   /** Answers the office has already given. See AddressRuling. */
   rulings: RulingIndex = new Map(),
+  /**
+   * Streets a map lookup confirmed are real Lakewood streets at the row's house
+   * number (normalized). Settles only the no-name near-miss question; see
+   * src/lib/import/street-check.ts for what counts as confirmed.
+   */
+  realStreets: Set<string> = new Set(),
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -937,6 +949,14 @@ export function planRow(
       const weCarryTheStreet = (index.byStreet.get(street) ?? []).length > 0;
       const key = surnameOf(row.name);
       const named = key ? near.filter((stop) => surnameOf(stop.recipientName) === key) : [];
+      // The map settles the no-name case, when it can. `realStreets` holds the
+      // streets a geocoder CONFIRMED exist in Lakewood at this house number
+      // (src/lib/import/street-check.ts) -- a real street the file names is that
+      // street, per Ari's rule, so the row is not ours. Name evidence outranks
+      // the map: where a surname matches one of ours, the question stands, and
+      // "not found" never decides anything -- absence from the set just leaves
+      // the question below.
+      const mapConfirmedReal = !named.length && realStreets.has(street);
       // 258 of our active stops carry no recipient name at all, 84 of them Voice
       // lines, and docs/domain-notes.md records a blank name as normal. Where
       // there is no name on one side or the other there is no evidence EITHER
@@ -948,6 +968,14 @@ export function planRow(
         near.length > 0 && (!key || near.every((stop) => !surnameOf(stop.recipientName)));
       if (weCarryTheStreet) {
         // nothing to decide here; the house-number checks below own this case
+      } else if (mapConfirmedReal && noEvidencePossible) {
+        return {
+          ...base,
+          status: "blocked",
+          message:
+            `${row.street.toUpperCase()} is a real Lakewood street, confirmed on the map ` +
+            `— not on any of our routes`,
+        };
       } else if (named.length || noEvidencePossible) {
         matches = named.length ? named : near;
         const where = [...new Set(matches.map((stop) => stop.street.toUpperCase()))].join(" or ");
@@ -956,6 +984,7 @@ export function planRow(
             `${where} is, and the name matches — a slip of one or two letters?`
           : `${row.street.toUpperCase()} is not one of our streets, and ${row.houseNumber} ` +
             `${where} has no name to compare — is this the same street written differently?`;
+        if (!named.length) base.mapCheckable = true;
       } else {
         return {
           ...base,
