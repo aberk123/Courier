@@ -19,7 +19,6 @@ const AUDIENCE: Record<QuestionKind, "voice_office" | "courier_office" | "amrom"
   out_of_stretch: "voice_office",
   street_identity: "voice_office",
   unit_letter: "voice_office",
-  count_vs_capacity: "voice_office",
   no_current_delivery: "voice_office",
   crowded_address: "voice_office",
   door_conflict: "voice_office",

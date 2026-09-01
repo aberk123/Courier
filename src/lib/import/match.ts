@@ -36,7 +36,6 @@ export type QuestionKind =
   | "near_miss_named"     // file street ~ our street, surname matches
   | "street_identity"     // one spelling covering our road and another (VINE ST)
   | "unit_letter"         // 132 vs 132A -- same door or a second unit?
-  | "count_vs_capacity"   // more households listed than the house has
   | "no_current_delivery" // 3+ listed at an address we deliver none of
   | "crowded_address"     // 3+ lines on our side, indistinguishable here
   | "door_conflict"       // the list and the delivery disagree about the door
@@ -535,7 +534,8 @@ export type AddressOutcome =
   | { kind: "no_change"; stopId: string }
   | { kind: "attach"; stopId: string }
   | { kind: "create"; floorSide: string | null }
-  | { kind: "ask"; reason: string; ask: QuestionKind };
+  | { kind: "ask"; reason: string; ask: QuestionKind }
+  | { kind: "skip"; reason: string };
 
 /** Compares a floor label from either side on the same footing. */
 const doorOf = (value: string | null) =>
@@ -768,18 +768,24 @@ export function settleAddress(
     if (line) pair(i, line, !line.publicationIds.includes(publicationId));
   }
 
-  // Pass 3: everything still unsettled -- more households listed than lines held,
-  // or a stated door we hold no line for.
-  const capacity = Math.max(2, ourLines.length);
+  // Pass 3: everything still unsettled -- more households listed than lines
+  // held, or a stated door we hold no line for. A HOUSE holds two apartments,
+  // and Ari, 2026-09-01: "If a house only has two apartments and we list three
+  // or more, only take two. Unlesss it's an apartment building." So creates at
+  // an address with two or fewer lines stop once two lines exist; the excess
+  // rows are shown as skipped, never asked about. An address already holding
+  // three or more lines IS an apartment building and is exempt (its doorless
+  // creates still ask, per the crowded rule).
+  const isHouse = ourLines.length <= 2;
+  let created = 0;
   for (const i of order) {
     if (out[i]) continue;
-    if (fileRows.length > capacity) {
+    if (isHouse && ourLines.length + created >= 2) {
       out[i] = {
-        kind: "ask",
-        ask: "count_vs_capacity",
+        kind: "skip",
         reason:
-          `the list has ${fileRows.length} households at this address but the house has ` +
-          `${ourLines.length} — check the list before adding`,
+          `the house has two apartments and the list names ${fileRows.length} — two papers go; ` +
+          `this row is beyond the house (if this is an apartment building, tell us and we will add its units)`,
       };
     } else if (crowded && !doorOf(fileRows[i].floorSide)) {
       // A door-stated row creating its door is never blind; only the doorless
@@ -792,6 +798,7 @@ export function settleAddress(
     } else {
       // The stated door is carried onto the new line, because the driver follows
       // it. Where the file states none, none is invented -- the driver decides.
+      created += 1;
       out[i] = { kind: "create", floorSide: fileRows[i].floorSide };
     }
   }
@@ -1169,6 +1176,12 @@ export function planRow(
         // household IS the answer; only the route placement remains, and that
         // is the courier office's work on this screen.
       };
+    }
+    if (outcome.kind === "skip") {
+      // Beyond the house's two apartments (Ari, 2026-09-01): shown, never
+      // asked, never applied. Not a portal question -- the message carries the
+      // apartment-building escape hatch.
+      return { ...base, status: "blocked", message: outcome.reason };
     }
     return {
       ...base,

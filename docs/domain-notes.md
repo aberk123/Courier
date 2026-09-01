@@ -1026,6 +1026,21 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### A house takes two; the rest of the list's rows are skipped (Ari, 2026-09-01)
+
+*"If a house only has two apartments and we list three or more, only take two.
+Unless it's an apartment building."*
+
+This supersedes the 2026-08-30 "should be flagged" ruling that made these
+questions (the `count_vs_capacity` kind, 14 on the portal, is retired). At an
+address holding two or fewer lines, the list's rows settle in the canonical
+order (stated doors first) until two lines exist; every row beyond that is
+shown on the review screen as skipped — *"two papers go; this row is beyond
+the house (if this is an apartment building, tell us and we will add its
+units)"* — visible, never asked about, never applied. An address already
+holding three or more lines IS an apartment building and is exempt; its
+doorless creates still go to a person under the crowded rule.
+
 ### A regular street is walked on both sides (Ari, 2026-09-01)
 
 *"The map should usually be able to decide a crossing. If it's a regular

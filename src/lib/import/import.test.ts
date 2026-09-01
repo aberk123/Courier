@@ -462,13 +462,18 @@ test("counting: a second household at a house we hold one line for is proposed, 
   assert.equal(p.newStop?.zoneId, "z1");
 });
 
-test("counting: more households than a house can hold is flagged, not applied (Ari, 2026-08-30)", () => {
-  // 10 Flannery Ave: the file lists three households at a two-apartment house.
-  // "there shouldn't be more than two to one single family house. that should
-  // be flagged."
+test("counting: a house takes two, and the rows beyond it are shown skipped (Ari, 2026-09-01)", () => {
+  // "If a house only has two apartments and we list three or more, only take
+  // two. Unless it's an apartment building." The third row at a two-apartment
+  // house is shown as skipped -- visible, never asked about, never applied --
+  // with the apartment-building escape hatch in the message. (Supersedes the
+  // 2026-08-30 "should be flagged" ruling, which made these questions.)
   const p = plan(twoFamily(), "118 Chateau Dr", { fileAtAddress: 3, occurrence: 3 });
-  assert.equal(p.status, "needs_choice");
-  assert.match(p.message, /3 households at this address but the house has 2/);
+  assert.equal(p.status, "blocked");
+  assert.match(p.message, /two papers go.*beyond the house.*apartment building/);
+  // The first two rows still settle normally.
+  const first = plan(twoFamily(), "118 Chateau Dr", { fileAtAddress: 3, occurrence: 1 });
+  assert.notEqual(first.status, "blocked");
 });
 
 test("counting: a real apartment block holding more than two lines is not strange", () => {

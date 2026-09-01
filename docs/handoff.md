@@ -439,6 +439,10 @@ Both are worth knowing because they made that pass weaker than it looked.
   `docs/domain-notes.md`, "Follow the master list". Measured: removals
   unchanged, questions 179 → 121, ready 62 → 65, unreadable 13 → 11.
 
+- **A house takes two (Ari, 2026-09-01)** — the count-vs-capacity question is
+  retired; a two-apartment house takes the list's first two rows and shows the
+  rest as skipped, with the apartment-building escape hatch in the message.
+
 - **A regular street is walked on both sides (Ari, 2026-09-01)** — the crossing
   question is retired; wrong-parity addresses become placement notes flagged
   with their side, and split-road exceptions (Pine) are recorded as rulings.
