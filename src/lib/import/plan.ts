@@ -16,14 +16,18 @@ import { buildQuestions, type QuestionUpsert } from "./questions.ts";
 import {
   additionsLookWrong,
   normalizeFloorSide,
+  settleAddress,
+  surplusServedLines,
   buildStopIndex,
   buildStreetZoneMap,
   mergeFloorSides,
   normalizeHouseNumber,
   normalizeStreet,
+  stripStreetSuffix,
   planRosterRemovals,
   planRow,
   removalsLookWrong,
+  surplusLookWrong,
   buildRulingIndex,
   ruleStreetVariants,
   type AddressRuling,
@@ -174,6 +178,18 @@ export function planRoster(
     });
   }
   const seenAtAddress = new Map<string, number>();
+  /** Addresses where some row is still a question — surplus is never removed
+   * under an open question. Review-proven: the question's own row can sit at a
+   * DIFFERENT key than the address it is about (the file's 132B asks the
+   * unit_letter question about our 132), so the keys of every stop a question
+   * row points at — its match and its candidates — are held too. */
+  const keyHasQuestion = new Set<string>();
+  const addressKeyOfStop = new Map(
+    existing.map((stop) => [
+      stop.id,
+      `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`,
+    ]),
+  );
   const rows = parsed.map((row, i) => {
     let rosterGroup: RosterGroup | undefined;
     const key = rowKeys[i];
@@ -182,8 +198,28 @@ export function planRoster(
       seenAtAddress.set(key, index + 1);
       rosterGroup = { fileRows: groups.get(key) ?? [], index };
     }
-    return planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex);
+    const planned = planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex);
+    if (planned.status === "needs_choice") {
+      if (key) keyHasQuestion.add(key);
+      if (planned.stopId) keyHasQuestion.add(addressKeyOfStop.get(planned.stopId) ?? "");
+      for (const candidate of planned.candidates) {
+        keyHasQuestion.add(addressKeyOfStop.get(candidate.stopId) ?? "");
+      }
+    }
+    return planned;
   });
+
+  // An unreadable row is a claimant nobody could place: "Maple Avenue 12 ·
+  // Katz" may be the very household whose line the surplus rule is about to
+  // cut, sitting one row up as "could not read". Review-proven with the real
+  // parser. So a surplus on any street an unreadable cell mentions is a choice
+  // for a person, not a ready cut, until the office fixes the cell. (A row with
+  // no address text at all can claim nothing identifiable and holds nothing.)
+  const unreadableTexts = chosen
+    ? parsed
+        .filter((row) => row.problem && (row.street || row.houseNumber))
+        .map((row) => normalizeStreet(`${row.houseNumber} ${row.street}`))
+    : [];
 
   if (chosen) {
     const addressesWith = new Set(
@@ -197,16 +233,98 @@ export function planRoster(
     // derived from our side.
     const removals = planRosterRemovals(existing, chosen, fileStreets, parsed.length + 2);
 
+    // The same truth WITHIN an address (Ari, 2026-09-01, relaying the Voice
+    // office): on the master list once means one paper, so our lines the list's
+    // rows did not claim are proposed for removal too. One review row per
+    // surplus line; ready where the line is identifiable, a choice where the
+    // address holds more than two lines -- "an address holding more than two
+    // lines is never written to blind" still stands, so there the office picks
+    // which line stops. Skipped entirely while the address has any open
+    // question. See surplusServedLines for the exemptions.
+    let surplusRowNumber = parsed.length + 2 + removals.length;
+    for (const [key, fileRows] of groups) {
+      if (keyHasQuestion.has(key)) continue;
+      const atAddress = stopIndex.byStreetAndHouse.get(key) ?? [];
+      if (!atAddress.length) continue;
+      const outcomes = settleAddress(atAddress, fileRows, chosen.id);
+      const surplus = surplusServedLines(atAddress, outcomes, chosen.id);
+      const streetBase = atAddress.length
+        ? stripStreetSuffix(normalizeStreet(atAddress[0].street))
+        : "";
+      const heldByUnreadable =
+        streetBase.length > 0 && unreadableTexts.some((text) => text.includes(streetBase));
+      for (const line of surplus) {
+        const label = `${line.houseNumber} ${line.street}` +
+          `${line.floorSide ? ` (${line.floorSide})` : ""}` +
+          `${line.recipientName ? ` · ${line.recipientName}` : ""}`;
+        const crowded = atAddress.length > 2;
+        const ready = !crowded && !heldByUnreadable;
+        removals.push({
+          rowNumber: surplusRowNumber++,
+          action: "remove",
+          summary: label,
+          street: line.street,
+          houseNumber: line.houseNumber,
+          publicationId: chosen.id,
+          publicationName: chosen.name,
+          status: ready ? "ready" : "needs_choice",
+          message: crowded
+            ? `the new ${chosen.name} list has ${fileRows.length} at this address but ` +
+              `${atAddress.length} lines receive it — pick which line stops`
+            : heldByUnreadable
+              ? `on the new ${chosen.name} list ${fileRows.length === 1 ? "once" : `${fileRows.length} times`}, ` +
+                `but more lines receive it — and an unreadable row in the file mentions this street, ` +
+                `so confirm it is not this household before stopping the line`
+              : `on the new ${chosen.name} list ${fileRows.length === 1 ? "once" : `${fileRows.length} times`}, ` +
+                `but more lines receive it — stop this one`,
+          candidates: ready
+            ? []
+            : surplus.map((s) => ({
+                stopId: s.id,
+                label: `${s.houseNumber} ${s.street}${s.floorSide ? ` · ${s.floorSide}` : ""}${s.recipientName ? ` · ${s.recipientName}` : ""}`,
+                zoneNumber: s.zoneNumber,
+              })),
+          stopId: ready ? line.id : null,
+          newStop: null,
+          instructions: null,
+          floorSide: line.floorSide,
+          surplusLine: true,
+        });
+      }
+    }
+
     // Removals are one row per LINE, so the count fed to the guard is the
     // distinct ADDRESSES behind them -- which is what the 5% threshold was
     // calibrated against. Counting lines would tighten it silently.
     const byId = new Map(existing.map((stop) => [stop.id, stop]));
+    const addressOf = (removal: PlanRow) => {
+      const stop = removal.stopId ? byId.get(removal.stopId) : undefined;
+      const source = stop ?? { street: removal.street, houseNumber: removal.houseNumber };
+      return `${normalizeStreet(source.street)}|${normalizeHouseNumber(source.houseNumber)}`;
+    };
+    // Whole-address removals feed the guard they were always calibrated for;
+    // the surplus lines get their own (see surplusLookWrong -- the failure
+    // signatures differ, and the first count-sync is legitimately large).
     const stopping = new Set(
-      removals
-        .map((removal) => (removal.stopId ? byId.get(removal.stopId) : undefined))
-        .filter((stop): stop is ExistingStop => Boolean(stop))
-        .map((stop) => `${normalizeStreet(stop.street)}|${normalizeHouseNumber(stop.houseNumber)}`),
+      removals.filter((r) => !r.surplusLine).map(addressOf),
     ).size;
+    const surplusAddresses = new Set(
+      removals.filter((r) => r.surplusLine).map(addressOf),
+    ).size;
+    // Recorded intent (review, 2026-09-01): once the database mirrors an
+    // applied week, this limit should drop toward the whole-address guard's 5%
+    // -- the floor of 60 exists for the first count-sync only. A per-line cut
+    // is exactly as severe as a whole-address removal for that household; the
+    // "copy" framing must not be read as milder. Known shape that sails under
+    // both guards: an export deduplicated to one row per address.
+    const surplusCheck = surplusLookWrong(surplusAddresses, addressesWith);
+    if (surplusCheck.tripped) {
+      return fail(
+        `That list would cut copies at ${surplusAddresses} of ${addressesWith} ${chosen.name} ` +
+        `addresses, past the ${surplusCheck.limit} a normal week reaches. That is usually a file ` +
+        `cut off mid-address, not real churn. Nothing has been changed — check the file and re-upload.`,
+      );
+    }
     const removalCheck = removalsLookWrong(stopping, addressesWith);
     if (removalCheck.tripped) {
       return fail(

@@ -439,6 +439,13 @@ Both are worth knowing because they made that pass weaker than it looked.
   `docs/domain-notes.md`, "Follow the master list". Measured: removals
   unchanged, questions 179 → 121, ready 62 → 65, unreadable 13 → 11.
 
+- **Surplus courier lines are removals (Breindy Herman via Ari, 2026-09-01).**
+  An address the master list names once now keeps one line; the rest are
+  removal rows on the review screen — 54 lines at 50 addresses on the 27 Aug
+  file, with their own tripwire (`surplusLookWrong`). Held back at addresses
+  with open questions; crowded addresses get a pick-which-line choice. See
+  `docs/domain-notes.md`, "One address, one count".
+
 - **The doubled-file tripwire moved (review note, 2026-09-01).** With
   duplicates now counted per the master list, a file pasted together with
   itself would surface as ready attaches, and `additionsLookWrong` (which

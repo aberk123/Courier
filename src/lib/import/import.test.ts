@@ -1278,3 +1278,188 @@ test("a trailing A on a house number is the basement at the bare number", () => 
   const keptRow = kept.rows!.find((r) => r.action === "add")!;
   assert.equal(keptRow.houseNumber, "68A");
 });
+
+// --- Surplus lines: on the master list once means one paper ------------------
+
+test("a line the master list leaves without a row becomes a removal", () => {
+  // Ari, 2026-09-01, relaying the Voice office: "the courier delivers a few to
+  // one address, but it's only on the master list once... the address should
+  // only receive one." Two served lines, one file row: the row pairs with its
+  // door, and the other line is proposed for removal — a visible review row,
+  // never a silent write.
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z1", zoneNumber: 1, recipientName: "FREUND", houseNumber: "18",
+      street: "BRIDGEWOOD AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs", zoneId: "z1", zoneNumber: 1, recipientName: "FREUND", houseNumber: "18",
+      street: "BRIDGEWOOD AVE", floorSide: "basement", publicationIds: ["pub-v"] },
+  ];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const file = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Yehuda Freund", "18 Bridgewood Ave", "Basement"]],
+    { defaultAction: "add" },
+  );
+  const out = planRoster(file, stops, pubs, "pub-v");
+  assert.equal(out.error, null);
+  const removals = out.rows!.filter((r) => r.action === "remove");
+  assert.equal(removals.length, 1);
+  assert.equal(removals[0].stopId, "up");
+  assert.equal(removals[0].status, "ready");
+  assert.match(removals[0].message, /on the new The Voice list once/);
+});
+
+test("equal counts leave nothing surplus, and an open question holds removals back", () => {
+  const stops: ExistingStop[] = [
+    { id: "up", zoneId: "z1", zoneNumber: 1, recipientName: "FREUND", houseNumber: "18",
+      street: "BRIDGEWOOD AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs", zoneId: "z1", zoneNumber: 1, recipientName: "FREUND", houseNumber: "18",
+      street: "BRIDGEWOOD AVE", floorSide: "basement", publicationIds: ["pub-v"] },
+  ];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  // Two rows, two lines: nothing surplus.
+  const even = planRoster(rowsFromGrid(
+    [["customers.last_name", "addresses.addr"],
+     ["Yehuda Freund", "18 Bridgewood Ave"], ["Yehuda Freund", "18 Bridgewood Ave"]],
+    { defaultAction: "add" }), stops, pubs, "pub-v");
+  assert.equal(even.rows!.filter((r) => r.action === "remove").length, 0);
+
+  // A door conflict is an open question, so the surplus is held back: the file
+  // names a door the served line does not carry.
+  const conflictStops: ExistingStop[] = [
+    { id: "up2", zoneId: "z1", zoneNumber: 1, recipientName: "COHEN", houseNumber: "5",
+      street: "GRASSMERE ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "bs2", zoneId: "z1", zoneNumber: 1, recipientName: "LAN", houseNumber: "5",
+      street: "GRASSMERE ST", floorSide: "basement", publicationIds: [] },
+  ];
+  const conflicted = planRoster(rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Lan", "5 Grassmere St", "Basement"]],
+    { defaultAction: "add" }), conflictStops, pubs, "pub-v");
+  assert.equal(conflicted.rows!.filter((r) => r.action === "remove").length, 0);
+  assert.ok(conflicted.rows!.some((r) => /has this household moved/.test(r.message)));
+});
+
+test("at an address with more than two lines the office picks which line stops", () => {
+  // "An address holding more than two lines is never written to blind" still
+  // stands: the surplus is proposed as a choice with the candidate lines, not
+  // as a ready removal, because apartment detail is invisible here.
+  const stops: ExistingStop[] = ["a", "b", "c", "d"].map((letter) => ({
+    id: `apt${letter}`, zoneId: "z1", zoneNumber: 1, recipientName: `TENANT ${letter.toUpperCase()}`,
+    houseNumber: "419", street: "CEDAR BRIDGE AVE", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const out = planRoster(rowsFromGrid(
+    [["customers.last_name", "addresses.addr"],
+     ["Tenant A", "419 Cedar Bridge Ave"], ["Tenant B", "419 Cedar Bridge Ave"]],
+    { defaultAction: "add" }), stops, pubs, "pub-v");
+  const removals = out.rows!.filter((r) => r.action === "remove");
+  assert.equal(removals.length, 2, "four lines, two file rows: two to stop");
+  for (const removal of removals) {
+    assert.equal(removal.status, "needs_choice");
+    assert.equal(removal.stopId, null);
+    assert.equal(removal.candidates.length, 2);
+  }
+});
+
+test("a rosterManaged=false line is never surplus", () => {
+  const stops: ExistingStop[] = [
+    { id: "home", zoneId: "z1", zoneNumber: 1, recipientName: "FREUND", houseNumber: "18",
+      street: "BRIDGEWOOD AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "shop", zoneId: "z1", zoneNumber: 1, recipientName: "OFFICE DROP", houseNumber: "18",
+      street: "BRIDGEWOOD AVE", floorSide: "basement", publicationIds: ["pub-v"], rosterManaged: false },
+  ];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const out = planRoster(rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Yehuda Freund", "18 Bridgewood Ave", "Upstairs"]],
+    { defaultAction: "add" }), stops, pubs, "pub-v");
+  assert.equal(out.rows!.filter((r) => r.action === "remove").length, 0);
+});
+
+test("the named household keeps its paper — the cut never depends on array order", () => {
+  // Review-proven defect: with two served lines, served[0] claimed regardless of
+  // the file row's surname, so "file names Gold" could stop Gold's paper and
+  // keep Katz's — and reversing the stop array flipped the victim.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const mk = (id: string, name: string, floor: string): ExistingStop => ({
+    id, zoneId: "z1", zoneNumber: 1, recipientName: name, houseNumber: "10",
+    street: "MAPLE AVE", floorSide: floor, publicationIds: ["pub-v"],
+  });
+  const file = (name: string) =>
+    rowsFromGrid([["customers.last_name", "addresses.addr"], [name, "10 Maple Ave"]],
+      { defaultAction: "add" });
+  for (const stops of [
+    [mk("katz-line", "Katz", "upstairs"), mk("gold-line", "Gold", "basement")],
+    [mk("gold-line", "Gold", "basement"), mk("katz-line", "Katz", "upstairs")],
+  ]) {
+    const out = planRoster(file("Gold"), stops, pubs, "pub-v");
+    const cut = out.rows!.filter((r) => r.action === "remove");
+    assert.equal(cut.length, 1);
+    assert.equal(cut[0].stopId, "katz-line", "Gold is on the list, so Katz's line stops");
+  }
+});
+
+test("an exempt line never redirects the cut onto the real household", () => {
+  // rosterManaged=false protects a line from removal — it must not absorb the
+  // file row's claim and leave the named household's line as the surplus.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [
+    { id: "shop", zoneId: "z1", zoneNumber: 1, recipientName: "OFFICE DROP", houseNumber: "809",
+      street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"], rosterManaged: false },
+    { id: "home", zoneId: "z1", zoneNumber: 1, recipientName: "Preschel", houseNumber: "809",
+      street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const out = planRoster(
+    rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Levy", "809 River Ave"]],
+      { defaultAction: "add" }),
+    stops, pubs, "pub-v");
+  assert.equal(out.rows!.filter((r) => r.action === "remove").length, 0,
+    "the one row claims the removable line; the exempt line needs no claim and is never surplus");
+});
+
+test("a question pointing AT an address holds its surplus back, whatever key it sits under", () => {
+  // Review-proven: the file's 132B row asks the unit_letter question ABOUT our
+  // 132, but the question's own key is |132b — the surplus at |132 was cut
+  // ready while its possible claimant sat one row up as an open question.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [
+    { id: "l1", zoneId: "z1", zoneNumber: 1, recipientName: "Roth", houseNumber: "132",
+      street: "CAROL ST", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "l2", zoneId: "z1", zoneNumber: 1, recipientName: "Katz", houseNumber: "132",
+      street: "CAROL ST", floorSide: "basement", publicationIds: ["pub-v"] },
+    // A second lettered address on the street, so the trailing-A rewrite does
+    // not apply and the 132B row goes down the unit_letter path.
+    { id: "lB", zoneId: "z1", zoneNumber: 1, recipientName: null, houseNumber: "130B",
+      street: "CAROL ST", floorSide: null, publicationIds: ["pub-v"] },
+  ];
+  const out = planRoster(
+    rowsFromGrid([["customers.last_name", "addresses.addr"],
+      ["Roth", "132 Carol St"], ["Katz", "132B Carol St"]], { defaultAction: "add" }),
+    stops, pubs, "pub-v");
+  assert.ok(out.rows!.some((r) => r.status === "needs_choice" && /same door or a second unit/.test(r.message)));
+  // The fixture's 130B stop is absent from the file, so its whole-address
+  // removal is expected — the pin is that no SURPLUS cut fires at 132.
+  assert.equal(out.rows!.filter((r) => r.surplusLine).length, 0,
+    "no cut at 132 while the 132B question is open");
+});
+
+test("an unreadable row naming the street downgrades that street's cut to a choice", () => {
+  // Review-proven: "Maple Avenue 12 · Katz" — the missing claimant — sat
+  // blocked as unreadable while Katz's line was cut ready.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [
+    { id: "l1", zoneId: "z1", zoneNumber: 1, recipientName: "Roth", houseNumber: "12",
+      street: "MAPLE AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "l2", zoneId: "z1", zoneNumber: 1, recipientName: "Katz", houseNumber: "12",
+      street: "MAPLE AVE", floorSide: "basement", publicationIds: ["pub-v"] },
+  ];
+  const out = planRoster(
+    rowsFromGrid([["customers.last_name", "addresses.addr"],
+      ["Roth", "12 Maple Ave"], ["Katz", "Maple Avenue 12"]], { defaultAction: "add" }),
+    stops, pubs, "pub-v");
+  const cuts = out.rows!.filter((r) => r.action === "remove");
+  assert.equal(cuts.length, 1);
+  assert.equal(cuts[0].status, "needs_choice");
+  assert.match(cuts[0].message, /unreadable row in the file mentions this street/);
+  assert.equal(cuts[0].stopId, null);
+});
