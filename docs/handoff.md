@@ -477,7 +477,7 @@ Both are worth knowing because they made that pass weaker than it looked.
 - **The 27 Aug Voice roster has not been applied.** Re-derived 2026-08-30 against
   the whole address list: **57 additions, 16 removals, 582 needing a choice**.
   The older "111 additions / 68 needing a choice" is invalidated and not
-  recoverable — see `docs/domain-notes.md`. Three things are unresolved:
+  recoverable — see `docs/domain-notes.md`. Where the three open questions stand:
 
   - **River Ave — resolved (Ari, 2026-09-01).** The single `611 River Ave` row
     is expected, not a coverage failure: the road is commercial. Its unlisted

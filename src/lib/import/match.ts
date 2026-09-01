@@ -1380,6 +1380,21 @@ export function planRosterRemovals(
   // streets it never named.
   //
   // So: the same street, or the same base word. No edit distance.
+  //
+  // The bare-base branch additionally requires the base to name exactly one of
+  // OUR streets -- the recorded suffix rule ("a missing suffix may match only
+  // when exactly one of our streets has that base name"), pointed at the
+  // removal direction. Without it a bare `PINE` in the file -- which could be
+  // Pine Blvd's rows with the suffix dropped -- counted as naming PINE ST too,
+  // and covering a street is what ENABLES removals on it. `PONDEROSA` for our
+  // one Ponderosa Dr still covers.
+  const ourStreetsByBase = new Map<string, Set<string>>();
+  for (const stop of stops) {
+    const ours = normalizeStreet(stop.street);
+    const base = stripStreetSuffix(ours);
+    if (!ourStreetsByBase.has(base)) ourStreetsByBase.set(base, new Set());
+    ourStreetsByBase.get(base)!.add(ours);
+  }
   const namesTheStreet = (street: string) => {
     const ours = normalizeStreet(street);
     const base = stripStreetSuffix(ours);
@@ -1388,7 +1403,13 @@ export function planRosterRemovals(
       // A bare base word in the file ("PONDEROSA" for our PONDEROSA DR) is the
       // same street; a different type on the same base ("PINE BLVD" against our
       // PINE ST) is not.
-      if (stripStreetSuffix(candidate) === base && (candidate === base || ours === base)) return true;
+      if (
+        stripStreetSuffix(candidate) === base &&
+        (candidate === base || ours === base) &&
+        (ourStreetsByBase.get(base)?.size ?? 0) === 1
+      ) {
+        return true;
+      }
     }
     return false;
   };
@@ -1407,10 +1428,13 @@ export function planRosterRemovals(
    * that extra clause held back exactly the removals Ari wants. See
    * docs/domain-notes.md, "River Ave is a commercial road".
    *
-   * A street the roster never names AT ALL stays protected: that is the
-   * signature of a truncated or partial file, and cancelling a whole street on
-   * silence is the one mistake nobody reports. Measured on the 27 Aug file, no
-   * street we deliver is in that state.
+   * A street the roster never names -- exactly, or as a bare base word that
+   * could only be that street -- stays protected: a wholly absent street is the
+   * signature of a file that did not include that part of town, and cancelling
+   * a whole street on silence is the one mistake nobody reports. (A file cut
+   * mid-street still names the street, so this does not protect against every
+   * truncation; removalsLookWrong is the guard sized for that.) Measured on the
+   * 27 Aug file, no street we deliver is wholly absent.
    */
   const covered = namesTheStreet;
 

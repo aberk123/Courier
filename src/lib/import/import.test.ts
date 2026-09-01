@@ -506,9 +506,9 @@ test("an address the master list does not carry loses EVERY line, not one (Ari, 
     houseNumber: "809", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
   stops.push({ id: "listed", zoneId: "z5", zoneNumber: 5, recipientName: "Green",
     houseNumber: "611", street: "RIVER AVE", floorSide: null, publicationIds: ["pub-v"] });
-  // The roster names 611, which we hold -- so the street really is covered and
-  // absence on it means something. Naming only an address we do NOT hold would
-  // leave the street uncovered: see the River Ave finding in covered().
+  // The roster names River Ave, so absence on it means something. Since Ari's
+  // 2026-09-01 River Ave ruling, naming the street at all is what covers it --
+  // the named address no longer has to be one we hold.
   const fileStreets = streets({ "RIVER AVE": ["611"] });
   const removals = planRosterRemovals(stops, { id: "pub-v", name: "The Voice" }, fileStreets, 100);
   assert.equal(removals.length, 6, "five lines at 962 plus one at 809; 611 is listed and kept");
@@ -783,6 +783,26 @@ test("a street the roster never names is NOT covered, even by a street one lette
   assert.equal(planRosterRemovals(pine, pub, streets({ "PINE BLVD": ["1", "3"] }), 1).length, 0);
   // A bare base word IS the same street, so it still counts as covered.
   assert.equal(planRosterRemovals(pine, pub, streets({ "PINE": ["150"] }), 1).length, 2);
+});
+
+test("a bare base word covers a street only when we deliver exactly one street with that base", () => {
+  // The real file drops suffixes (PONDEROSA, 6 SHENANDOAH), and the delivery
+  // area holds same-base pairs like PINE ST / PINE BLVD and OAK ST / OAK LN. A
+  // bare PINE row could be Pine Blvd's with the suffix dropped, and covering a
+  // street is what ENABLES removals on it -- so with two PINE streets on the
+  // round, bare PINE covers neither. This is the recorded suffix rule ("a
+  // missing suffix may match only when exactly one of our streets has that base
+  // name") pointed at the removal direction.
+  const pub = { id: "pub-v", name: "The Voice" };
+  const mk = (id: string, house: string, street: string): ExistingStop => ({
+    id, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: house,
+    street, floorSide: null, publicationIds: ["pub-v"],
+  });
+  const both = [mk("ps1", "150", "PINE ST"), mk("ps2", "152", "PINE ST"), mk("pb1", "3", "PINE BLVD")];
+  assert.equal(planRosterRemovals(both, pub, streets({ "PINE": ["1"] }), 1).length, 0);
+  // With only one PINE street on the round, the bare word can only mean it.
+  const one = [mk("ps1", "150", "PINE ST"), mk("ps2", "152", "PINE ST")];
+  assert.equal(planRosterRemovals(one, pub, streets({ "PINE": ["150"] }), 1).length, 1);
 });
 
 test("a new door on the other side of an all-even street is a question, not a creation", () => {

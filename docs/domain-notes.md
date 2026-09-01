@@ -904,9 +904,12 @@ removed?"* — the unlisted River Ave addresses are removals like any other.
 `covered()` now asks only whether the file names the street at all (strict
 spelling, same as before); the "names an address we hold" clause is gone, since
 a commercial road's rows will rarely be ours and the clause held back exactly
-the removals Ari wants. A street the file never names at all is still protected
-— that is the truncated-file signature, and no street we deliver is currently in
-that state. Measured on the 27 Aug file this adds 12 removal lines at the 7
+the removals Ari wants. A street the file never names at all — exactly, or as a
+bare base word that could only be that street (the suffix rule's uniqueness test
+now applies here too, so a bare `PINE` covers nothing while we deliver both Pine
+St and Pine Blvd) — is still protected: a wholly absent street is the signature
+of a file that did not include that part of town. No street we deliver is
+currently in that state. Measured on the 27 Aug file this adds 12 removal lines at the 7
 River Ave addresses (21 lines at 16 addresses in all), and changes nothing else.
 Note one of the 12 is residential — `809 River Ave · Preschel` — and it is a
 correct removal under the rule: the address is not in the file.
