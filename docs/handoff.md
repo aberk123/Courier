@@ -404,6 +404,34 @@ Both are worth knowing because they made that pass weaker than it looked.
 
 ## What is open
 
+- **The standing-questions portal shipped 2026-09-01** — `/questions` (answers
+  recorded outside the import cycle, per audience) and `/questions/amrom` (the
+  printable route-questions list). See `docs/domain-notes.md`, "The
+  standing-questions portal", for every rule. What remains around it:
+  - **Invite the Voice office's answering staff** through Manage Users
+    (publication-scoped to The Voice) before sending the first packet — the
+    access model is standing, but the actual people may hold no accounts yet.
+  - **Two file-level questions travel with the first packet**, asked by Ari in
+    prose, not on the portal: the copy-count encoding of their export, and the
+    71 synthetic tail rows.
+  - **Deferred: the ruling-rewrite** (`resolved_street`/`resolved_house_number`)
+    that would permanently retire the VINE ST and unit-letter questions — the
+    adversarial review proved the planned placement wrong and removal-enabling;
+    it needs its own measured pass. Those answers show inline at import
+    meanwhile.
+  - The live `address_rulings` UPDATE-policy bug the review found (changing a
+    recorded answer errored) is fixed in `20260901100000`.
+  - **A wording change to a question message reopens its answered questions on
+    the next plan.** Expected, not a data bug: the fingerprint hashes the
+    prompt, so reworded copy reads as changed facts. The reopened card shows
+    the old answer. The durable fix is fingerprinting structured facts instead
+    of prose — noted for later.
+  - **Two residual boundary disclosures to confirm with Ari in the first
+    packet** (review finding, deliberately surfaced rather than silently
+    accepted): a scoped user can see HOW MANY other-publication lines exist at
+    an address in a question's evidence (a count only), and can read (not
+    answer) courier-office-audience questions on their own publication.
+
 - **Where the weekly import stands, 2026-09-01.** The 2026-08-31 figures were
   verified through the real screen signed in against production; the removal
   count then moved once more when Ari closed the River Ave question (see

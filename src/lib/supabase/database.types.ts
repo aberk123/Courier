@@ -53,6 +53,77 @@ export type Database = {
           },
         ]
       }
+      import_questions: {
+        Row: {
+          answer: Json | null
+          answered_at: string | null
+          answered_by: string | null
+          audience: string
+          created_at: string
+          created_by: string | null
+          evidence: Json
+          fingerprint: string
+          first_seen_plan_at: string
+          house_number: string | null
+          id: string
+          kind: string
+          last_seen_plan_at: string
+          prompt: string
+          publication_id: string
+          question_key: string
+          status: string
+          street: string
+        }
+        Insert: {
+          answer?: Json | null
+          answered_at?: string | null
+          answered_by?: string | null
+          audience: string
+          created_at?: string
+          created_by?: string | null
+          evidence?: Json
+          fingerprint: string
+          first_seen_plan_at?: string
+          house_number?: string | null
+          id?: string
+          kind: string
+          last_seen_plan_at?: string
+          prompt: string
+          publication_id: string
+          question_key: string
+          status?: string
+          street: string
+        }
+        Update: {
+          answer?: Json | null
+          answered_at?: string | null
+          answered_by?: string | null
+          audience?: string
+          created_at?: string
+          created_by?: string | null
+          evidence?: Json
+          fingerprint?: string
+          first_seen_plan_at?: string
+          house_number?: string | null
+          id?: string
+          kind?: string
+          last_seen_plan_at?: string
+          prompt?: string
+          publication_id?: string
+          question_key?: string
+          status?: string
+          street?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_questions_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: false
+            referencedRelation: "publications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       complaints: {
         Row: {
           created_at: string
@@ -429,6 +500,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      upsert_import_questions: { Args: { p_rows: Json }; Returns: undefined }
+      supersede_import_questions: {
+        Args: { p_publication_id: string; p_keep_keys: Json }
+        Returns: number
+      }
+      answer_import_question: {
+        Args: { p_question_id: string; p_choice: string; p_note?: string | null }
+        Returns: undefined
+      }
       accessible_publication_ids: {
         Args: { p_user_id?: string }
         Returns: string[]

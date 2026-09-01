@@ -413,6 +413,25 @@ export function ImportWorkspace({
             </span>
           </div>
 
+          {/* Recording the standing questions is fail-soft so a portal hiccup
+              cannot stop a review — but never silent, or the whole questions
+              workflow would strand with nobody knowing. */}
+          {planState.questionsSaved != null ? (
+            <p className="mt-1 text-xs text-black/55 dark:text-white/55">
+              {planState.questionsSaved.toLocaleString()} standing question
+              {planState.questionsSaved === 1 ? "" : "s"} recorded on the{" "}
+              <Link href="/questions" className="underline underline-offset-2">
+                questions page
+              </Link>
+              , where the publication&rsquo;s office can answer them.
+            </p>
+          ) : planState.questionsSaved === null && planState.summary && rosterPublicationId ? (
+            <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+              The standing questions could not be recorded this time — the review below still works,
+              and the next upload will record them.
+            </p>
+          ) : null}
+
           {/* The counts that need nothing doing live here rather than in the line
               above, so they do not compete with the ones that need the office.
               "Already correct" stays visible because it is the tripwire: while
@@ -495,6 +514,12 @@ export function ImportWorkspace({
                       </td>
                       <td className="px-3 py-2 align-top">
                         <StatusPill row={row} />
+                        {row.recordedAnswer ? (
+                          <p className="mt-1 max-w-xs rounded-lg bg-emerald-600/10 px-2 py-1 text-xs text-emerald-800 dark:text-emerald-300">
+                            Office answered: {row.recordedAnswer.choice}
+                            {row.recordedAnswer.note ? ` — ${row.recordedAnswer.note}` : ""}
+                          </p>
+                        ) : null}
                         <span className="ml-2">{row.message}</span>
 
                         {/* A row that needs a choice must always offer one. It
@@ -614,6 +639,7 @@ export function ImportWorkspace({
 
           <form action={applyAction} className="mt-4 flex flex-wrap items-center gap-3">
             <input type="hidden" name="plan" value={planJson} />
+            <input type="hidden" name="questionKeys" value={JSON.stringify(planState.questionKeys ?? [])} />
             {/* Carried through so the run is identifiable on the undo list --
                 "roster.xlsm · The Voice · 111 changes" rather than a bare id. */}
             <input type="hidden" name="fileName" value={planState.fileName ?? ""} />

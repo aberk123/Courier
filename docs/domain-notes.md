@@ -898,6 +898,87 @@ Rulings are stored normalised, so one recorded against "Bruce St" also answers
 "BRUCE STREET" next week. A publication-specific ruling beats one that applies to
 every publication, and an address-level one beats a street-level one.
 
+### The standing-questions portal (Ari, 2026-09-01)
+
+Ari: *"I have to resolve a lot of these questions. Some of the questions are
+going to be for Amrom, and some for the Voice office. Any questions about the
+master list are probably for the Voice office because they're the ones that
+maintain that list. Any questions about the routes are going to be questions
+for the Lakewood Courier, which is Amrom... A lot of these questions should be
+answered separately, not during the import process... the answers get recorded
+so that the questions don't come up again... I need a platform or a portal or a
+format for them to answer these questions."* Process he set: the advisor agent
+planned it, an adversarial agent reviewed the plan, then it was built. The
+review's four blocking findings (a lifecycle rule that defeated the durability
+requirement, a matcher-integration placement defect, a live `address_rulings`
+UPDATE-policy bug, and three RLS holes) were all taken before building.
+
+**Platform: the in-app `/questions` page is the system of record; a printable
+list at `/questions/amrom` is the artifact for Amrom.** Spreadsheet answer
+INGEST is deliberately not built (export/print yes): a parsed answer sheet is a
+new failure surface between a person's intent and a standing fact, dropdowns do
+not survive paste, and answers returned days later are answers to stale
+questions — the `linesAtPlanTime` staleness lesson would have to be rebuilt as
+a second importer. The Voice office answers on the page with publication-scoped
+accounts (Manage Users issues them — **inviting the actual answering staff is a
+prerequisite step for the first packet**).
+
+**An answer is a recorded fact, never an applied write.** Writes still happen
+only through the import apply, the existing edit paths, and the courier-office
+ruling buttons. The Voice office's answers inform; the courier office acts.
+
+**Lifecycle** (`import_questions`, keyed `kind|street|house` per address —
+several file rows at one address are ONE question):
+
+- Plan-time upsert (roster uploads only). Re-uploading the same file leaves an
+  answered question **answered** — the volatile facts (counts, ranges, doors,
+  candidates) live in a fingerprint, and only a changed fingerprint reopens a
+  question, with the old answer kept attached. (A code-side rewording of a
+  prompt also moves the fingerprint and reopens; accepted, the answer stays
+  visible.)
+- Supersede only on a CLEAN apply, scoped to the applied publication, keyed on
+  the full plan's question set (not the trimmed browser rows). A junk upload
+  can create stray questions but can never retire real ones; strays are
+  courier-office-deletable and die at the next real apply. A superseded
+  question that re-arises — including after `undo_import_run` — reopens.
+- Nothing here auto-applies, ever.
+
+**Audiences** (Ari's split): master-list kinds → `voice_office` (out-of-stretch,
+near-miss streets, street identity, unit letters, duplicates, counts, door
+conflicts, new households, unreadable cells); route kinds → `amrom` (wrong-side
+parity, block gaps, route position, spans-zones) — **deliberately button-less
+on the import screen**, per the 2026-08-31 decision that an open routing
+question must not be closeable by one click; pick-an-address kinds →
+`courier_office`. "Pass to the Lakewood Courier" is an ANSWER choice that
+retags a question to `amrom` and leaves it open — scoped staff cannot write the
+audience column at all, so questions cannot be retagged out of sight.
+
+**The evidence rule** (pinned by a unit test): a question's stored evidence
+carries the master list's own rows verbatim (the publication's own data), and
+of OUR lines only house/street/floor for lines carrying THAT publication — no
+recipient names ever, no other publications' letters, no special_instructions,
+and a line for another publication appears only as a count. RLS hides such
+stops from a scoped user; this table must not become a way around it.
+
+**Scoped staff write through `answer_import_question()` only** — SECURITY
+DEFINER, checks publication access, open status, and voice_office audience
+itself; they hold no direct INSERT/UPDATE/DELETE on the table. Courier office
+has full table access. ~13 rls.sh tests pin all of it.
+
+**Deliberately deferred, from the review's cut order:** the
+`address_rulings.resolved_street` / `resolved_house_number` rewrite that would
+retire the VINE ST (×9) and 132-vs-132A (×7) questions permanently. The review
+proved the planned placement was wrong (the rewrite must happen at
+rowKeys/group level, where `ruleStreetVariants` rewrites, or settleAddress
+counts against the wrong group) and that it can newly enable removals via
+`covered()` — it needs its own measured before/after pass. Until then those
+answers are recorded and shown inline at import, and the questions recur.
+
+**Two questions for the first packet to the Voice office, put by Ari directly
+(they are about the file, not an address):** whether the copy-count is
+double-encoded in their export (the id-repeats vs `extended_addr` "5 COPIES"
+question), and what the 71 synthetic tail rows (`Zone1_1`…`zone2_8`) are.
+
 ### The map settles the no-name street question when it can (Ari, 2026-09-01)
 
 Ari: *"If I give you access to a map, wouldn't that help with these kinds of

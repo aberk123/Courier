@@ -12,6 +12,7 @@
  * runs the same function the screen does, and any difference is real.
  */
 import type { ParsedRow } from "./parse";
+import { buildQuestions, type QuestionUpsert } from "./questions";
 import {
   additionsLookWrong,
   buildStopIndex,
@@ -44,8 +45,19 @@ export type PlanSummary = {
 };
 
 export type PlanOutcome =
-  | { error: string; rows: null; summary: null }
-  | { error: null; rows: PlanRow[]; summary: PlanSummary };
+  | { error: string; rows: null; summary: null; questions: null }
+  | {
+      error: null;
+      rows: PlanRow[];
+      summary: PlanSummary;
+      /**
+       * The standing questions this plan raises, for the /questions portal.
+       * Computed from the FULL row list before the browser trim below — the
+       * trim ships only a 40-row sample of the non-actionable rows, and the
+       * unreadable-cell questions live there. Roster uploads only.
+       */
+      questions: QuestionUpsert[] | null;
+    };
 
 /**
  * Plans an upload. `parsed` is mutated only to stamp the roster's publication on
@@ -69,7 +81,7 @@ export function planRoster(
    */
   options: { keepAll?: boolean; realStreets?: Set<string> } = {},
 ): PlanOutcome {
-  const fail = (error: string): PlanOutcome => ({ error, rows: null, summary: null });
+  const fail = (error: string): PlanOutcome => ({ error, rows: null, summary: null, questions: null });
 
   // A roster names no publication per row, so the uploader picks one and it is
   // stamped on every row.
@@ -219,17 +231,19 @@ export function planRoster(
   // turned into a message. The office would have clicked Apply and watched
   // nothing happen. It was also 19,600 rows in the DOM, which locked the page up
   // for a minute.
+  const questions = chosen ? buildQuestions(rows, chosen.id, existing) : null;
+
   if (options.keepAll) {
     // `rows` carries everything here, so "sampled" is not 40 examples -- it is
     // the whole non-actionable remainder. Reporting 0 would have made a harness
     // read the summary as if it were the screen's.
     summary.sampled = rows.length - summary.ready - summary.needsChoice;
-    return { error: null, rows, summary };
+    return { error: null, rows, summary, questions };
   }
 
   const actionable = rows.filter((row) => row.status === "ready" || row.status === "needs_choice");
   const sample = rows.filter((row) => row.status !== "ready" && row.status !== "needs_choice").slice(0, 40);
   summary.sampled = sample.length;
 
-  return { error: null, rows: [...actionable, ...sample], summary };
+  return { error: null, rows: [...actionable, ...sample], summary, questions };
 }
