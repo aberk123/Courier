@@ -421,6 +421,16 @@ Both are worth knowing because they made that pass weaker than it looked.
     meanwhile.
   - The live `address_rulings` UPDATE-policy bug the review found (changing a
     recorded answer errored) is fixed in `20260901100000`.
+  - **A wording change to a question message reopens its answered questions on
+    the next plan.** Expected, not a data bug: the fingerprint hashes the
+    prompt, so reworded copy reads as changed facts. The reopened card shows
+    the old answer. The durable fix is fingerprinting structured facts instead
+    of prose — noted for later.
+  - **Two residual boundary disclosures to confirm with Ari in the first
+    packet** (review finding, deliberately surfaced rather than silently
+    accepted): a scoped user can see HOW MANY other-publication lines exist at
+    an address in a question's evidence (a count only), and can read (not
+    answer) courier-office-audience questions on their own publication.
 
 - **Where the weekly import stands, 2026-09-01.** The 2026-08-31 figures were
   verified through the real screen signed in against production; the removal

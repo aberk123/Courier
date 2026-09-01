@@ -104,7 +104,7 @@ export function buildQuestions(
         street: normalizeStreet(row.street),
         houseNumber: row.unreadable ? null : normalizeHouseNumber(row.houseNumber),
         questionKey: row.questionKey,
-        prompt: row.message,
+        prompt: row.questionPrompt ?? row.message,
         evidence: { fileRows: [], candidates, otherLinesWithheld: withheld },
         fingerprint: "",
         audience: AUDIENCE[row.questionKind],

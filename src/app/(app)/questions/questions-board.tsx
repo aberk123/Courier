@@ -133,6 +133,15 @@ function QuestionCard({
           Passed on with a note: {question.answer.note}
         </p>
       ) : null}
+      {/* A reopened question: the facts changed under an answer, so the old
+          answer shows rather than the office re-answering blind. */}
+      {question.status === "open" && question.answer && question.answer.choice !== "pass_to_amrom" ? (
+        <p className="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
+          Previously answered: {question.answer.choice}
+          {question.answer.note ? ` — ${question.answer.note}` : ""}. The facts have changed since,
+          so it is asked again.
+        </p>
+      ) : null}
 
       {canAnswer ? (
         <form action={action} className="mt-3 flex flex-col gap-2 text-sm">

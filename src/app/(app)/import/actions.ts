@@ -261,12 +261,20 @@ export async function planImport(_prev: PlanState, formData: FormData): Promise<
       }
       questionsSaved = questions.length;
 
-      const { data: answered } = await supabase
-        .from("import_questions")
-        .select("question_key, answer, answered_at")
-        .eq("publication_id", rosterPublication)
-        .eq("status", "answered");
-      if (answered?.length) {
+      // Paged: durable answers accumulate across publications by design, and a
+      // bare select stops silently at PostgREST's 1,000-row cap -- the exact
+      // failure this repo already paid for. The symptom would be an answer
+      // missing from the inline import row while /questions still shows it.
+      const answered = await fetchAllPages("recorded answers", (from, to) =>
+        supabase
+          .from("import_questions")
+          .select("question_key, answer, answered_at", { count: "exact" })
+          .eq("publication_id", rosterPublication)
+          .eq("status", "answered")
+          .order("id")
+          .range(from, to),
+      );
+      if (answered.length) {
         const byKey = new Map(answered.map((q) => [q.question_key, q]));
         for (const row of outcome.rows) {
           const hit = row.questionKey ? byKey.get(row.questionKey) : undefined;

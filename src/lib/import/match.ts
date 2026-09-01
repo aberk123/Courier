@@ -86,6 +86,16 @@ export type PlanRow = {
    * row at plan time so the person applying sees it without leaving the screen.
    */
   recordedAnswer?: { choice: string; note: string | null; answeredAt: string } | null;
+  /**
+   * The prompt to STORE on /questions when it must differ from `message`. The
+   * import screen is courier-office-only, so its message may name recipients
+   * and describe any line; the stored question is readable by the publication's
+   * scoped staff, and the evidence rule (no recipient names from our stops, no
+   * lines of other publications beyond a count) applies to the prompt too --
+   * review reproduced a Shopper-only recipient's name reaching a Voice user
+   * through exactly this gap.
+   */
+  questionPrompt?: string;
   publicationId: string | null;
   publicationName: string | null;
   /**
@@ -1213,6 +1223,13 @@ export function planRow(
           `add it next to ${labelFor(twin)} in zone ${twin.zoneNumber}. Applying it here would ` +
           `put it at the end of the route, past DONE.`,
         ...asQuestion(base, "new_household"),
+        // The stored question must not carry labelFor's recipient name (or any
+        // detail of a line that may not carry this publication) -- the office's
+        // question is only whether this second household is real.
+        questionPrompt:
+          `the list names another household at this address` +
+          `${outcome.floorSide ? ` (${outcome.floorSide})` : ""} — is it a real second ` +
+          `household? The courier office will place it in the route.`,
       };
     }
     return {

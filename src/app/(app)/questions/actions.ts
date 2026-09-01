@@ -45,8 +45,15 @@ export async function deleteQuestion(_prev: AnswerState, formData: FormData): Pr
   if (!questionId) return { error: "Nothing to remove.", answered: null };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("import_questions").delete().eq("id", questionId);
+  // .select() so RLS silently deleting nothing is visible: without it a scoped
+  // user's click reported success while the question stayed put.
+  const { data, error } = await supabase
+    .from("import_questions")
+    .delete()
+    .eq("id", questionId)
+    .select("id");
   if (error) return { error: error.message, answered: null };
+  if (!data?.length) return { error: "Only the courier office can remove a question.", answered: null };
 
   revalidatePath("/questions");
   return { error: null, answered: questionId };

@@ -7,7 +7,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildQuestions } from "./questions.ts";
+import { buildStopIndex, buildStreetZoneMap, planRow } from "./match.ts";
 import type { ExistingStop, PlanRow } from "./match.ts";
+import { rowsFromGrid } from "./parse.ts";
 
 const stops: ExistingStop[] = [
   { id: "s1", zoneId: "z", zoneNumber: 1, recipientName: "LICHTENSTEIN", houseNumber: "1",
@@ -94,4 +96,37 @@ test("rows that are not questions produce nothing", () => {
     row({ questionKind: undefined, questionKey: undefined }),
   ];
   assert.equal(buildQuestions(settled, "pub-v", stops).length, 0);
+});
+
+test("the REAL planRow's new_household question never carries a hidden line's name", () => {
+  // Reproduces the reviewed leak with the real code path, not a hand-written
+  // row: our only line at the address is Shopper-only with a recipient name a
+  // Voice-scoped user must never see (the 999 HIDDEN LANE invariant). The
+  // import-screen MESSAGE may name it -- that screen is courier-office-only --
+  // but the stored question (prompt + evidence) must not.
+  const stops: ExistingStop[] = [{
+    id: "hidden", zoneId: "z1", zoneNumber: 1, recipientName: "HIDDEN SHOPPER",
+    houseNumber: "1", street: "EAGLE LN", floorSide: "upstairs", publicationIds: ["pub-s"],
+  }];
+  const pubs = [
+    { id: "pub-v", code: "voice", name: "The Voice" },
+    { id: "pub-s", code: "shopper", name: "The Shopper" },
+  ];
+  const fileRow = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Family Pernikoff", "1 Eagle Ln", "Basement"]],
+    { defaultAction: "add" },
+  )[0];
+  fileRow.publication = "voice";
+  const planned = planRow(
+    fileRow, stops, pubs, buildStreetZoneMap(stops), new Map(), buildStopIndex(stops),
+    { fileRows: [{ floorSide: "basement", name: "Family Pernikoff", externalId: null }], index: 0 },
+  );
+  assert.equal(planned.questionKind, "new_household");
+  // The import-screen message names the line -- courier office only.
+  assert.match(planned.message, /HIDDEN SHOPPER/);
+  // The stored question does not, anywhere.
+  const [q] = buildQuestions([planned], "pub-v", stops);
+  assert.doesNotMatch(JSON.stringify(q), /HIDDEN|SHOPPER/i);
+  assert.match(q.prompt, /another household at this address \(basement\)/);
 });
