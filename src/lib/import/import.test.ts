@@ -1262,3 +1262,35 @@ test("a near-miss with no name on either side stays a question, not a decision",
   r2.publication = "voice";
   assert.equal(planRow(r2, named, pubs, buildStreetZoneMap(named)).status, "blocked");
 });
+
+test("the no-name near-miss street question is settled by a recorded answer", () => {
+  // The file writes 122 CAREY ST; we hold an unnamed 122 CAROL ST. With no name
+  // on our side there is no evidence either way, so it asks -- and with nothing
+  // to ever compare, it would ask every single week. Ari settled this exact pair
+  // from a map (2026-09-01): two different streets. A recorded "not ours" must
+  // end the question; the review screen offers that button on this message.
+  const stops: ExistingStop[] = [{
+    id: "c122", zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: "122",
+    street: "CAROL ST", floorSide: null, publicationIds: [],
+  }];
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Schwartz", "122 Carey St"]],
+    { defaultAction: "add" })[0];
+  row.publication = "voice";
+
+  const asked = planRow(row, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(asked.status, "needs_choice");
+  assert.match(asked.message, /has no name to compare — is this the same street written differently\?/);
+  // The screen's ruling buttons post row.street / row.houseNumber, so the plan
+  // row must carry the FILE's address, not the candidate's.
+  assert.equal(normalizeStreet(asked.street), normalizeStreet("Carey St"));
+  assert.equal(asked.houseNumber, "122");
+
+  const rulings = buildRulingIndex([
+    { street: "Carey St", houseNumber: "122", publicationId: null, ruling: "not_ours", note: null },
+  ]);
+  const settled = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, rulings);
+  assert.equal(settled.status, "blocked");
+  assert.match(settled.message, /you told us so/);
+});

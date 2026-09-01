@@ -557,16 +557,27 @@ export function ImportWorkspace({
                             whose answer is the same every week. A question about
                             a household ("has this one moved?") must not be
                             answerable once and forever. */}
-                        {row.status === "needs_choice" && row.newStop && RECURRING.test(row.message) ? (
+                        {row.status === "needs_choice" &&
+                        (RECURRING.test(row.message) || NEAR_MISS.test(row.message)) ? (
                           <div className="mb-2 flex flex-col gap-1">
                             {/* Both answers. Offering only "no" made a mis-click
                                 a permanent, invisible refusal -- and it was
                                 offered on 314 CEDAR BRIDGE AVE, which the
-                                requirements record names as a real addition. */}
-                            {(["not_ours", "ours"] as const).map((answer) => (
+                                requirements record names as a real addition.
+
+                                The near-miss street question gets only "Not
+                                ours": "it is ours" there means "attach it to
+                                the address in the dropdown", which is a choice
+                                about THIS week's row, not a recordable fact --
+                                and an `ours` ruling would not stop the question
+                                recurring, so the button would lie. */}
+                            {(NEAR_MISS.test(row.message)
+                              ? (["not_ours"] as const)
+                              : (["not_ours", "ours"] as const)
+                            ).map((answer) => (
                               <form action={rulingAction} key={answer}>
-                                <input type="hidden" name="street" value={row.newStop!.street} />
-                                <input type="hidden" name="houseNumber" value={row.newStop!.houseNumber} />
+                                <input type="hidden" name="street" value={row.street} />
+                                <input type="hidden" name="houseNumber" value={row.houseNumber} />
                                 <input type="hidden" name="ruling" value={answer} />
                                 <input type="hidden" name="publicationId" value={rosterPublicationId} />
                                 <button
@@ -645,6 +656,21 @@ export function ImportWorkspace({
  * click. 55 rows on the 27 Aug master list rather than 69.
  */
 const RECURRING = /is outside the .* stretch/;
+
+/**
+ * The no-name near-miss street question ("…has no name to compare — is this the
+ * same street written differently?"). Also a fact about geography — whether
+ * CAREY ST is one of our streets does not change week to week, and Ari settled
+ * that very pair from a map (2026-09-01, docs/domain-notes.md). Without a
+ * button it re-asks forever, because there is no name evidence to ever settle
+ * it from the data.
+ *
+ * Deliberately NOT the surname-match variant ("…and the name matches — a slip
+ * of one or two letters?"): there the evidence says it probably IS ours, all
+ * four measured cases were real single-letter slips, and the right answer is
+ * picking the address, not dismissing the row.
+ */
+const NEAR_MISS = /has no name to compare — is this the same street written differently\?/;
 
 function StatusPill({ row }: { row: PlanRow }) {
   // An unreadable address is a `blocked` row, but "Not on our routes" is a false

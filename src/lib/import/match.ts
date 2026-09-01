@@ -23,6 +23,14 @@ export type PlanRow = {
   rowNumber: number;
   action: ParsedRow["action"];
   summary: string;
+  /**
+   * The address as the file wrote it, carried outside `summary` so the review
+   * screen's "stop asking" buttons can record a ruling for rows that carry no
+   * `newStop` -- the near-miss street questions. `summary` also holds the
+   * subscriber's name, which must not leak into a ruling key.
+   */
+  street: string;
+  houseNumber: string;
   publicationId: string | null;
   publicationName: string | null;
   /**
@@ -813,6 +821,8 @@ export function planRow(
     rowNumber: row.rowNumber,
     action: row.action,
     summary: `${row.houseNumber} ${row.street}${row.name ? ` · ${row.name}` : ""}`,
+    street: row.street,
+    houseNumber: row.houseNumber,
     publicationId: null,
     publicationName: null,
     status: "blocked",
@@ -1467,6 +1477,8 @@ export function planRosterRemovals(
       rowNumber: rowNumber++,
       action: "remove",
       summary: `${stop.houseNumber} ${stop.street}${stop.recipientName ? ` · ${stop.recipientName}` : ""}`,
+      street: stop.street,
+      houseNumber: stop.houseNumber,
       publicationId: publication.id,
       publicationName: publication.name,
       status: "ready",

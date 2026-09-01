@@ -880,6 +880,20 @@ between-blocks questions are the open routing item in `docs/handoff.md`; they ne
 Amrom and `lakewood-courier-routing`, and an open question must not be closeable
 by one click. 55 rows rather than 69.
 
+**Added 2026-09-01: the no-name near-miss street question carries "Not ours"
+too.** "`CAREY ST` is not one of our streets, and `122 CAROL ST` has no name to
+compare — is this the same street written differently?" is also a fact about
+geography, and with no name on our side the data can never settle it, so without
+a button it re-asks forever. Ari answered that exact pair from a map (Carey St
+runs between 11th and 12th off Clifton; Carol St is off Spruce by Marc Dr): two
+different streets. Only "Not ours" is offered on this question type — "it is
+ours" there means "attach to the address in the dropdown", a choice about this
+week's row, not a recordable fact, and an `ours` ruling would not stop the
+question recurring. The surname-match variant ("…and the name matches") gets no
+button: all four measured cases were real one-letter slips, and the right answer
+is picking the address. 9 such rows on the 27 Aug file; `122 CAREY ST · not
+ours · The Voice` is recorded in production, taking the questions to 187.
+
 Rulings are stored normalised, so one recorded against "Bruce St" also answers
 "BRUCE STREET" next week. A publication-specific ruling beats one that applies to
 every publication, and an address-level one beats a street-level one.

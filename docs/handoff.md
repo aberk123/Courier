@@ -411,9 +411,13 @@ Both are worth knowing because they made that pass weaker than it looked.
   the real `planRoster` on the same file:
 
   ```
-  19,630 rows · 62 to apply · 188 need a choice · 1,257 already correct
+  19,642 rows · 62 to apply · 187 need a choice · 1,257 already correct
          · 18,122 not on our routes · 13 we could not read
   ```
+
+  (The row total counts the 21 appended removal rows. The questions were 188
+  until Ari settled `122 CAREY ST` — the recorded answer lives in production's
+  `address_rulings`.)
 
   62 to apply = 41 additions + 21 removal lines at 16 addresses — the 12 lines
   beyond the previous 9 are the seven River Ave addresses `covered()` had been
