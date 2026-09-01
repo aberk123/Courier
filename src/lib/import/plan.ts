@@ -121,17 +121,34 @@ export function planRoster(
   // overwritten); and done HERE, before grouping, or the rewritten row would
   // count in a group of its own -- the exact split-group defect the review
   // proved against rewriting inside planRow.
+  // The rule runs in BOTH directions (Ari, 2026-09-01, shown 109 Rena Ln
+  // asking while we hold 109A: "I already gave you the rule about the A —
+  // why are you asking again?"): the file's bare number against our lettered
+  // A-address is the same basement unit. And a stated floor blocks the rule
+  // only when it CONTRADICTS it — a row saying "basement" agrees with what
+  // the A means.
+  const statedFloor = (row: ParsedRow) =>
+    normalizeFloorSide(row.floorSide) ?? normalizeFloorSide(row.floorSideAlt);
   for (const row of parsed) {
     if (!row.street || !row.houseNumber) continue;
-    const lettered = /^(\d+)a$/i.exec(row.houseNumber.trim());
-    if (!lettered) continue;
     const street = ourStreets.get(normalizeStreet(row.street));
     if (!street) continue;
-    if (street.has(normalizeHouseNumber(row.houseNumber))) continue; // we hold the lettered address itself
-    if (!street.has(normalizeHouseNumber(lettered[1]))) continue;    // ...and must hold the bare one
-    if (normalizeFloorSide(row.floorSide) || normalizeFloorSide(row.floorSideAlt)) continue;
-    row.houseNumber = lettered[1];
-    row.floorSide = "basement";
+    if (street.has(normalizeHouseNumber(row.houseNumber))) continue; // exact match always wins
+    if (statedFloor(row) === "upstairs") continue;                   // a stated door is an order
+
+    const lettered = /^(\d+)a$/i.exec(row.houseNumber.trim());
+    if (lettered && street.has(normalizeHouseNumber(lettered[1]))) {
+      // File 68A, we hold 68: the basement at the bare number.
+      row.houseNumber = lettered[1];
+      if (!statedFloor(row)) row.floorSide = "basement";
+      continue;
+    }
+    const bare = /^(\d+)$/.exec(row.houseNumber.trim());
+    if (bare && street.has(normalizeHouseNumber(`${bare[1]}a`))) {
+      // File 109 (basement or silent), we hold 109A: the same unit.
+      row.houseNumber = `${bare[1]}A`;
+      if (!statedFloor(row)) row.floorSide = "basement";
+    }
   }
 
   // Which street spellings in THIS upload are our streets written differently is
@@ -398,8 +415,13 @@ export function planRoster(
     return { error: null, rows, summary, questions };
   }
 
-  const actionable = rows.filter((row) => row.status === "ready" || row.status === "needs_choice");
-  const sample = rows.filter((row) => row.status !== "ready" && row.status !== "needs_choice").slice(0, 40);
+  // Skip rows ride along with the actionable set: they are the only carrier of
+  // the apartment-building escape hatch, and a real building misread as a
+  // house would otherwise have its extra units skipped invisibly forever.
+  const shipped = (row: PlanRow) =>
+    row.status === "ready" || row.status === "needs_choice" || /beyond the house/.test(row.message);
+  const actionable = rows.filter(shipped);
+  const sample = rows.filter((row) => !shipped(row)).slice(0, 40);
   summary.sampled = sample.length;
 
   return { error: null, rows: [...actionable, ...sample], summary, questions };

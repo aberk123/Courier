@@ -30,14 +30,12 @@ export type Candidate = { stopId: string; label: string; zoneNumber: number };
  */
 export type QuestionKind =
   | "out_of_stretch"      // house number beyond the covered stretch of our street
-  | "wrong_side_parity"   // every number we deliver is one parity, this is the other
   | "gap_between_blocks"  // falls between two delivered blocks
   | "route_position"      // brand-new door, one zone, needs a place in the walking order
   | "street_spans_zones"  // brand-new door, street lives in several zones
   | "near_miss_named"     // file street ~ our street, surname matches
   | "street_identity"     // one spelling covering our road and another (VINE ST)
   | "unit_letter"         // 132 vs 132A -- same door or a second unit?
-  | "count_vs_capacity"   // more households listed than the house has
   | "no_current_delivery" // 3+ listed at an address we deliver none of
   | "crowded_address"     // 3+ lines on our side, indistinguishable here
   | "door_conflict"       // the list and the delivery disagree about the door
@@ -52,6 +50,18 @@ export type QuestionKind =
  * a different part of town stays a question.
  */
 export const STRETCH_METERS = 150;
+
+/**
+ * The far side of the same rule (Ari, 2026-09-01, the Oak St / Marc Dr
+ * ruling: "You should be able to answer the Oak St questions as well using
+ * the map. Make this a general rule"): a same-street address measured this far
+ * from anything we deliver is a different part of town, and the question
+ * answers itself as not-ours. Oak St's 1400s measured 893–1,363 m from our
+ * 26–110; Henry St's 200s at 435–489 m stay in the middle band, a genuine
+ * question. Wrong here is a missed addition — noticed and fixable — never a
+ * silent deletion.
+ */
+export const FAR_METERS = 800;
 
 /** Tiny stable string hash (djb2) for keys that have no address to key on. */
 export function hashKey(value: string): string {
@@ -536,7 +546,8 @@ export type AddressOutcome =
   | { kind: "no_change"; stopId: string }
   | { kind: "attach"; stopId: string }
   | { kind: "create"; floorSide: string | null }
-  | { kind: "ask"; reason: string; ask: QuestionKind };
+  | { kind: "ask"; reason: string; ask: QuestionKind }
+  | { kind: "skip"; reason: string };
 
 /** Compares a floor label from either side on the same footing. */
 const doorOf = (value: string | null) =>
@@ -769,18 +780,28 @@ export function settleAddress(
     if (line) pair(i, line, !line.publicationIds.includes(publicationId));
   }
 
-  // Pass 3: everything still unsettled -- more households listed than lines held,
-  // or a stated door we hold no line for.
-  const capacity = Math.max(2, ourLines.length);
+  // Pass 3: everything still unsettled -- more households listed than lines
+  // held, or a stated door we hold no line for. A HOUSE holds two apartments,
+  // and Ari, 2026-09-01: "If a house only has two apartments and we list three
+  // or more, only take two. Unless it's an apartment building." The cap counts
+  // PAPERS THIS PLAN SETTLES (paired rows plus creates), never the house's
+  // physical lines: review-proven, counting lines let a two-row list end at
+  // ONE paper when a stated door claimed no line while an unrelated line was
+  // being cut -- an undercount printed under a false "two papers go" message.
+  // An address already holding three or more lines IS an apartment building
+  // and is exempt (its doorless creates still ask, per the crowded rule).
+  const isHouse = ourLines.length <= 2;
+  let created = 0;
+  const papersSettled = () =>
+    out.filter((o) => o && (o.kind === "no_change" || o.kind === "attach")).length + created;
   for (const i of order) {
     if (out[i]) continue;
-    if (fileRows.length > capacity) {
+    if (isHouse && papersSettled() >= 2) {
       out[i] = {
-        kind: "ask",
-        ask: "count_vs_capacity",
+        kind: "skip",
         reason:
-          `the list has ${fileRows.length} households at this address but the house has ` +
-          `${ourLines.length} — check the list before adding`,
+          `the house has two apartments and the list names ${fileRows.length} — two papers go; ` +
+          `this row is beyond the house (if this is an apartment building, tell us and we will add its units)`,
       };
     } else if (crowded && !doorOf(fileRows[i].floorSide)) {
       // A door-stated row creating its door is never blind; only the doorless
@@ -793,6 +814,7 @@ export function settleAddress(
     } else {
       // The stated door is carried onto the new line, because the driver follows
       // it. Where the file states none, none is invented -- the driver decides.
+      created += 1;
       out[i] = { kind: "create", floorSide: fileRows[i].floorSide };
     }
   }
@@ -1171,6 +1193,12 @@ export function planRow(
         // is the courier office's work on this screen.
       };
     }
+    if (outcome.kind === "skip") {
+      // Beyond the house's two apartments (Ari, 2026-09-01): shown, never
+      // asked, never applied. Not a portal question -- the message carries the
+      // apartment-building escape hatch.
+      return { ...base, status: "blocked", message: outcome.reason };
+    }
     return {
       ...base,
       status: "needs_choice",
@@ -1285,24 +1313,26 @@ export function planRow(
     if (!confirmedOurs && (asNumber < lo || asNumber > hi)) {
       const nearestEnd = asNumber < lo ? lo : hi;
       const gap = stretchGaps.get(`${street}|${house}`);
-      if (gap && gap.meters <= STRETCH_METERS && wrongSide) {
-        // Near enough that the driver passes it -- but on the side of the
-        // street he does not deliver. The map never decides whether he
-        // crosses, so this is the crossing question, same as its in-range
-        // neighbours. Live-run finding: 143/147 PINE ST sit below the even
-        // 150-270 stretch and were converted to placements while 151-225
-        // correctly stayed Amrom's crossing question.
+      if (gap && gap.meters >= FAR_METERS) {
         return {
           ...base,
-          status: "needs_choice",
+          status: "blocked",
           message:
-            `every ${row.street.toUpperCase()} number we deliver is ${sortedAll[0] % 2 === 0 ? "even" : "odd"} ` +
-            `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
-          newStop: newStopFrom(row, base, zoneCandidates),
-          ...asQuestion(base, "wrong_side_parity"),
+            `${row.houseNumber} ${row.street.toUpperCase()} is about ` +
+            `${(gap.meters / 1000).toFixed(1)} km from ${gap.nearestHouse}, the nearest we ` +
+            `deliver — a different part of town, not on our routes`,
         };
       }
       if (gap && gap.meters <= STRETCH_METERS) {
+        // A regular street is walked on both sides (Ari, 2026-09-01: "there's
+        // no reason why the driver wouldn't go to both sides of the street"),
+        // so a near wrong-parity address converts like any other -- flagged
+        // with its side, because the exceptions are split roads like Pine St
+        // (odd side = zone 35, settled by rulings), and Amrom is the one who
+        // spots the next such road from this note.
+        const sideNote = wrongSide
+          ? ` (note: the ${asNumber % 2 === 0 ? "even" : "odd"} side — we currently deliver only the other)`
+          : "";
         // The map says the driver passes it: a few houses past the end of the
         // covered stretch on the SAME street. "Is it ours?" is answered; what
         // remains is where it sits in the walk — the Lakewood Courier's
@@ -1312,7 +1342,7 @@ export function planRow(
           status: "needs_choice",
           message:
             `${row.houseNumber} ${row.street.toUpperCase()} is about ${gap.meters} m from ` +
-            `${gap.nearestHouse}, the nearest we deliver — the driver passes it; place it in the route`,
+            `${gap.nearestHouse}, the nearest we deliver — the driver passes it; place it in the route${sideNote}`,
           newStop: newStopFrom(row, base, zoneCandidates),
           ...asQuestion(base, "route_position"),
         };
@@ -1325,21 +1355,32 @@ export function planRow(
           (gap ? ` (measured: about ${gap.meters} m from ${gap.nearestHouse}, the nearest we deliver)` : ""),
         newStop: newStopFrom(row, base, zoneCandidates),
         ...asQuestion(base, "out_of_stretch"),
-        measureRefs: [String(nearestEnd)],
+        // The nearest covered end plus backups: the geocoder not knowing one
+        // reference house killed every Marc Dr measurement, because a target
+        // with no measured reference gets no distance at all.
+        measureRefs: [
+          String(nearestEnd),
+          String(sortedAll[Math.floor(sortedAll.length / 2)]),
+          String(asNumber < lo ? hi : lo),
+        ].filter((v, i, all) => all.indexOf(v) === i),
       };
     }
 
-    // One side of the street. Every number we deliver shares a parity and this
-    // one does not -- a new side, not infill.
+    // The other side of the street, within the covered range. A regular street
+    // is walked on both sides (Ari, 2026-09-01), so this is a placement, not a
+    // question -- flagged with its side so Amrom can spot the exception: a
+    // split road like Pine St, whose odd side is zone 35 and settled by
+    // rulings. "I think this is an exception rather than the rule."
     if (!confirmedOurs && wrongSide) {
       return {
         ...base,
         status: "needs_choice",
         message:
           `every ${row.street.toUpperCase()} number we deliver is ${sortedAll[0] % 2 === 0 ? "even" : "odd"} ` +
-          `(${lo}–${hi}), and ${row.houseNumber} is not — is this side of the street on our route?`,
+          `(${lo}–${hi}) and ${row.houseNumber} is not, but a regular street is walked on both sides — ` +
+          `place it in the route, or tell us this side belongs to another route`,
         newStop: newStopFrom(row, base, zoneCandidates),
-        ...asQuestion(base, "wrong_side_parity"),
+        ...asQuestion(base, "route_position"),
       };
     }
 

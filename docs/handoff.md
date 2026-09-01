@@ -439,6 +439,20 @@ Both are worth knowing because they made that pass weaker than it looked.
   `docs/domain-notes.md`, "Follow the master list". Measured: removals
   unchanged, questions 179 → 121, ready 62 → 65, unreadable 13 → 11.
 
+- **The map answers same-street distance in both directions (Ari, 2026-09-01)**
+  — ≤150 m: placement note; ≥800 m: not on our routes, self-answered (Oak St's
+  1400s); between: a question with the distance shown (Henry St's 200s at
+  435–489 m — still open, Ari's/Amrom's call). Marc Dr gets reference backups
+  so it measures at all. The A rule now runs both ways (109 Rena ≡ our 109A).
+
+- **A house takes two (Ari, 2026-09-01)** — the count-vs-capacity question is
+  retired; a two-apartment house takes the list's first two rows and shows the
+  rest as skipped, with the apartment-building escape hatch in the message.
+
+- **A regular street is walked on both sides (Ari, 2026-09-01)** — the crossing
+  question is retired; wrong-parity addresses become placement notes flagged
+  with their side, and split-road exceptions (Pine) are recorded as rulings.
+
 - **The odd side of Pine St is zone 35 (Ari, 2026-09-01)** — not ours. All 11
   odd-side addresses carry `not_ours` rulings; the route-2 crossing question is
   settled. Lift the rulings if zone 35 is ever onboarded.

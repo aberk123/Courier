@@ -1026,6 +1026,77 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### The map answers same-street distance in both directions (Ari, 2026-09-01)
+
+*"The Marc Drive questions you should be able to answer using the map as well.
+You should be able to answer the Oak St questions as well using the map. Make
+this a general rule and I shouldn't have to tell you every time."*
+
+The general rule, three bands on the measured same-street gap:
+
+- **≤ 150 m**: the driver passes it — a placement note for the Lakewood
+  Courier (already built).
+- **≥ 800 m**: a different part of town — the row answers itself as "not on
+  our routes" (Oak St's 1400s measured 893–1,363 m from our 26–110). Wrong
+  here is a missed addition, noticed and fixable.
+- **Between**: a genuine question, annotated with the distance (Henry St's
+  200s at 435–489 m live here — several blocks past Clinton St, and whether
+  that is still route 2's walk is Ari's/Amrom's call, not geometry's).
+
+Marc Dr had NO measurements because the geocoder did not know its reference
+houses (504/604) and one dead reference killed the street — each question now
+carries three reference candidates (nearest end, a mid-street backup, the far
+end).
+
+### The A rule runs both ways (Ari, 2026-09-01)
+
+Shown `109 Rena Ln` asking "same door or a second unit?" while we hold `109A
+RENA LN (basement)`: *"I already gave you the rule about the A. Why are you
+asking again?"* The file's bare `109 · Basement` IS our `109A`. The rewrite now
+runs in both directions — file-lettered against our bare number, and file-bare
+against our lettered A — and a stated floor blocks it only when it
+CONTRADICTS the A (a row saying "basement" agrees with what the A means; only
+"upstairs" is a blocking order). Exact matches still always win.
+
+### A house takes two; the rest of the list's rows are skipped (Ari, 2026-09-01)
+
+*"If a house only has two apartments and we list three or more, only take two.
+Unless it's an apartment building."*
+
+This supersedes the 2026-08-30 "should be flagged" ruling that made these
+questions (the `count_vs_capacity` kind, 14 on the portal, is retired). At an
+address holding two or fewer lines, the list's rows settle in the canonical
+order (stated doors first) until **two papers are settled by this plan**
+(paired rows plus creates — review-proven: counting the house's physical lines
+instead let a two-row list end at ONE paper while an unrelated line was being
+cut); every row beyond that is shown on the review screen as skipped — *"two
+papers go; this row is beyond the house (if this is an apartment building,
+tell us and we will add its units)"* — and skip rows always ship to the
+screen, since they are the only carrier of the apartment-building escape
+hatch. Never asked about, never applied. An address already holding three or
+more lines IS an apartment building and is exempt; its doorless creates still
+go to a person under the crowded rule.
+
+### A regular street is walked on both sides (Ari, 2026-09-01)
+
+*"The map should usually be able to decide a crossing. If it's a regular
+street, there's no reason why the driver wouldn't go to both sides of the
+street. Specifically Pine Street is a very busy road, and there's developments
+on both sides of the road, so it makes sense to break it up and have somebody
+else do the different developments. But I think this is an exception rather
+than the rule."*
+
+This retires the crossing QUESTION entirely (`wrong_side_parity` is no longer
+emitted). A wrong-parity address — in range, or out of range but map-measured
+near — is a `route_position` placement note on Amrom's list like any other
+addition, **flagged with which side it is on** ("note: the odd side — we
+currently deliver only the other"), because the exceptions are split roads and
+Amrom is the one who spots the next Pine from that flag. Exceptions are
+RECORDED, not asked: Pine St's odd side carries `not_ours` rulings (zone 35,
+section above) which outrank everything, and any future split road is handled
+the same way — Amrom says the side belongs elsewhere, the office records the
+rulings.
+
 ### The odd side of Pine St is zone 35 (Ari, 2026-09-01)
 
 *"The odd numbers on Pine St are on zone 35 — not any of the zones we are

@@ -462,13 +462,18 @@ test("counting: a second household at a house we hold one line for is proposed, 
   assert.equal(p.newStop?.zoneId, "z1");
 });
 
-test("counting: more households than a house can hold is flagged, not applied (Ari, 2026-08-30)", () => {
-  // 10 Flannery Ave: the file lists three households at a two-apartment house.
-  // "there shouldn't be more than two to one single family house. that should
-  // be flagged."
+test("counting: a house takes two, and the rows beyond it are shown skipped (Ari, 2026-09-01)", () => {
+  // "If a house only has two apartments and we list three or more, only take
+  // two. Unless it's an apartment building." The third row at a two-apartment
+  // house is shown as skipped -- visible, never asked about, never applied --
+  // with the apartment-building escape hatch in the message. (Supersedes the
+  // 2026-08-30 "should be flagged" ruling, which made these questions.)
   const p = plan(twoFamily(), "118 Chateau Dr", { fileAtAddress: 3, occurrence: 3 });
-  assert.equal(p.status, "needs_choice");
-  assert.match(p.message, /3 households at this address but the house has 2/);
+  assert.equal(p.status, "blocked");
+  assert.match(p.message, /two papers go.*beyond the house.*apartment building/);
+  // The first two rows still settle normally.
+  const first = plan(twoFamily(), "118 Chateau Dr", { fileAtAddress: 3, occurrence: 1 });
+  assert.notEqual(first.status, "blocked");
 });
 
 test("counting: a real apartment block holding more than two lines is not strange", () => {
@@ -1600,7 +1605,7 @@ test("a measured short gap turns 'is it ours?' into a placement note for the Cou
   // Without a measurement: the question, carrying its reference house.
   const asked = planRow(row, stops, pubs, buildStreetZoneMap(stops));
   assert.equal(asked.questionKind, "out_of_stretch");
-  assert.deepEqual(asked.measureRefs, ["28"]);
+  assert.deepEqual(asked.measureRefs, ["28", "40", "111"], "nearest end, a middle backup, the far end");
 
   // Measured close: the driver passes it — a route placement, not a question.
   const near = new Map([["henry st|16", { meters: 78, nearestHouse: "28" }]]);
@@ -1610,16 +1615,22 @@ test("a measured short gap turns 'is it ours?' into a placement note for the Cou
   assert.match(placed.message, /about 78 m from 28.*driver passes it/);
   assert.ok(placed.newStop);
 
-  // Measured far: still a question, with the distance shown.
-  const far = new Map([["henry st|16", { meters: 900, nearestHouse: "28" }]]);
+  // Measured in the middle band: still a question, with the distance shown.
+  // (900 m and beyond now answers itself as a different part of town — see
+  // the FAR_METERS test.)
+  const far = new Map([["henry st|16", { meters: 450, nearestHouse: "28" }]]);
   const kept = planRow(row, stops, pubs, buildStreetZoneMap(stops),
     new Map(), buildStopIndex(stops), undefined, new Map(), far);
   assert.equal(kept.questionKind, "out_of_stretch");
-  assert.match(kept.message, /measured: about 900 m/);
+  assert.match(kept.message, /measured: about 450 m/);
 });
 
-test("the map never decides a wrong-side-of-the-street question", () => {
-  // Whether the driver crosses is a walking-pattern fact, not a geometric one.
+test("the other side of a regular street is a placement, and a split road is settled by rulings", () => {
+  // Ari, 2026-09-01: "there's no reason why the driver wouldn't go to both
+  // sides of the street... Pine Street is a very busy road [odd side = zone
+  // 35]... this is an exception rather than the rule." So a wrong-parity
+  // address is a placement note for Amrom, flagged with its side -- and the
+  // recorded exception (a not_ours ruling) still blocks it outright.
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const stops: ExistingStop[] = ["150", "152", "270"].map((h) => ({
     id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
@@ -1628,18 +1639,24 @@ test("the map never decides a wrong-side-of-the-street question", () => {
   const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Stern", "151 Pine St"]],
     { defaultAction: "add" })[0];
   row.publication = "voice";
-  const near = new Map([["pine st|151", { meters: 15, nearestHouse: "150" }]]);
-  const planned = planRow(row, stops, pubs, buildStreetZoneMap(stops),
-    new Map(), buildStopIndex(stops), undefined, new Map(), near);
-  assert.equal(planned.questionKind, "wrong_side_parity");
-  assert.doesNotMatch(planned.message, /driver passes/);
-});
 
-test("an odd-side house below the covered range is the crossing question, never a placement", () => {
-  // Live-run finding: 143 PINE ST sits below our even 150–270, so the range
-  // branch fired first and the map converted it to "the driver passes it" —
-  // while its odd-side neighbours 151–225 correctly stayed Amrom's crossing
-  // question. The parity test now outranks both the range test and the map.
+  const placed = planRow(row, stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(placed.questionKind, "route_position");
+  assert.match(placed.message, /walked on both sides/);
+  assert.ok(placed.newStop);
+
+  // The exception: Pine's odd side carries not_ours rulings (zone 35) that
+  // outrank everything, so the real 151 PINE ST never even gets this far.
+  const ruled = buildRulingIndex([
+    { street: "pine st", houseNumber: "151", publicationId: null, ruling: "not_ours",
+      note: "odd side is zone 35" },
+  ]);
+  const blocked = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, ruled);
+  assert.equal(blocked.status, "blocked");
+  assert.match(blocked.message, /you told us so/);
+});
+test("a near wrong-parity address below the range converts, flagged with its side", () => {
   const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
   const stops: ExistingStop[] = ["150", "152", "270"].map((h) => ({
     id: `p${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
@@ -1651,11 +1668,96 @@ test("an odd-side house below the covered range is the crossing question, never 
   const near = new Map([["pine st|143", { meters: 20, nearestHouse: "150" }]]);
   const measured = planRow(row, stops, pubs, buildStreetZoneMap(stops),
     new Map(), buildStopIndex(stops), undefined, new Map(), near);
-  assert.equal(measured.questionKind, "wrong_side_parity");
-  assert.doesNotMatch(measured.message, /driver passes/);
-  // Unmeasured, it stays the range question it always was — the parity guard
-  // exists to stop the MAP from deciding a crossing, not to relabel far-away
-  // numbers that merely happen to be odd (1471 OAK ST against even 26–110).
+  assert.equal(measured.questionKind, "route_position");
+  assert.match(measured.message, /driver passes it.*odd side/);
+  // Unmeasured and far it stays the range question it always was.
   const unmeasured = planRow(row, stops, pubs, buildStreetZoneMap(stops));
   assert.equal(unmeasured.questionKind, "out_of_stretch");
+});
+test("a same-street address measured far answers itself: a different part of town", () => {
+  // Ari, 2026-09-01, the Oak St ruling: "You should be able to answer the Oak
+  // St questions as well using the map. Make this a general rule." Oak's 1400s
+  // measured 893–1,363 m from our 26–110. The middle band (Henry St's 200s at
+  // 435–489 m) stays a genuine question.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = ["26", "28", "110"].map((h) => ({
+    id: `o${h}`, zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: h,
+    street: "OAK ST", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const row = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Family Katz", "1471 Oak St"]],
+    { defaultAction: "add" })[0];
+  row.publication = "voice";
+  const far = new Map([["oak st|1471", { meters: 1281, nearestHouse: "110" }]]);
+  const answered = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), far);
+  assert.equal(answered.status, "blocked");
+  assert.match(answered.message, /1\.3 km.*different part of town/);
+  const middle = new Map([["oak st|1471", { meters: 460, nearestHouse: "110" }]]);
+  const question = planRow(row, stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, new Map(), middle);
+  assert.equal(question.questionKind, "out_of_stretch");
+  assert.match(question.message, /measured: about 460 m/);
+});
+
+test("the A rule runs both ways: the file's bare number matches our lettered basement", () => {
+  // Ari, 2026-09-01, shown 109 Rena Ln asking while we hold 109A: "I already
+  // gave you the rule about the A — why are you asking again?" The file says
+  // "109 Rena Lane · Basement"; our 109A IS that basement.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [{
+    id: "lettered", zoneId: "z5", zoneNumber: 5, recipientName: null, houseNumber: "109A",
+    street: "RENA LN", floorSide: "basement", publicationIds: ["pub-v"],
+  }];
+  const file = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Family Domosh", "109 Rena Lane", "Basement"]],
+    { defaultAction: "add" });
+  const out = planRoster(file, stops, pubs, "pub-v");
+  const planned = out.rows!.find((r) => r.action === "add")!;
+  assert.equal(planned.status, "no_change");
+  assert.equal(planned.stopId, "lettered");
+  // And a stated "basement" no longer blocks the forward direction either —
+  // it AGREES with what the A means. Only "upstairs" contradicts and blocks.
+  const upstairs = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Family Domosh", "109 Rena Lane", "Upstairs"]],
+    { defaultAction: "add" });
+  const kept = planRoster(upstairs, stops, pubs, "pub-v").rows!.find((r) => r.action === "add")!;
+  assert.equal(kept.houseNumber, "109", "a stated upstairs is an order and blocks the rewrite");
+});
+
+test("the cap counts papers settled, not the house's lines — a two-row list gets two papers", () => {
+  // Review-proven defect shape (S1): the list names the basement household
+  // twice; our lines are upstairs·Katz (being cut — Katz is not listed) and
+  // basement·Gold. Counting LINES ended the address at one paper under a false
+  // "two papers go" message; counting papers settles the second copy as a
+  // create, whose placement question also holds the cut.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [
+    { id: "katz-up", zoneId: "z1", zoneNumber: 1, recipientName: "Katz", houseNumber: "6",
+      street: "LONDON AVE", floorSide: "upstairs", publicationIds: ["pub-v"] },
+    { id: "gold-bs", zoneId: "z1", zoneNumber: 1, recipientName: "Gold", houseNumber: "6",
+      street: "LONDON AVE", floorSide: "basement", publicationIds: ["pub-v"] },
+  ];
+  const file = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr"],
+     ["Family Gold", "6 London Ave", "Basement"], ["Family Gold", "6 London Ave", "Basement"]],
+    { defaultAction: "add" });
+  const out = planRoster(file, stops, pubs, "pub-v");
+  const adds = out.rows!.filter((r) => r.action === "add");
+  assert.deepEqual(adds.map((r) => r.status).sort(), ["needs_choice", "no_change"],
+    "one row pairs, the second copy is a create awaiting placement — never a skip");
+  assert.equal(out.rows!.filter((r) => r.surplusLine).length, 0,
+    "the create's open placement holds the Katz cut");
+
+  // And the ruling's own shape (S3): three rows at a fully-claimed two-line
+  // house — the third skips, visibly, riding with the actionable rows.
+  const three = rowsFromGrid(
+    [["customers.last_name", "addresses.addr"],
+     ["Family Katz", "6 London Ave"], ["Family Gold", "6 London Ave"], ["Family New", "6 London Ave"]],
+    { defaultAction: "add" });
+  const capped = planRoster(three, stops, pubs, "pub-v");
+  const skipped = capped.rows!.filter((r) => /beyond the house/.test(r.message));
+  assert.equal(skipped.length, 1);
+  assert.equal(skipped[0].status, "blocked");
 });
