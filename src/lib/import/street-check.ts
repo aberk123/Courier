@@ -63,7 +63,10 @@ export function interpretCensusMatch(
 }
 
 const LOOKUP_CAP = 24;
-const LOOKUP_TIMEOUT_MS = 4000;
+// Census normally answers well under a second. The timeout is deliberately
+// tight because it is paid in full precisely when the service is DOWN -- every
+// lookup then runs to the deadline, and the plan action absorbs the whole wait.
+const LOOKUP_TIMEOUT_MS = 2000;
 const CONCURRENCY = 6;
 
 /**
