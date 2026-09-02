@@ -977,7 +977,12 @@ export function planRow(
     // per-address ruling is an explicit answer about that door and still wins
     // unconditionally (rulingFor puts it first).
     const streetWide = ruled.houseNumber === null;
-    const variant = streetRuling.get(street);
+    // The variant lookup uses the ALL-ROWS ruling: the Lakewood-only one has
+    // no entry for a spelling whose every row is out of town (the Hazelwood
+    // shape), and the review showed a street-wide not_ours recorded against
+    // such a spelling would then suppress the city_conflict questions at the
+    // held addresses it maps to.
+    const variant = cityGateRuling.get(street);
     const held =
       (index.byStreetAndHouse.get(`${street}|${house}`) ?? []).length > 0 ||
       (variant?.ruling === "same" || variant?.ruling === "unresolved"

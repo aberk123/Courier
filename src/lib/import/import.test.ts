@@ -1877,6 +1877,26 @@ test("a street-wide not_ours ruling blocks the street but never a door we delive
     mapped, buildStopIndex(vineStops), undefined, vineWide);
   assert.notEqual(vineRow.status, "blocked", "a held door is never blanked street-wide");
 
+  // A street-wide not_ours against an all-out-of-town spelling (the Hazelwood
+  // shape: the spelling exists only in another town's rows, so the
+  // Lakewood-only ruling has no entry for it) must not suppress the
+  // city_conflict question at the held address it maps to.
+  const hazStops: ExistingStop[] = [{
+    id: "hz4", zoneId: "z2", zoneNumber: 2, recipientName: "Pikus", houseNumber: "4",
+    street: "HAZELWOOD LN", floorSide: null, publicationIds: ["pub-v"],
+  }];
+  const hazWide = buildRulingIndex([
+    { street: "hazelwood ct", houseNumber: null, publicationId: null, ruling: "not_ours", note: "howell" },
+  ]);
+  const hazGate = new Map([["hazelwood ct", { ourStreet: "hazelwood ln", ruling: "same" as const, why: "variant" }]]);
+  const hazRow = rowsFromGrid([["customers.last_name", "addresses.addr", "addresses.city"],
+    ["Pikus", "4 Hazelwood Ct", "Howell"]], { defaultAction: "add" })[0];
+  hazRow.publication = "voice";
+  const hazOut = planRow(hazRow, hazStops, pubs, buildStreetZoneMap(hazStops),
+    new Map(), buildStopIndex(hazStops), undefined, hazWide, new Map(), hazGate);
+  assert.equal(hazOut.questionKind, "city_conflict",
+    "the held-address conflict still asks despite the street-wide row");
+
   // A street-wide "ours" is meaningless and ignored — it would confirm every
   // house on the street.
   const wideOurs = buildRulingIndex([
