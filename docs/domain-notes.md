@@ -1136,15 +1136,30 @@ deletion silently loses a subscriber):
   street-variant ruling, not the address groups that count papers and surplus,
   not the unreadable holds. A Jackson `68A` is not our `68`'s basement, and
   Jackson house numbers do not vouch for a street spelling.
-- **Except when the exact address is one we deliver.** Then the city and the
-  street match disagree, and neither is trusted silently: the row becomes a
-  `city_conflict` question (voice_office) with the matching lines as
-  candidates. The 31 Aug file has exactly one — `5 JUNIPER LN`, filed under
-  Jackson, against our 5 Juniper Ln in zone 2 (Czermak).
+- **Except when the address is one we deliver — reached exactly OR through a
+  street-variant ruling.** Then the city and the street match disagree, and
+  neither is trusted silently: the row becomes a `city_conflict` question
+  (voice_office) with the matching lines as candidates. The 31 Aug file
+  raises twelve: `5 JUNIPER LN` (Jackson, exact — Czermak, while Amsel's
+  Lakewood row claims the line), 4/6/14 `HAZELWOOD CT` (Howell — the recorded
+  2026-08-31 "same street as our HAZELWOOD LN" ruling, which the city data
+  now contradicts; two authorities disagreeing is a question, never a silent
+  pick), and 7 `LONDON DR` (Jackson — silenced by `not_ours` rulings
+  transferred from Ari's own different-road answers on the portal). The
+  variant path exists because the adversarial review proved the exact-only
+  gate left a deletion path: a variant-spelled out-of-town row silently
+  leaving its address group could turn a held surplus into a ready cut.
 - **Coverage for removals reads every row regardless of city.** A city
   mistake in the export can therefore suppress a removal (forgiving,
   noticed eventually) but can never create one (the unforgivable direction).
-  The open question also holds the address's own surplus cuts.
+  The open question also holds the address's own surplus cuts. Two accepted
+  consequences, so nobody expects otherwise: a `not_ours` answer on a
+  city-conflict row changes the question, never the delivery — the foreign
+  row keeps vouching for the address, so the paper keeps going until that row
+  leaves the file; and an `ours`-ruled out-of-town row protects its address's
+  lines (its group is restored) but the row itself still shows blocked by the
+  near-miss rule when its spelling has no Lakewood sibling — a display nit,
+  deletion-safe, worth fixing when touched next.
 - **Fail open.** No city column, or a blank cell, decides nothing — every
   earlier file behaves exactly as before. "Lakewood", any casing, "Lakewood
   Township" and "Lakewood Twp" all count as Lakewood.
