@@ -506,6 +506,24 @@ Both are worth knowing because they made that pass weaker than it looked.
   Jackson, and the 9 m was measured against the LAKEWOOD 13 Juniper Ln because
   the geocode query hardcodes the city; the file's city may well be right.
 
+  **Run live on the deployed site 2026-09-02 (PR #35):**
+
+  ```
+  19,759 rows · 137 to apply · 96 need a choice · 0 we could not read
+         · 37 standing questions recorded (34 open)
+  ```
+
+  The map reached Marc Dr this time and all six self-answered as a different
+  part of town — Ari's "answer Marc Dr using the map" is done, no rulings
+  needed. 7 Chelsea Ct dissolved too (the file places it in Howell), so the
+  crossing note is moot. Henry St re-measured against the new file's
+  references (now from 111; 216 measured this time, 460 m). Open now:
+  25 route questions for Amrom (14 Henry, 545 Howard, 314 Cedar Bridge,
+  104 Spruce, 794 Vine Ave + 5 Vine St identity, 1021 Hearthstone,
+  611 River), 5 city conflicts for the Voice office (5 Juniper Ln Jackson,
+  4/6/11/14 Hazelwood Ct Howell), 4 near-misses. The 27 Aug figures below
+  are superseded; the file has NOT been applied.
+
 - **Where the weekly import stands, 2026-09-01 (end of day).** Verified live
   on the deployed site against production, after the both-sides / both-directions
   / house-takes-two rulings (PR #31) and the skip-row visibility fix (PR #32):
