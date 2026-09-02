@@ -40,6 +40,7 @@ export type QuestionKind =
   | "crowded_address"     // 3+ lines on our side, indistinguishable here
   | "door_conflict"       // the list and the delivery disagree about the door
   | "pick_line"           // several addresses match, pick one
+  | "city_conflict"       // the list puts this address in another town, but we deliver it
   | "unreadable_cell";    // the address cell itself could not be read
 
 /**
@@ -64,6 +65,20 @@ export const STRETCH_METERS = 150;
  * silent deletion.
  */
 export const FAR_METERS = 800;
+
+/**
+ * Whether a row's city is Lakewood, for files that carry one (the 31 Aug
+ * cleanup export added `addresses.city`). Our five routes are all in Lakewood,
+ * and 3,550 of that file's rows are Jackson, Toms River, Howell or Manchester
+ * — including same-named streets, which is what several "non-matches" really
+ * were (Ari, 2026-09-02). FAIL OPEN: a missing column or a blank cell decides
+ * nothing, so every earlier file behaves exactly as before.
+ */
+export function isLakewoodCity(city: string | null | undefined): boolean {
+  if (!city) return true;
+  const n = city.toLowerCase().replace(/[^a-z]/g, "");
+  return n === "" || n === "lakewood" || n === "lakewoodtownship" || n === "lakewoodtwp" || n === "lakewoodnj";
+}
 
 /** Tiny stable string hash (djb2) for keys that have no address to key on. */
 export function hashKey(value: string): string {
@@ -937,6 +952,43 @@ export function planRow(
         `${row.houseNumber} ${row.street.toUpperCase()} is not on any of our routes ` +
         `— you told us so${ruled.note ? `: ${ruled.note}` : ""}`,
     };
+  }
+
+  // The file's own city column outranks street matching: our five routes are
+  // all in Lakewood, and a row the master list itself places in another town
+  // (3,550 of the 31 Aug file: Jackson, Toms River, Howell, Manchester...) is
+  // not a candidate for any of our streets — same-named streets in other
+  // towns are what several "non-matches" really were (Ari, 2026-09-02).
+  // Checked after the rulings gate so a recorded "not ours" still wins, and
+  // FAIL OPEN: a file with no city column behaves exactly as before.
+  if (!isLakewoodCity(row.city)) {
+    const atAddress = index.byStreetAndHouse.get(`${street}|${house}`) ?? [];
+    if (atAddress.length) {
+      // The one shape where the city and the street match disagree: the file
+      // says another town, but the exact address is one we deliver (the 31 Aug
+      // file has exactly one — 5 JUNIPER LN, Jackson, against our 5 Juniper Ln
+      // in zone 2). Trusting the city silently could hide a Lakewood
+      // subscriber behind a city typo; trusting the match could put a paper on
+      // another town's door. A person decides, and the address's own removals
+      // are held meanwhile (the candidates below feed keyHasQuestion).
+      return {
+        ...base,
+        status: "needs_choice",
+        message:
+          `the list places this in ${(row.city ?? "").toUpperCase()}, but we deliver ` +
+          `${row.houseNumber} ${row.street.toUpperCase()} in Lakewood — the same house with the ` +
+          `wrong city, or another town's street? pick the line it belongs to, or tell us it is not ours`,
+        candidates: atAddress.map((stop) => ({
+          stopId: stop.id,
+          label: `${stop.houseNumber} ${stop.street}` +
+            `${stop.floorSide ? ` · ${stop.floorSide}` : ""}` +
+            `${stop.recipientName ? ` · ${stop.recipientName}` : ""}`,
+          zoneNumber: stop.zoneNumber,
+        })),
+        ...asQuestion(base, "city_conflict"),
+      };
+    }
+    return { ...base, message: `in ${row.city} — not on our routes` };
   }
 
   let matches = index.byStreetAndHouse.get(`${street}|${house}`) ?? [];

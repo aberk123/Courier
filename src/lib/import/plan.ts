@@ -22,6 +22,7 @@ import {
   buildStopIndex,
   buildStreetZoneMap,
   mergeFloorSides,
+  isLakewoodCity,
   normalizeHouseNumber,
   normalizeStreet,
   stripStreetSuffix,
@@ -129,7 +130,15 @@ export function planRoster(
   // the A means.
   const statedFloor = (row: ParsedRow) =>
     normalizeFloorSide(row.floorSide) ?? normalizeFloorSide(row.floorSideAlt);
+  // A row the file itself places in another town (see isLakewoodCity) is not
+  // evidence about Lakewood: it must not feed the A-rule, the street-variant
+  // ruling, the address groups, or the unreadable holds below — a Jackson 68A
+  // is not our 68's basement, and Jackson house numbers must not vouch for a
+  // street spelling. It DOES still count for removal coverage further down, so
+  // a miscoded city can never cause a removal on its own.
+  const outOfTown = (row: ParsedRow) => !isLakewoodCity(row.city);
   for (const row of parsed) {
+    if (outOfTown(row)) continue;
     if (!row.street || !row.houseNumber) continue;
     const street = ourStreets.get(normalizeStreet(row.street));
     if (!street) continue;
@@ -156,9 +165,19 @@ export function planRoster(
   // the file also uses our spelling, and for which house numbers. So it is
   // settled once, before any row is planned. See ruleStreetVariants.
   const fileStreets = new Map<string, Set<string>>();
+  // Every row regardless of city, for removal coverage only: an address the
+  // file names under ANY city still counts as "the list mentions it", so a
+  // city mistake in the export can suppress a removal (forgiving) but never
+  // create one (unforgivable). The 31 Aug file has exactly one such address —
+  // 5 Juniper Ln, filed under Jackson while we deliver it — and it raises a
+  // city_conflict question rather than a removal.
+  const coverageStreets = new Map<string, Set<string>>();
   for (const row of parsed) {
     if (!row.street || !row.houseNumber) continue;
     const key = normalizeStreet(row.street);
+    if (!coverageStreets.has(key)) coverageStreets.set(key, new Set());
+    coverageStreets.get(key)!.add(normalizeHouseNumber(row.houseNumber));
+    if (outOfTown(row)) continue;
     if (!fileStreets.has(key)) fileStreets.set(key, new Set());
     fileStreets.get(key)!.add(normalizeHouseNumber(row.houseNumber));
   }
@@ -179,6 +198,7 @@ export function planRoster(
   // even shipped to the browser. Eight of our addresses are reached under more
   // than one spelling in the 27 Aug file.
   const rowKeys: (string | null)[] = parsed.map((row) => {
+    if (outOfTown(row)) return null;
     if (!row.street || !row.houseNumber) return null;
     const own = normalizeStreet(row.street);
     const ruled = streetRuling.get(own);
@@ -242,7 +262,7 @@ export function planRoster(
   // no address text at all can claim nothing identifiable and holds nothing.)
   const unreadableTexts = chosen
     ? parsed
-        .filter((row) => row.problem && (row.street || row.houseNumber))
+        .filter((row) => !outOfTown(row) && row.problem && (row.street || row.houseNumber))
         .map((row) => normalizeStreet(`${row.houseNumber} ${row.street}`))
     : [];
 
@@ -256,7 +276,7 @@ export function planRoster(
     // A roster is the whole truth for its publication, so an address it no longer
     // carries is a cancellation. Nothing in the file says so -- it has to be
     // derived from our side.
-    const removals = planRosterRemovals(existing, chosen, fileStreets, parsed.length + 2);
+    const removals = planRosterRemovals(existing, chosen, coverageStreets, parsed.length + 2);
 
     // The same truth WITHIN an address (Ari, 2026-09-01, relaying the Voice
     // office): on the master list once means one paper, so our lines the list's

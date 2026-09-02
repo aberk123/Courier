@@ -22,6 +22,7 @@ const AUDIENCE: Record<QuestionKind, "voice_office" | "courier_office" | "amrom"
   no_current_delivery: "voice_office",
   crowded_address: "voice_office",
   door_conflict: "voice_office",
+  city_conflict: "voice_office",
   unreadable_cell: "voice_office",
   gap_between_blocks: "amrom",
   route_position: "amrom",

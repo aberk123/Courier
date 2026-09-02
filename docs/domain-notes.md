@@ -1119,6 +1119,40 @@ question once — rulings are per-address by design — and the answer is the
 same: zone 35. Worth remembering when zone 35 is ever onboarded: these
 addresses are its, and the rulings should be lifted then.
 
+### The master list's city column decides the town (Ari, 2026-09-02)
+
+*"You have city and state. Some of the mistakes or some of the non-matches
+were because there are the same street names but in different cities."* — with
+the 31 Aug cleanup export, whose new `addresses.city` column places 16,123
+rows in Lakewood and 3,550 in Jackson, Toms River, Howell, Manchester and
+their township spellings.
+
+The rule, shaped by the asymmetry (a wrong addition wastes a paper; a wrong
+deletion silently loses a subscriber):
+
+- **A row the file places in another town is not a candidate for any of our
+  streets.** It is blocked as `in <city> — not on our routes`, and it feeds
+  none of the file-level evidence: not the trailing-A rewrite, not the
+  street-variant ruling, not the address groups that count papers and surplus,
+  not the unreadable holds. A Jackson `68A` is not our `68`'s basement, and
+  Jackson house numbers do not vouch for a street spelling.
+- **Except when the exact address is one we deliver.** Then the city and the
+  street match disagree, and neither is trusted silently: the row becomes a
+  `city_conflict` question (voice_office) with the matching lines as
+  candidates. The 31 Aug file has exactly one — `5 JUNIPER LN`, filed under
+  Jackson, against our 5 Juniper Ln in zone 2 (Czermak).
+- **Coverage for removals reads every row regardless of city.** A city
+  mistake in the export can therefore suppress a removal (forgiving,
+  noticed eventually) but can never create one (the unforgivable direction).
+  The open question also holds the address's own surplus cuts.
+- **Fail open.** No city column, or a blank cell, decides nothing — every
+  earlier file behaves exactly as before. "Lakewood", any casing, "Lakewood
+  Township" and "Lakewood Twp" all count as Lakewood.
+
+Same file, same day: all 11 previously unreadable address cells were fixed at
+the source, and the Vine St 100s now arrive as **Vine Ave** — so the one-name-
+two-roads question for them dissolves into a measurable out-of-stretch check.
+
 ### The map measures whether the driver passes an address (Ari, 2026-09-01)
 
 Ari, shown 1–16 Henry St queued as out-of-stretch questions while we deliver
