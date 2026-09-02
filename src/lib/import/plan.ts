@@ -28,6 +28,7 @@ import {
   stripStreetSuffix,
   planRosterRemovals,
   planRow,
+  rulingFor,
   removalsLookWrong,
   surplusLookWrong,
   buildRulingIndex,
@@ -182,6 +183,9 @@ export function planRoster(
     fileStreets.get(key)!.add(normalizeHouseNumber(row.houseNumber));
   }
   const streetRuling = ruleStreetVariants(fileStreets, ourStreets);
+  // The all-rows variant ruling, for the city-conflict gate only — see the
+  // cityGateRuling parameter on planRow.
+  const cityGateRuling = ruleStreetVariants(coverageStreets, ourStreets);
 
   // Built once, not once per row -- see buildStopIndex.
   const stopIndex = buildStopIndex(existing);
@@ -197,11 +201,29 @@ export function planRoster(
   // the second household got no paper. Invisible, because no_change rows are not
   // even shipped to the browser. Eight of our addresses are reached under more
   // than one spelling in the 27 Aug file.
+  // A recorded "ours" on an out-of-town-labelled address (the town line
+  // zigzags) restores the row to full citizenship: planRow lets it match
+  // normally, so it must also claim its line in its address group here — a
+  // review probe showed that leaving it out cut the very line the ruling said
+  // to keep. The ruling may be recorded under the file's spelling or ours, so
+  // both are checked, mapping variants through the all-rows ruling.
+  const ruledOursHere = (row: ParsedRow): boolean => {
+    if (!row.street || !row.houseNumber) return false;
+    if (rulingFor(rulingIndex, row.street, row.houseNumber, chosen?.id ?? null)?.ruling === "ours") return true;
+    const variant = cityGateRuling.get(normalizeStreet(row.street));
+    return variant && (variant.ruling === "same" || variant.ruling === "unresolved")
+      ? rulingFor(rulingIndex, variant.ourStreet, row.houseNumber, chosen?.id ?? null)?.ruling === "ours"
+      : false;
+  };
   const rowKeys: (string | null)[] = parsed.map((row) => {
-    if (outOfTown(row)) return null;
+    const away = outOfTown(row);
+    if (away && !ruledOursHere(row)) return null;
     if (!row.street || !row.houseNumber) return null;
     const own = normalizeStreet(row.street);
-    const ruled = streetRuling.get(own);
+    // An ours-ruled out-of-town row maps its spelling through the all-rows
+    // ruling: the Lakewood-only one cannot contain a street whose every
+    // variant row is out of town.
+    const ruled = (away ? cityGateRuling : streetRuling).get(own);
     const street = ruled?.ruling === "same" ? ruled.ourStreet : own;
     return `${street}|${normalizeHouseNumber(row.houseNumber)}`;
   });
@@ -243,7 +265,7 @@ export function planRoster(
       seenAtAddress.set(key, index + 1);
       rosterGroup = { fileRows: groups.get(key) ?? [], index };
     }
-    const planned = planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex, options.stretchGaps);
+    const planned = planRow(row, existing, publications, streetZones, streetRuling, stopIndex, rosterGroup, rulingIndex, options.stretchGaps, cityGateRuling);
     if (planned.status === "needs_choice") {
       if (key) keyHasQuestion.add(key);
       if (planned.stopId) keyHasQuestion.add(addressKeyOfStop.get(planned.stopId) ?? "");

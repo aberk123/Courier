@@ -1774,6 +1774,57 @@ test("an out-of-town row never covers, rewrites, or vouches — but does suppres
   assert.equal(aRow.houseNumber, "68A", "not rewritten to our 68");
 });
 
+test("a variant-spelled out-of-town row asks instead of shrinking its group into a cut", () => {
+  // Review-proven deletion path against the exact-only city gate: "5 Elm
+  // Street" (ruled the same street as our 5 ELM AVE) filed under Jackson was
+  // silently blocked, withdrawn from its address group, and the shrunken
+  // group turned a held surplus into a ready cut of a real Lakewood line. The
+  // gate now reaches held addresses through the all-rows variant ruling too,
+  // so the row asks — and the open question holds the address's cuts.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [
+    { id: "e5a", zoneId: "z2", zoneNumber: 2, recipientName: "Levy", houseNumber: "5",
+      street: "ELM AVE", floorSide: "upstairs", rosterManaged: true, publicationIds: ["pub-v"] },
+    { id: "e5b", zoneId: "z2", zoneNumber: 2, recipientName: "Stern", houseNumber: "5",
+      street: "ELM AVE", floorSide: "basement", rosterManaged: true, publicationIds: ["pub-v"] },
+    { id: "e7", zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: "7",
+      street: "ELM AVE", floorSide: null, rosterManaged: true, publicationIds: ["pub-v"] },
+    { id: "e9", zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: "9",
+      street: "ELM AVE", floorSide: null, rosterManaged: true, publicationIds: ["pub-v"] },
+  ];
+  const plan = (city2: string) => planRoster(rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr", "addresses.city"],
+     ["A", "7 Elm Ave", "", "Lakewood"],
+     ["B", "9 Elm Ave", "", "Lakewood"],
+     ["Levy", "5 Elm Street", "upstairs", "Lakewood"],
+     ["Stern", "5 Elm Street", "basement", city2]],
+    { defaultAction: "add" }), stops, pubs, "pub-v", [], { keepAll: true });
+
+  // Both rows Lakewood: the address is fully claimed, nothing is cut.
+  assert.equal(plan("Lakewood").rows!.filter((r) => r.surplusLine).length, 0);
+
+  // One row filed under Jackson: it must ASK, and the cut must stay held.
+  const out = plan("Jackson");
+  const ask = out.rows!.find((r) => r.questionKind === "city_conflict")!;
+  assert.ok(ask, "the Jackson variant row raises the city question");
+  assert.match(ask.message, /5 ELM AVE in Lakewood/);
+  assert.equal(out.rows!.filter((r) => r.surplusLine).length, 0,
+    "no surplus cut fires at 5 ELM AVE while the city question is open");
+
+  // And a recorded "ours" ruling settles it: the row matches normally again.
+  const ruled = planRoster(rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr", "addresses.city"],
+     ["A", "7 Elm Ave", "", "Lakewood"],
+     ["B", "9 Elm Ave", "", "Lakewood"],
+     ["Levy", "5 Elm Street", "upstairs", "Lakewood"],
+     ["Stern", "5 Elm Street", "basement", "Jackson"]],
+    { defaultAction: "add" }), stops, pubs, "pub-v",
+    [{ street: "elm ave", houseNumber: "5", publicationId: null, ruling: "ours", note: "town line" }],
+    { keepAll: true });
+  assert.equal(ruled.rows!.filter((r) => r.questionKind === "city_conflict").length, 0);
+  assert.equal(ruled.rows!.filter((r) => r.surplusLine).length, 0);
+});
+
 test("a measured gap between blocks is a placement too — never a different part of town", () => {
   // The 611 River Ave shape: we deliver 203–227 and 809–962, and 611 falls in
   // between. Bracketed by blocks we deliver, so measured under FAR it is a

@@ -489,6 +489,23 @@ Both are worth knowing because they made that pass weaker than it looked.
   tail rows now count as papers where they duplicate a CRM row at one address;
   the provenance question travels with the first packet.
 
+- **A new master list arrived 2026-09-02** (`Updated_Voice_list_8.31.26_cleanup
+  .xlsm`) and the planner learned its city column — see `docs/domain-notes.md`,
+  "The master list's city column decides the town". The file fixes all 11
+  unreadable cells, renames the Vine St 100s to Vine Ave, and places 3,550
+  rows in other towns (Jackson, Toms River, Howell, Manchester). The city rule
+  went through adversarial review, which caught a real deletion path (a
+  variant-spelled out-of-town row silently leaving its address group could
+  turn a held surplus into a ready cut — closed by widening the city_conflict
+  gate to ruled street variants; the Elm St probe is now a test) and the
+  silent contradiction of the 2026-08-31 HAZELWOOD CT ruling (now a question,
+  never a silent pick). Ari's London Dr "different road" portal answers were
+  transferred into 7 `not_ours` rulings so the new city_conflict kind does not
+  re-ask them. One outcome reversed by the city column, flagged to Ari:
+  **13 Juniper Ln** — the 9 m "driver passes it" placement is now blocked as
+  Jackson, and the 9 m was measured against the LAKEWOOD 13 Juniper Ln because
+  the geocode query hardcodes the city; the file's city may well be right.
+
 - **Where the weekly import stands, 2026-09-01 (end of day).** Verified live
   on the deployed site against production, after the both-sides / both-directions
   / house-takes-two rulings (PR #31) and the skip-row visibility fix (PR #32):
