@@ -1825,6 +1825,88 @@ test("a variant-spelled out-of-town row asks instead of shrinking its group into
   assert.equal(ruled.rows!.filter((r) => r.surplusLine).length, 0);
 });
 
+test("a street-wide not_ours ruling blocks the street but never a door we deliver", () => {
+  // Ari, 2026-09-02: Henry St beyond our 28–111 is across Route 9 — "record
+  // the differentiation so the system knows for future uploads". One ruling
+  // row with houseNumber null covers every future number on the street.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = ["28", "93", "111"].map((h) => ({
+    id: `h${h}`, zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: h,
+    street: "HENRY ST", floorSide: null, publicationIds: ["pub-v"],
+  }));
+  const wide = buildRulingIndex([
+    { street: "henry st", houseNumber: null, publicationId: null, ruling: "not_ours",
+      note: "across Route 9" },
+  ]);
+  const mk = (addr: string) => {
+    const r = rowsFromGrid([["customers.last_name", "addresses.addr"], ["Katz", addr]],
+      { defaultAction: "add" })[0];
+    r.publication = "voice";
+    return r;
+  };
+  // A number we do not hold, present or future: blocked by the recorded fact.
+  const away = planRow(mk("17 Henry St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, wide);
+  assert.equal(away.status, "blocked");
+  assert.match(away.message, /you told us so: across Route 9/);
+  // A door we deliver is untouchable by a street-wide ruling.
+  const held = planRow(mk("93 Henry St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, wide);
+  assert.equal(held.status, "no_change");
+  // A per-address ruling still beats the street-wide one.
+  const both = buildRulingIndex([
+    { street: "henry st", houseNumber: null, publicationId: null, ruling: "not_ours", note: "across Route 9" },
+    { street: "henry st", houseNumber: "17", publicationId: null, ruling: "ours", note: null },
+  ]);
+  const oursWins = planRow(mk("17 Henry St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, both);
+  assert.notEqual(oursWins.status, "blocked", "the per-address ours answer wins");
+
+  // The recorded Vine Ave trap stays closed: the file spells our VINE AVE as
+  // VINE ST, so a street-wide not_ours against that spelling must not blank
+  // the doors we serve when the variant ruling maps it onto our street.
+  const vineStops: ExistingStop[] = [{
+    id: "v580", zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: "580",
+    street: "VINE AVE", floorSide: null, publicationIds: ["pub-v"],
+  }];
+  const vineWide = buildRulingIndex([
+    { street: "vine st", houseNumber: null, publicationId: null, ruling: "not_ours", note: "different road" },
+  ]);
+  const mapped = new Map([["vine st", { ourStreet: "vine ave", ruling: "same" as const, why: "spelling" }]]);
+  const vineRow = planRow(mk("580 Vine St"), vineStops, pubs, buildStreetZoneMap(vineStops),
+    mapped, buildStopIndex(vineStops), undefined, vineWide);
+  assert.notEqual(vineRow.status, "blocked", "a held door is never blanked street-wide");
+
+  // A street-wide not_ours against an all-out-of-town spelling (the Hazelwood
+  // shape: the spelling exists only in another town's rows, so the
+  // Lakewood-only ruling has no entry for it) must not suppress the
+  // city_conflict question at the held address it maps to.
+  const hazStops: ExistingStop[] = [{
+    id: "hz4", zoneId: "z2", zoneNumber: 2, recipientName: "Pikus", houseNumber: "4",
+    street: "HAZELWOOD LN", floorSide: null, publicationIds: ["pub-v"],
+  }];
+  const hazWide = buildRulingIndex([
+    { street: "hazelwood ct", houseNumber: null, publicationId: null, ruling: "not_ours", note: "howell" },
+  ]);
+  const hazGate = new Map([["hazelwood ct", { ourStreet: "hazelwood ln", ruling: "same" as const, why: "variant" }]]);
+  const hazRow = rowsFromGrid([["customers.last_name", "addresses.addr", "addresses.city"],
+    ["Pikus", "4 Hazelwood Ct", "Howell"]], { defaultAction: "add" })[0];
+  hazRow.publication = "voice";
+  const hazOut = planRow(hazRow, hazStops, pubs, buildStreetZoneMap(hazStops),
+    new Map(), buildStopIndex(hazStops), undefined, hazWide, new Map(), hazGate);
+  assert.equal(hazOut.questionKind, "city_conflict",
+    "the held-address conflict still asks despite the street-wide row");
+
+  // A street-wide "ours" is meaningless and ignored — it would confirm every
+  // house on the street.
+  const wideOurs = buildRulingIndex([
+    { street: "henry st", houseNumber: null, publicationId: null, ruling: "ours", note: null },
+  ]);
+  const unconfirmed = planRow(mk("17 Henry St"), stops, pubs, buildStreetZoneMap(stops),
+    new Map(), buildStopIndex(stops), undefined, wideOurs);
+  assert.equal(unconfirmed.questionKind, "out_of_stretch", "still asks; not confirmed ours");
+});
+
 test("a measured gap between blocks is a placement too — never a different part of town", () => {
   // The 611 River Ave shape: we deliver 203–227 and 809–962, and 611 falls in
   // between. Bracketed by blocks we deliver, so measured under FAR it is a

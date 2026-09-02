@@ -106,7 +106,9 @@ async function loadContext() {
 
   const addressRulings: AddressRuling[] = rulings.map((r) => ({
     street: r.street,
-    houseNumber: r.house_number ?? "",
+    // null = a street-wide ruling (see rulingFor) — coercing it to "" made
+    // such a row silently inert.
+    houseNumber: r.house_number,
     publicationId: r.publication_id,
     ruling: r.ruling as AddressRuling["ruling"],
     note: r.note,
