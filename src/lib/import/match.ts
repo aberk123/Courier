@@ -512,7 +512,11 @@ const BLOCK_GAP = 12;
  */
 export type AddressRuling = {
   street: string;
-  houseNumber: string;
+  /**
+   * null = the whole street. Only meaningful with ruling "not_ours", and
+   * even then it never touches an address we deliver — see rulingFor.
+   */
+  houseNumber: string | null;
   publicationId: string | null;
   ruling: "not_ours" | "ours";
   note: string | null;
@@ -525,7 +529,8 @@ export function buildRulingIndex(rulings: AddressRuling[]): RulingIndex {
   const map: RulingIndex = new Map();
   for (const r of rulings) {
     map.set(
-      `${r.publicationId ?? ""}|${normalizeStreet(r.street)}|${normalizeHouseNumber(r.houseNumber)}`,
+      `${r.publicationId ?? ""}|${normalizeStreet(r.street)}|` +
+        `${r.houseNumber === null ? "*" : normalizeHouseNumber(r.houseNumber)}`,
       r,
     );
   }
@@ -534,11 +539,18 @@ export function buildRulingIndex(rulings: AddressRuling[]): RulingIndex {
 
 /**
  * The office's answer for this address, if they have given one. A
- * publication-specific answer beats one recorded for every publication.
+ * publication-specific answer beats one recorded for every publication, and a
+ * per-address answer beats a street-wide one.
  *
- * Deliberately address-only. A street-wide answer sounds useful and is a trap:
- * the master list spells our Vine Ave as VINE ST, so a "not ours" recorded
- * against the street would have blanked the twenty-four Vine Ave doors we serve.
+ * Rulings are address-only by default, because a street-wide answer is a
+ * trap: the master list spells our Vine Ave as VINE ST, so a "not ours"
+ * recorded against the street would have blanked the twenty-four Vine Ave
+ * doors we serve. The one street-wide form that exists (houseNumber null,
+ * not_ours ONLY — a street-wide "ours" would confirm every house on the
+ * street and is ignored here) records a boundary fact like "Henry St beyond
+ * our 28–111 is across Route 9" (Ari, 2026-09-02), and the caller must still
+ * refuse to apply it to any address we deliver — planRow checks the held
+ * list before honoring it, which is what keeps the Vine Ave trap closed.
  */
 export function rulingFor(
   index: RulingIndex,
@@ -548,7 +560,10 @@ export function rulingFor(
 ): AddressRuling | undefined {
   const st = normalizeStreet(street);
   const hn = normalizeHouseNumber(house);
-  return index.get(`${publicationId ?? ""}|${st}|${hn}`) ?? index.get(`|${st}|${hn}`);
+  const exact = index.get(`${publicationId ?? ""}|${st}|${hn}`) ?? index.get(`|${st}|${hn}`);
+  if (exact) return exact;
+  const streetWide = index.get(`${publicationId ?? ""}|${st}|*`) ?? index.get(`|${st}|*`);
+  return streetWide?.ruling === "not_ours" ? streetWide : undefined;
 }
 
 export type RosterFileRow = {
@@ -954,13 +969,29 @@ export function planRow(
   // geography that does not change week to week.
   const ruled = rulingFor(rulings, row.street, row.houseNumber, publication?.id ?? null);
   if (ruled?.ruling === "not_ours") {
-    return {
-      ...base,
-      status: "blocked",
-      message:
-        `${row.houseNumber} ${row.street.toUpperCase()} is not on any of our routes ` +
-        `— you told us so${ruled.note ? `: ${ruled.note}` : ""}`,
-    };
+    // A street-wide ruling (houseNumber null) records a boundary fact — "Henry
+    // St beyond our 28–111 is across Route 9" — so it must never touch an
+    // address we DO deliver, directly or through a spelling variant: the
+    // recorded Vine Ave trap is a street-wide "not ours" against the file's
+    // VINE ST spelling blanking the twenty-four Vine Ave doors we serve. A
+    // per-address ruling is an explicit answer about that door and still wins
+    // unconditionally (rulingFor puts it first).
+    const streetWide = ruled.houseNumber === null;
+    const variant = streetRuling.get(street);
+    const held =
+      (index.byStreetAndHouse.get(`${street}|${house}`) ?? []).length > 0 ||
+      (variant?.ruling === "same" || variant?.ruling === "unresolved"
+        ? (index.byStreetAndHouse.get(`${variant.ourStreet}|${house}`) ?? []).length > 0
+        : false);
+    if (!streetWide || !held) {
+      return {
+        ...base,
+        status: "blocked",
+        message:
+          `${row.houseNumber} ${row.street.toUpperCase()} is not on any of our routes ` +
+          `— you told us so${ruled.note ? `: ${ruled.note}` : ""}`,
+      };
+    }
   }
 
   // The file's own city column outranks street matching: our five routes are
@@ -996,7 +1027,9 @@ export function planRow(
     const mapped = atAddress.length
       ? rulingFor(rulings, atAddress[0].street, atAddress[0].houseNumber, publication?.id ?? null)
       : null;
-    if (mapped?.ruling === "not_ours") {
+    // Street-wide not_ours is excluded here: the matched address is HELD by
+    // definition, and a street-wide ruling never applies to a held address.
+    if (mapped?.ruling === "not_ours" && mapped.houseNumber !== null) {
       return {
         ...base,
         status: "blocked",

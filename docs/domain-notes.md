@@ -1026,6 +1026,33 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### Henry St beyond 28–111 is across Route 9 (Ari, 2026-09-02)
+
+*"The Henry St addresses you are listing are on the other side of Route 9, so
+they are on a different route."* — shown the courier document with 1–16 and
+200–235 Henry St as same-street placements. All 14 carry `not_ours` rulings
+now; we deliver only 28–111.
+
+This is the second recorded exception to "same street, same route" (Pine St's
+odd side, zone 35, was the first), and it teaches the measurement's blind
+spot: **straight-line distance cannot see a highway.** 1 Henry St measured
+51 m from a house we deliver — and is across Route 9 from it. The rule's
+containment worked as designed: a conversion is a placement NOTE for a person
+who knows the ground, never a delivery, and a person caught it before anything
+was applied. But a barrier as hard as Route 9 is a fact worth encoding, not
+re-catching, and Ari asked for exactly that: *"record the Henry St
+differentiation so that the system should know for future uploads."*
+
+So rulings gained their one street-wide form (migration `20260902231500`):
+`house_number` NULL = the whole street, allowed only with `not_ours`, and the
+matcher refuses to apply it to any address we deliver — directly or through a
+spelling variant — which is what keeps the recorded Vine Ave trap closed (a
+street-wide "not ours" against the file's VINE ST spelling must never blank
+the Vine Ave doors we serve; there is a test). A per-address ruling still
+beats the street-wide one, so a single exception can be carved back out with
+one "It is ours" answer. Henry St carries the street-wide row now: any future
+number outside 28–111 is blocked with the Route 9 note, no question asked.
+
 ### The map answers same-street distance in both directions (Ari, 2026-09-01)
 
 *"The Marc Drive questions you should be able to answer using the map as well.
