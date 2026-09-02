@@ -1699,6 +1699,132 @@ test("a same-street address measured far answers itself: a different part of tow
   assert.match(placed.message, /about 460 m from 110.*same street, same route/);
 });
 
+test("a row the file places in another town is not a candidate for our streets", () => {
+  // The 31 Aug cleanup export added addresses.city, and 3,550 of its rows are
+  // Jackson, Toms River, Howell or Manchester — same-named streets in other
+  // towns are what several "non-matches" really were (Ari, 2026-09-02).
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [{
+    id: "s1", zoneId: "z2", zoneNumber: 2, recipientName: "Weiss", houseNumber: "10",
+    street: "CEDARWOOD LN", floorSide: null, publicationIds: ["pub-v"],
+  }];
+  const grid = (city: string, addr = "10 Cedarwood Ln") => {
+    const row = rowsFromGrid([["customers.last_name", "addresses.addr", "addresses.city"],
+      ["Winkler", addr, city]], { defaultAction: "add" })[0];
+    row.publication = "voice";
+    return row;
+  };
+
+  // Another town, no collision with anything we hold: not on our routes.
+  const away = planRow(grid("Jackson", "17 Cedarwood Ln"), stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(away.status, "blocked");
+  assert.match(away.message, /in Jackson — not on our routes/);
+  assert.equal(away.questionKind, undefined);
+
+  // Another town, but the EXACT address is one we deliver: a person decides.
+  const conflict = planRow(grid("Jackson"), stops, pubs, buildStreetZoneMap(stops));
+  assert.equal(conflict.status, "needs_choice");
+  assert.equal(conflict.questionKind, "city_conflict");
+  assert.match(conflict.message, /places this in JACKSON.*we deliver 10 CEDARWOOD LN in Lakewood/);
+  assert.equal(conflict.candidates.length, 1);
+  assert.equal(conflict.newStop, null, "never offered as a new address");
+
+  // Lakewood in any spelling, and a blank city, behave exactly as before.
+  for (const city of ["Lakewood", "LAKEWOOD", "Lakewood Township", ""]) {
+    const home = planRow(grid(city), stops, pubs, buildStreetZoneMap(stops));
+    assert.equal(home.status, "no_change", `city "${city}" should match normally`);
+  }
+});
+
+test("an out-of-town row never covers, rewrites, or vouches — but does suppress a removal", () => {
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [
+    // Ours, receiving the Voice; the file names it only under Jackson.
+    { id: "j5", zoneId: "z2", zoneNumber: 2, recipientName: "Czermak", houseNumber: "5",
+      street: "JUNIPER LN", floorSide: null, rosterManaged: true, publicationIds: ["pub-v"] },
+    // Ours, on the file as a normal Lakewood row, so the roster is sane.
+    { id: "j1", zoneId: "z2", zoneNumber: 2, recipientName: "Katz", houseNumber: "1",
+      street: "JUNIPER LN", floorSide: null, rosterManaged: true, publicationIds: ["pub-v"] },
+  ];
+  const file = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.city"],
+     ["Katz", "1 Juniper Ln", "Lakewood"],
+     ["Czermak", "5 Juniper Ln", "Jackson"]],
+    { defaultAction: "add" });
+  const out = planRoster(file, stops, pubs, "pub-v");
+  assert.equal(out.error, null);
+  // The Jackson row asks instead of attaching, and its address's removal is
+  // suppressed by coverage — a miscoded city can never cause a removal.
+  const ask = out.rows!.find((r) => r.questionKind === "city_conflict")!;
+  assert.equal(ask.status, "needs_choice");
+  assert.equal(out.rows!.filter((r) => r.action === "remove").length, 0,
+    "5 Juniper Ln must not become a removal while the city question is open");
+  // The A-rule never fires across towns: a Jackson 68A is not our 68's basement.
+  const aStops: ExistingStop[] = [{
+    id: "o68", zoneId: "z3", zoneNumber: 3, recipientName: null, houseNumber: "68",
+    street: "OAK ST", floorSide: null, publicationIds: ["pub-v"],
+  }];
+  const aFile = rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.city"], ["Roth", "68A Oak St", "Jackson"]],
+    { defaultAction: "add" });
+  const aOut = planRoster(aFile, aStops, pubs, "pub-v", [], { keepAll: true });
+  const aRow = aOut.rows!.find((r) => r.action === "add")!;
+  assert.equal(aRow.status, "blocked");
+  assert.match(aRow.message, /in Jackson — not on our routes/);
+  assert.equal(aRow.houseNumber, "68A", "not rewritten to our 68");
+});
+
+test("a variant-spelled out-of-town row asks instead of shrinking its group into a cut", () => {
+  // Review-proven deletion path against the exact-only city gate: "5 Elm
+  // Street" (ruled the same street as our 5 ELM AVE) filed under Jackson was
+  // silently blocked, withdrawn from its address group, and the shrunken
+  // group turned a held surplus into a ready cut of a real Lakewood line. The
+  // gate now reaches held addresses through the all-rows variant ruling too,
+  // so the row asks — and the open question holds the address's cuts.
+  const pubs = [{ id: "pub-v", code: "voice", name: "The Voice" }];
+  const stops: ExistingStop[] = [
+    { id: "e5a", zoneId: "z2", zoneNumber: 2, recipientName: "Levy", houseNumber: "5",
+      street: "ELM AVE", floorSide: "upstairs", rosterManaged: true, publicationIds: ["pub-v"] },
+    { id: "e5b", zoneId: "z2", zoneNumber: 2, recipientName: "Stern", houseNumber: "5",
+      street: "ELM AVE", floorSide: "basement", rosterManaged: true, publicationIds: ["pub-v"] },
+    { id: "e7", zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: "7",
+      street: "ELM AVE", floorSide: null, rosterManaged: true, publicationIds: ["pub-v"] },
+    { id: "e9", zoneId: "z2", zoneNumber: 2, recipientName: null, houseNumber: "9",
+      street: "ELM AVE", floorSide: null, rosterManaged: true, publicationIds: ["pub-v"] },
+  ];
+  const plan = (city2: string) => planRoster(rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr", "addresses.city"],
+     ["A", "7 Elm Ave", "", "Lakewood"],
+     ["B", "9 Elm Ave", "", "Lakewood"],
+     ["Levy", "5 Elm Street", "upstairs", "Lakewood"],
+     ["Stern", "5 Elm Street", "basement", city2]],
+    { defaultAction: "add" }), stops, pubs, "pub-v", [], { keepAll: true });
+
+  // Both rows Lakewood: the address is fully claimed, nothing is cut.
+  assert.equal(plan("Lakewood").rows!.filter((r) => r.surplusLine).length, 0);
+
+  // One row filed under Jackson: it must ASK, and the cut must stay held.
+  const out = plan("Jackson");
+  const ask = out.rows!.find((r) => r.questionKind === "city_conflict")!;
+  assert.ok(ask, "the Jackson variant row raises the city question");
+  assert.match(ask.message, /5 ELM AVE in Lakewood/);
+  assert.equal(out.rows!.filter((r) => r.surplusLine).length, 0,
+    "no surplus cut fires at 5 ELM AVE while the city question is open");
+
+  // And a recorded "ours" ruling settles it: the row matches normally again.
+  const ruled = planRoster(rowsFromGrid(
+    [["customers.last_name", "addresses.addr", "addresses.extended_addr", "addresses.city"],
+     ["A", "7 Elm Ave", "", "Lakewood"],
+     ["B", "9 Elm Ave", "", "Lakewood"],
+     ["Levy", "5 Elm Street", "upstairs", "Lakewood"],
+     ["Stern", "5 Elm Street", "basement", "Jackson"]],
+    { defaultAction: "add" }), stops, pubs, "pub-v",
+    [{ street: "elm ave", houseNumber: "5", publicationId: null, ruling: "ours", note: "town line" }],
+    { keepAll: true });
+  assert.equal(ruled.rows!.filter((r) => r.questionKind === "city_conflict").length, 0);
+  assert.equal(ruled.rows!.filter((r) => r.surplusLine).length, 0);
+});
+
 test("a measured gap between blocks is a placement too — never a different part of town", () => {
   // The 611 River Ave shape: we deliver 203–227 and 809–962, and 611 falls in
   // between. Bracketed by blocks we deliver, so measured under FAR it is a

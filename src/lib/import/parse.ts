@@ -25,6 +25,14 @@ export type ParsedRow = {
    * ALL 32 carry different ids, i.e. two separate subscriptions.
    */
   externalId?: string | null;
+  /**
+   * The row's city, when the file carries one (the 31 Aug cleanup export added
+   * `addresses.city`). Same street names exist in Jackson, Toms River and
+   * Howell, and several "non-matches" were exactly that — a same-named street
+   * in a different town (Ari, 2026-09-02). Null when the file has no city
+   * column, which must behave exactly as before.
+   */
+  city?: string | null;
   instructions: string | null;
   problem?: string;
 };
@@ -35,6 +43,7 @@ const FIELD_ALIASES: Record<
   keyof Omit<ParsedRow, "rowNumber" | "action" | "problem" | "floorSideAlt" | "externalId">,
   string[]
 > = {
+  city: ["city", "addressescity", "addresscity", "town"],
   name: [
     "name", "recipient", "recipientname", "subscriber", "lastname", "surname",
     // A publication's CRM export, e.g. The Voice's `customers.last_name`.
@@ -241,6 +250,7 @@ export function rowsFromGrid(grid: string[][], options: GridOptions = {}): Parse
       publication: cell(row, map.publication) || null,
       floorSide: cell(row, map.floorSide) || null,
       floorSideAlt: cell(row, altFloorIndex) || null,
+      city: cell(row, map.city) || null,
       externalId: cell(row, externalIdIndex) || null,
       // A unit split off the front of the address rides along as an
       // instruction -- never invented into a floor label.

@@ -40,6 +40,7 @@ export type QuestionKind =
   | "crowded_address"     // 3+ lines on our side, indistinguishable here
   | "door_conflict"       // the list and the delivery disagree about the door
   | "pick_line"           // several addresses match, pick one
+  | "city_conflict"       // the list puts this address in another town, but we deliver it
   | "unreadable_cell";    // the address cell itself could not be read
 
 /**
@@ -64,6 +65,20 @@ export const STRETCH_METERS = 150;
  * silent deletion.
  */
 export const FAR_METERS = 800;
+
+/**
+ * Whether a row's city is Lakewood, for files that carry one (the 31 Aug
+ * cleanup export added `addresses.city`). Our five routes are all in Lakewood,
+ * and 3,550 of that file's rows are Jackson, Toms River, Howell or Manchester
+ * — including same-named streets, which is what several "non-matches" really
+ * were (Ari, 2026-09-02). FAIL OPEN: a missing column or a blank cell decides
+ * nothing, so every earlier file behaves exactly as before.
+ */
+export function isLakewoodCity(city: string | null | undefined): boolean {
+  if (!city) return true;
+  const n = city.toLowerCase().replace(/[^a-z]/g, "");
+  return n === "" || n === "lakewood" || n === "lakewoodtownship" || n === "lakewoodtwp" || n === "lakewoodnj";
+}
 
 /** Tiny stable string hash (djb2) for keys that have no address to key on. */
 export function hashKey(value: string): string {
@@ -873,6 +888,15 @@ export function planRow(
    * for the Lakewood Courier.
    */
   stretchGaps: Map<string, { meters: number; nearestHouse: string }> = new Map(),
+  /**
+   * Street-variant ruling built from EVERY file row regardless of city, used
+   * only by the city-conflict gate. It exists because the main `streetRuling`
+   * is built from Lakewood rows only (out-of-town house numbers must not
+   * vouch for a spelling), which removes exactly the streets whose every
+   * variant row is out of town — and those are the rows the gate must catch.
+   * Defaults to the main ruling so callers without a city column lose nothing.
+   */
+  cityGateRuling: Map<string, { ourStreet: string; ruling: StreetRuling; why: string }> = streetRuling,
 ): PlanRow {
   const base: PlanRow = {
     rowNumber: row.rowNumber,
@@ -937,6 +961,80 @@ export function planRow(
         `${row.houseNumber} ${row.street.toUpperCase()} is not on any of our routes ` +
         `— you told us so${ruled.note ? `: ${ruled.note}` : ""}`,
     };
+  }
+
+  // The file's own city column outranks street matching: our five routes are
+  // all in Lakewood, and a row the master list itself places in another town
+  // (3,550 of the 31 Aug file: Jackson, Toms River, Howell, Manchester...) is
+  // not a candidate for any of our streets — same-named streets in other
+  // towns are what several "non-matches" really were (Ari, 2026-09-02).
+  // Checked after the rulings gate so a recorded "not ours" still wins — and a
+  // recorded "ours" wins the other way, letting the row match normally (the
+  // town line zigzags; the office can rule an out-of-town-labelled address
+  // onto our routes). FAIL OPEN: a file with no city column behaves as before.
+  if (!isLakewoodCity(row.city) && ruled?.ruling !== "ours") {
+    // A held address is reached exactly, OR through a street-variant ruling —
+    // the review proved the exact-only gate leaves a deletion path: a
+    // variant-spelled out-of-town row ("5 Elm Street" for our 5 ELM AVE, ruled
+    // the same street) was silently blocked, withdrawn from its address group,
+    // and the shrunken group turned a held surplus into a ready cut. The
+    // variant ruling used HERE is the caller's all-rows one (cityGateRuling),
+    // because the Lakewood-only ruling no longer contains streets whose every
+    // spelling-variant row is out of town — HAZELWOOD CT (Howell) against our
+    // HAZELWOOD LN is exactly that, and it is also a recorded 2026-08-31
+    // ruling the city data now contradicts. Two authorities disagreeing is a
+    // question, never a silent pick.
+    let atAddress = index.byStreetAndHouse.get(`${street}|${house}`) ?? [];
+    if (!atAddress.length) {
+      const variant = cityGateRuling.get(street);
+      if (variant && (variant.ruling === "same" || variant.ruling === "unresolved")) {
+        atAddress = index.byStreetAndHouse.get(`${variant.ourStreet}|${house}`) ?? [];
+      }
+    }
+    // A ruling recorded under OUR spelling of the address counts too — the
+    // office answers from the review screen, which may carry either spelling.
+    const mapped = atAddress.length
+      ? rulingFor(rulings, atAddress[0].street, atAddress[0].houseNumber, publication?.id ?? null)
+      : null;
+    if (mapped?.ruling === "not_ours") {
+      return {
+        ...base,
+        status: "blocked",
+        message:
+          `${row.houseNumber} ${row.street.toUpperCase()} is not on any of our routes ` +
+          `— you told us so${mapped.note ? `: ${mapped.note}` : ""}`,
+      };
+    }
+    if (atAddress.length && mapped?.ruling !== "ours") {
+      // The one shape where the city and the street match disagree: the file
+      // says another town, but the exact address is one we deliver (the 31 Aug
+      // file has exactly one — 5 JUNIPER LN, Jackson, against our 5 Juniper Ln
+      // in zone 2). Trusting the city silently could hide a Lakewood
+      // subscriber behind a city typo; trusting the match could put a paper on
+      // another town's door. A person decides, and the address's own removals
+      // are held meanwhile (the candidates below feed keyHasQuestion).
+      return {
+        ...base,
+        status: "needs_choice",
+        message:
+          `the list places this in ${(row.city ?? "").toUpperCase()}, but we deliver ` +
+          `${atAddress[0].houseNumber} ${atAddress[0].street.toUpperCase()} in Lakewood — the same ` +
+          `house with the wrong city, or another town's street? pick the line it belongs to, or tell us it is not ours`,
+        candidates: atAddress.map((stop) => ({
+          stopId: stop.id,
+          label: `${stop.houseNumber} ${stop.street}` +
+            `${stop.floorSide ? ` · ${stop.floorSide}` : ""}` +
+            `${stop.recipientName ? ` · ${stop.recipientName}` : ""}`,
+          zoneNumber: stop.zoneNumber,
+        })),
+        ...asQuestion(base, "city_conflict"),
+      };
+    }
+    if (!atAddress.length) {
+      return { ...base, message: `in ${row.city} — not on our routes` };
+    }
+    // A recorded "ours" on the matched address: the town line question is
+    // answered, so the row falls through and matches normally.
   }
 
   let matches = index.byStreetAndHouse.get(`${street}|${house}`) ?? [];
