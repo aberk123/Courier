@@ -655,6 +655,13 @@ Both are worth knowing because they made that pass weaker than it looked.
   HOWARD DR` and `I V 545 HOWARD DR` are stored as `direction` rows but are
   clearly address rows. They print as loud driving instructions, and because
   545 Howard Dr is not a stop record it is invisible to every publication filter.
+  **Ari confirmed 2026-09-03 that 545 Howard Dr is on the route** (an `ours`
+  ruling records it; position is the seq 613–618 block); a human still has to
+  open `BP ZONE 2.xlsm` to recover the households before the stop records are
+  rebuilt. Same day: **314 Cedar Bridge Ave is in a different zone** (`not_ours`
+  ruling, liftable if it turns out to be one of our five), and **"some of the
+  Vine ones are on a different route"** — the five Vine St identity questions
+  stay open until Amrom marks which; the courier document now asks exactly that.
 
 ## Closed since this file was last rewritten
 
