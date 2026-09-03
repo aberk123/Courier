@@ -22,21 +22,24 @@ ruling) only when Ari or Amrom confirms it — the asymmetry rule: a wrong
 
 **The two spine roads.** Route 9 IS River Avenue through Lakewood. Zones 2, 3
 and 5 all touch it: zone 2 *starts* at 485 River Ave, zone 3 drives it once
-(Oak St → High St), zone 5 uses it as its spine (every leg returns to it).
-Cedar Bridge Avenue plays the same role for zone 1.
+(Oak St → High St — the only crossing recorded in any direction text), and
+zone 5 uses it as its spine (every leg returns to it). Zone 5's own River Ave
+drops carry both parities, so they likely sit on both sides of the highway
+itself — a human who knows the road should confirm before either side is
+called a boundary. Cedar Bridge Avenue plays the same role for zone 1.
 
 ---
 
 ## Zone 1 — the Cedarbridge Ave corridor
 
-One territory in two halves, both hanging off Cedar Bridge Ave:
+One territory in three legs, all hanging off Cedar Bridge Ave:
 
 1. **The Shenandoah development** (entered from Cedarbridge): Dune Ct,
    Shenandoah Dr, Rockbridge Rd, Stonewall Ct, Walker Dr — small house
    numbers, whole streets.
 2. **Washington Square**: the two apartment buildings at 417 and 419 Cedar
    Bridge Ave only. The other Cedar Bridge Ave numbers on the sheet (260,
-   351–359, 415–416) are all inactive, and **314 Cedar Bridge Ave is
+   351, 353, 359, 415, 416) are all inactive, and **314 Cedar Bridge Ave is
    confirmed a different zone** (Ari, 2026-09-03; per-address ruling).
 3. **The complex behind Quick Chek** (across Cedarbridge, off New Hampshire):
    Bridgewood Ave, London Ave (evens 2–26), Hunter Dr, Kenyon Dr, Newwood
@@ -76,20 +79,25 @@ Starts AT Route 9 (485 River Ave, inactive) and works away from it:
    11 rulings). Pine St is the spine the route crosses repeatedly.
 3. **The Pine River development** (off Pine St; "all basements are behind the
    house"): Ponderosa Dr 1–92, Juniper Ln 1–10, Sequoia St 1–23.
-4. **Forest Park**: Forest Park Cir 1–167 — odds continuous, evens only 4–12
-   (whether evens 14–166 exist or the circle is one-sided is a standing
-   question for Amrom); Hazelwood Ln 1–17, Branchwood Dr 1–17.
-   The file's HAZELWOOD CT (Howell) rows are open city-conflict questions —
-   our Hazelwood Ln sits deep inside Forest Park, nowhere near Howell, which
-   supports "different road" over "city typo", but that is the Voice office's
+4. **Forest Park**: Forest Park Cir 1–167 — odds 1–167 except 9–15 (never
+   on the sheet) and 137 (retired); evens only 4, 6, 8, 10, 12 (whether evens
+   14–166 exist or the circle is one-sided is a standing question for Amrom);
+   Hazelwood Ln 1–17, Branchwood Dr 1–17.
+   The file's HAZELWOOD CT (Howell) rows are open city-conflict questions.
+   The evidence cuts both ways: our Hazelwood Ln sits inside Forest Park,
+   and the file's HAZELWOOD CT numbers (4, 6, 11, 14, 19) never collide with
+   its HAZELWOOD LN numbers while jointly filling our 1–17 — the recorded
+   signature of one street spelled two ways, which is why the 2026-08-31
+   ruling said "same" before the city column said Howell. The Voice office's
    call.
 5. **Newberry Ct 1–43**, then the Marc Dr grid: **Marc Dr 504–604** (the
-   file's 8–406 Marc Dr all measured unplaceable and sit below this stretch),
+   file's 8–406 Marc Dr sit below this stretch and self-answered as a
+   different part of town on the 2026-09-02 deployed map run),
    Ned Dr 112–156, Daniel Dr 118–166.
 6. **The Spruce St grid** (via Green St, which carries no stops): Vine Ave
    550–580, Spruce St 100–182, Howard Dr 552–593 **plus 545 (confirmed ours,
-   Ari 2026-09-03 — the corrupted rows at seq 613–618 are its true
-   position)**, Neal Ct 123–132, Alan Ct 120–128, Wall St evens 102–112,
+   Ari 2026-09-03 — its four retired stop rows sit at seq 613–616, with the
+   two corrupted direction rows at 617–618, so that block is its position)**, Neal Ct 123–132, Alan Ct 120–128, Wall St evens 102–112,
    Chelsea Ct evens 2–20 (the file's 7 Chelsea Ct is Howell's road), Sharon
    Ct 1–24.
 
@@ -101,7 +109,7 @@ Starts AT Route 9 (485 River Ave, inactive) and works away from it:
 | PONDEROSA DR | 1–92 | mixed | 1–92 |
 | JUNIPER LN | 1–10 | mixed | 1–10 |
 | SEQUOIA ST | 1–23 | mixed | 1–23 |
-| FOREST PARK CIR | 1–167 | mixed | odds 1–167; evens only 4–12 |
+| FOREST PARK CIR | 1–167 | mixed | odds 1–167 (no 9–15, no 137); evens only 4–12 |
 | HAZELWOOD LN | 1–17 | mixed | 1–17 |
 | BRANCHWOOD DR | 1–17 | mixed | 1–17 |
 | NEWBERRY CT | 1–43 | mixed | 1–43 |
@@ -129,7 +137,8 @@ Three legs:
    26–28 and 100–110 — **the file's Oak St 1400s measured ~1.4 km away, a
    different part of town**), Sheraton Dr 1–39, Hilton Dr 2–21.
 2. **Across Route 9** (seq 276: "TURN RIGHT ON OAK ST, TURN RIGHT ONTO RIVER
-   AVE, TURN RIGHT HIGH ST" — the one place any route crosses Route 9):
+   AVE, TURN RIGHT HIGH ST" — the only crossing recorded in any direction
+   text):
    High St 2–51, Grassmere St 1–25, Windermere St 1–33, then back to upper
    Spruce St (blocks 260–265, 300, 501, 540–550, 612) and Violet Ct 6–14.
 3. **Somerset Walk** (via Washington Ave and a stopless stretch of Pine St):
@@ -165,10 +174,12 @@ odd side. Washington Ave is driven, never delivered.
 A single connected grid, plus one detached house:
 
 Finchley Blvd 14–125 (blocks 14–39, 53–109, 125), Waldorf Ter 1000–1074,
-Hearthstone Dr 807–1045 (four blocks — 1021 goes between 1020 and 1025),
+Hearthstone Dr 807–1045 (four blocks; where 1021 goes is an OPEN question
+for Amrom — 1020 and 1025 are adjacent actives in the walk, which suggests
+the slot, but only he places it),
 Claire Dr in TWO pieces (108–143 near Finchley, 913–985 at the far end),
-Rachel Ct **200–275 only** (the file's 3 Rachel Ct is far below and
-unplaceable by the map — still an open question), Morris Ave 802–1027,
+Rachel Ct **200–275 only** (the file's 3 Rachel Ct is Howell's road — its
+city column settles it), Morris Ave 802–1027,
 North Dr odds 211–229, Clairmont Ct 108–148, Princewood Ave 933–1050,
 Jenna Ct 109–149, Lancewood Ct 108–141, Netherwood Dr 1020–1026, Shayas Rd
 1–31. The detached stop: **985 Claire Dr**, reached via Cross St and
@@ -228,8 +239,10 @@ Every leg hangs off River Ave (Route 9); the route returns to it four times:
   3, 100–182 zone 2, 260+ zone 3. (What 46–99 and 183–259 would be is
   unrecorded — ask if one ever arrives.)
 - **VINE AVE** — zone 2 owns 550–580; zone 3 owns the evens 624–736. Clean
-  split between 580 and 624; below 550 is neither (the file's Vine Ave 100s
-  measured a different part of town).
+  split between 580 and 624; below 550 is neither: the file's Vine Ave 100s
+  are Lakewood rows the 2026-09-02 deployed map pass measured far and
+  self-answered — questions before that run, neither questions nor placements
+  after it.
 - **RIVER AVE (Route 9)** — zone 5 owns the commercial drops 203–962; zone
   2 merely starts at 485 (inactive); zone 3 drives it once. A new River Ave
   address is presumptively zone 5's, and commercial.
@@ -259,9 +272,23 @@ PONDAROSA / PANDEROSA = PONDEROSA DR · NEWOOD HILLS = NEWWOOD HILLS AVE ·
 HEARTSTONE = HEARTHSTONE DR · and zone 3's own sheet calls VINE AVE
 "VINE ST".
 
+Also: `CEDARBRIDGE` (one word) = CEDAR BRIDGE AVE · `RAVEN LANE` = RAVEN LN.
+
 Roads driven but never delivered (inside the territory, no doors): Green St
 (zone 2), Washington Ave (zone 3), Cross St and Massachusetts Ave (zone 4),
 New Hampshire / Clifton / Arlington / Ashley (zone 1 landmarks).
+
+Retired stops OUTSIDE a street's active range are boundary evidence too — the
+route once served them, so a future arrival there is not "beyond the
+territory": 60 EAGLE LN (zone 3, active 1–38), 129 ALAN CT (zone 2, active
+120–128), 1 FLANNERY AVE (zone 1, active 2–39), and zone 1's inactive Cedar
+Bridge numbers above.
+
+Zone 2's Juniper Ln (1–10, inside Pine River) carries two open city
+conflicts: the file's 5 Juniper Ln (Jackson) against our served 5, and
+13 Juniper Ln blocked as Jackson although it once measured 9 m — against the
+LAKEWOOD 13, because the geocoder is told the city. Both are the Voice
+office's to settle.
 
 ## How this document is used
 

@@ -1026,6 +1026,28 @@ proves the rule runs both ways: `18 BRIDGEWOOD AVE` — Breindy's own screenshot
 — is NOT removed, because the master list names Freund there twice, so both
 lines stand.
 
+### Three route answers, and the boundaries write-up (Ari, 2026-09-03)
+
+Shown the courier route-questions document: *"314 Cedarbridge is in a
+different zone. 545 Howard is on the route. Some of the vine ones are on a
+different route."* Recorded: **314 Cedar Bridge Ave** `not_ours` (per-address
+— liftable if it turns out to be one of our five zones); **545 Howard Dr**
+`ours` (its four retired stop rows at zone 2 seq 613–616 plus the two
+corrupted direction rows at 617–618 fix its position; a human still has to
+read `BP ZONE 2.xlsm` to recover the households); the five **Vine St**
+identity questions stay open until Amrom marks WHICH are ours — note the
+boundary evidence that all five numbers (580, 648, 696, 728, 736) land
+exactly on doors we deliver, 580 in zone 2's Vine Ave 550–580 and the rest in
+zone 3's 624–736 blocks, so "a different route" may mean route 3 vs route 2.
+
+Same day, at Ari's request ("write up the boundaries and use that to help you
+determine in the future if an address is within the route or not"):
+**`docs/route-boundaries.md`** — the written boundary of each route, derived
+from md5-proven dumps of all five routes, audited line-by-line by the routing
+agent against the raw dumps. Confirmed barriers and inferred edges are kept
+strictly separate there; an inferred edge becomes a ruling only when a person
+confirms it.
+
 ### Henry St beyond 28–111 is across Route 9 (Ari, 2026-09-02)
 
 *"The Henry St addresses you are listing are on the other side of Route 9, so
