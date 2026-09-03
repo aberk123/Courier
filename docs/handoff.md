@@ -866,6 +866,12 @@ these if you can; rebuilding them is tedious.
   the app's limit if either is ever changed.
 - Next.js treats underscore-prefixed app directories as private; a route in one
   will 404 with no error.
+- **Every merge to `main` redeploys production, and a deploy breaks the buttons
+  in any already-open tab** — Server Action references go stale, so a click
+  silently does nothing until the page is refreshed. Ari hit this on the
+  import page 2026-09-03 ("the import button is not working... it works now"),
+  minutes after a docs-only merge. Batch merges away from office hours, or
+  enable Vercel's deployment skew protection.
 - On Node >= 22.21 behind a proxy, set `NODE_USE_ENV_PROXY=1` or the Supabase
   client's `fetch` silently bypasses the proxy.
 
