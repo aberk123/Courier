@@ -284,8 +284,8 @@ territory": 60 EAGLE LN (zone 3, active 1–38), 129 ALAN CT (zone 2, active
 120–128), 1 FLANNERY AVE (zone 1, active 2–39), and zone 1's inactive Cedar
 Bridge numbers above.
 
-Zone 2's Juniper Ln (1–10, inside Pine River) carries two open city
-conflicts: the file's 5 Juniper Ln (Jackson) against our served 5, and
+Zone 2's Juniper Ln (1–10, inside Pine River) carries one open city
+conflict — the file's 5 Juniper Ln (Jackson) against our served 5 — plus
 13 Juniper Ln blocked as Jackson although it once measured 9 m — against the
 LAKEWOOD 13, because the geocoder is told the city. Both are the Voice
 office's to settle.
