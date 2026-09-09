@@ -755,15 +755,17 @@ a matching fault — never "this week's changes".
 | Purpose | Project ref | Contains |
 | --- | --- | --- |
 | Production | `qysltpkdmuozsphftzps` | The real subscriber list. Read freely; do not write casually. |
-| Test branch `browser-testing` | `txfulvngxgjwdoicurdv` | Same schema, synthetic fixture only. Write freely. |
 
-The branch costs about $9.70/month while it exists. Ask Ari before deleting it,
-and remind him it is still running if the testing work is finished. Note it is a
-**non-persistent preview branch**: Supabase auto-pauses it after inactivity and
-deletes it when its PR closes, so it may disappear on its own. If it is wanted
-as a standing staging environment, mark it persistent.
+**The `browser-testing` branch (`txfulvngxgjwdoicurdv`) was deleted 2026-09-09
+on Ari's instruction** after 20 days idle (~$9.70/month). Everything on it was
+synthetic. If a test environment is ever wanted again: create a branch with the
+Supabase MCP, insert users through the Admin API (NOT hand-inserted rows — see
+the NULL-token gotcha below), and rebuild a fixture; the sections below about
+the branch are kept for that day. Day-to-day verification since has used the
+real site with the `claude-import-test@thevoiceoflakewood.com` account plus the
+throwaway-Postgres RLS suite, which cover more than the branch did.
 
-### Getting the app pointed at the branch
+### Getting the app pointed at a branch (historical — no branch exists now)
 
 `.env.branch.local` is gitignored, so it does not survive into a fresh clone.
 Regenerate it with the Supabase MCP tools (`get_project_url` and
@@ -788,7 +790,7 @@ update auth.users set encrypted_password = crypt('<new password>', gen_salt('bf'
 where email = 'office@example.test';
 ```
 
-## What is in the test branch's fixture
+## What was in the test branch's fixture (deleted 2026-09-09)
 
 Synthetic only, but shaped like the real thing. As of 2026-08-20: zone 1 has a
 direction row and ~10 stops, zone 2 has 4, zone 3 has 1, and **zone 4 has 220
@@ -866,6 +868,12 @@ these if you can; rebuilding them is tedious.
   the app's limit if either is ever changed.
 - Next.js treats underscore-prefixed app directories as private; a route in one
   will 404 with no error.
+- **Every merge to `main` redeploys production, and a deploy breaks the buttons
+  in any already-open tab** — Server Action references go stale, so a click
+  silently does nothing until the page is refreshed. Ari hit this on the
+  import page 2026-09-03 ("the import button is not working... it works now"),
+  minutes after a docs-only merge. Batch merges away from office hours, or
+  enable Vercel's deployment skew protection.
 - On Node >= 22.21 behind a proxy, set `NODE_USE_ENV_PROXY=1` or the Supabase
   client's `fetch` silently bypasses the proxy.
 
